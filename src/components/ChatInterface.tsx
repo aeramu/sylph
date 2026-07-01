@@ -1,7 +1,8 @@
 import { createSignal, createEffect, createMemo, For, onCleanup, onMount } from 'solid-js';
-import { createStore, produce } from 'solid-js/store';
+import { createStore } from 'solid-js/store';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
+import CustomSelect from './CustomSelect';
 
 interface ChatMessage {
   id: string;
@@ -11,7 +12,7 @@ interface ChatMessage {
   tools?: { id?: string; name: string; status: 'running' | 'success' | 'error'; output?: string; resultMsgId?: string }[];
 }
 
-export default function ChatInterface() {
+export default function ChatInterface(props: { activeSessionId?: string, activeProjectId?: string, onSelectProject?: (id: string) => void, onSessionCreated: (id: string, projectId?: string) => void, onStreamStart?: () => void }) {
   const [messages, setMessages] = createStore<ChatMessage[]>([]);
   const [input, setInput] = createSignal('');
   const [isProcessing, setIsProcessing] = createSignal(false);
@@ -20,6 +21,21 @@ export default function ChatInterface() {
   const [commandsList, setCommandsList] = createSignal<{name: string, source: string, description?: string}[]>([]);
   const [resourcesList, setResourcesList] = createSignal<{name: string, source: string, description?: string}[]>([]);
   const [selectedIndex, setSelectedIndex] = createSignal(0);
+  const [projectName, setProjectName] = createSignal('');
+  const [projects, setProjects] = createSignal<any[]>([]);
+  const [selectedModel, setSelectedModel] = createSignal('Gemini 3.5 Flash (Medium)');
+  
+  createEffect(() => {
+    fetch(`/api/projects`).then(res => res.json()).then(data => {
+      setProjects(data.projects || []);
+      if (props.activeProjectId) {
+        const proj = data.projects?.find((p: any) => p.id === props.activeProjectId);
+        if (proj) setProjectName(proj.name);
+      } else {
+        setProjectName('');
+      }
+    });
+  });
 
   const filteredCommands = createMemo(() => {
     const text = input();
@@ -56,10 +72,15 @@ export default function ChatInterface() {
   });
 
   onMount(() => {
-    fetchHistory();
     fetchCommands();
     fetchResources();
     connectSSE();
+  });
+
+  createEffect(() => {
+    props.activeSessionId; // track
+    setMessages([]);
+    fetchHistory();
   });
 
   const fetchCommands = async () => {
@@ -87,8 +108,12 @@ export default function ChatInterface() {
   };
   
   const fetchHistory = async () => {
+    if (!props.activeSessionId) {
+      setMessages([]);
+      return;
+    }
     try {
-      const res = await fetch('/api/history');
+      const res = await fetch(`/api/history?sessionId=${props.activeSessionId}`);
       const data = await res.json();
       
       const mapped: ChatMessage[] = [];
@@ -190,6 +215,19 @@ export default function ChatInterface() {
   };
 
   const handleAgentEvent = (event: any) => {
+    if (event.sessionId) {
+      if (props.activeSessionId && event.sessionId !== props.activeSessionId) {
+        return;
+      }
+      if (!props.activeSessionId) {
+        if (isProcessing()) {
+          props.onSessionCreated(event.sessionId);
+        } else {
+          return;
+        }
+      }
+    }
+
     const lastIdx = messages.length - 1;
 
     if (event.type === 'message_start') {
@@ -214,7 +252,7 @@ export default function ChatInterface() {
           tool => ({ 
             ...tool, 
             resultMsgId: msgId, 
-            status: event.message.isError ? 'error' : 'success', 
+            status: (event.message.isError ? 'error' : 'success') as 'error' | 'success', 
             output: initialOutput || tool.output 
           })
         );
@@ -252,6 +290,7 @@ export default function ChatInterface() {
       setMessages(m => m.isStreaming === true, 'isStreaming', false);
     } else if (event.type === 'agent_start') {
       setIsProcessing(true);
+      if (props.onStreamStart) props.onStreamStart();
     } else if (event.type === 'agent_end') {
       setIsProcessing(false);
       setMessages(m => m.isStreaming === true, 'isStreaming', false);
@@ -261,7 +300,7 @@ export default function ChatInterface() {
         setMessages(lastIdx, 'tools', (t) => [...(t || []), { 
           id: event.toolCallId, 
           name: toolName, 
-          status: 'running' 
+          status: 'running' as const 
         }]);
       }
     } else if (event.type === 'tool_execution_update') {
@@ -292,11 +331,15 @@ export default function ChatInterface() {
     setIsProcessing(true);
     
     try {
-      await fetch('/api/chat', {
+      const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: userMessage }),
+        body: JSON.stringify({ prompt: userMessage, sessionId: props.activeSessionId, project_id: props.activeProjectId }),
       });
+      const data = await res.json();
+      if (data.sessionId && data.sessionId !== props.activeSessionId) {
+        props.onSessionCreated(data.sessionId, data.projectId);
+      }
     } catch (err) {
       console.error('Failed to send message:', err);
       setIsProcessing(false);
@@ -345,16 +388,20 @@ export default function ChatInterface() {
     if (!content) return '';
     try {
       const rawHtml = marked.parse(content, { async: false }) as string;
-      return DOMPurify.sanitize(rawHtml);
+      return DOMPurify.sanitize(rawHtml, {
+        USE_PROFILES: { html: true, svg: true },
+        ADD_ATTR: ['class', 'target', 'style', 'viewBox', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'id', 'name', 'type', 'checked', 'disabled'],
+        ADD_TAGS: ['svg', 'path', 'g', 'circle', 'rect', 'line', 'polygon', 'polyline', 'defs', 'clipPath', 'text', 'details', 'summary', 'input', 'kbd', 'del', 'iframe']
+      });
     } catch {
       return content;
     }
   };
 
   return (
-    <div class="chat-container">
+    <div class={`chat-container ${messages.length === 0 ? 'empty-mode' : ''}`}>
       <div class="system-status">
-        <div>{isConnected ? '🟢 Agent Connected' : '🔴 Agent Disconnected'}</div>
+        <div>{isConnected() ? '🟢 Agent Connected' : '🔴 Agent Disconnected'}</div>
         <div style="display: flex; gap: 0.5rem;">
           <button 
             class="system-status-btn"
@@ -447,7 +494,7 @@ export default function ChatInterface() {
           )}
         </For>
         
-        {isProcessing && !messages.find(m => m.isStreaming) && (
+        {isProcessing() && !messages.find(m => m.isStreaming) && (
           <div class="message assistant">
             <div class="message-bubble">
               <div class="thinking-indicator">
@@ -461,53 +508,102 @@ export default function ChatInterface() {
         <div ref={messagesEndRef} />
       </div>
 
-      <div class="input-area relative">
-        {filteredCommands() && (
-          <div class="autocomplete-popup">
-            <div class="autocomplete-header">
-              Slash Commands
-            </div>
-            <div class="autocomplete-list">
-              <For each={[...filteredCommands()!].reverse()}>
-                {(cmd, index) => {
-                  const originalIndex = () => filteredCommands()!.length - 1 - index();
-                  return (
-                    <div 
-                      class={`autocomplete-item ${originalIndex() === selectedIndex() ? 'selected' : ''}`}
-                      onClick={() => applyCommand(cmd)}
-                    >
-                      <div class="autocomplete-item-title">
-                        <span class="autocomplete-item-name">/{cmd.name}</span>
-                        <span class="autocomplete-item-source">{cmd.source}</span>
-                      </div>
-                      {cmd.description && <span class="autocomplete-item-desc">{cmd.description}</span>}
-                    </div>
-                  );
-                }}
-              </For>
-            </div>
+      <div class="input-wrapper">
+        {messages.length === 0 && (
+          <div class="top-project-row">
+            <CustomSelect 
+              triggerClass="project-selector" 
+              value={props.activeProjectId || ''} 
+              onChange={(val) => {
+                if (props.onSelectProject) props.onSelectProject(val);
+              }}
+              options={projects().map(p => ({ value: p.id, label: p.name, icon: 'folder' }))}
+              placeholder="Select a Project"
+              position="bottom"
+            />
           </div>
         )}
-        <textarea
-          class="input-field"
-          placeholder="Send a message to Sylph..."
-          value={input()}
-          onInput={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          rows={1}
-          disabled={!isConnected}
-        />
-        <button 
-          class="send-button" 
-          onClick={() => handleSubmit()}
-          disabled={!input().trim() || !isConnected}
-          title="Send message"
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="22" y1="2" x2="11" y2="13"></line>
-            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-          </svg>
-        </button>
+        <div class="input-area relative">
+          {filteredCommands() && (
+            <div class="autocomplete-popup">
+              <div class="autocomplete-header">
+                Slash Commands
+              </div>
+              <div class="autocomplete-list">
+                <For each={[...filteredCommands()!].reverse()}>
+                  {(cmd, index) => {
+                    const originalIndex = () => filteredCommands()!.length - 1 - index();
+                    return (
+                      <div 
+                        class={`autocomplete-item ${originalIndex() === selectedIndex() ? 'selected' : ''}`}
+                        onClick={() => applyCommand(cmd)}
+                      >
+                        <div class="autocomplete-item-title">
+                          <span class="autocomplete-item-name">/{cmd.name}</span>
+                          <span class="autocomplete-item-source">{cmd.source}</span>
+                        </div>
+                        {cmd.description && <span class="autocomplete-item-desc">{cmd.description}</span>}
+                      </div>
+                    );
+                  }}
+                </For>
+              </div>
+            </div>
+          )}
+          <textarea
+            class="input-field"
+            placeholder="Ask anything, @ to mention, / for actions"
+            value={input()}
+            onInput={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            rows={1}
+            disabled={!isConnected()}
+          />
+          <div class="input-toolbar">
+            <div class="input-toolbar-left">
+              <button class="input-toolbar-btn" title="Add attachment">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19"></line>
+                  <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
+              </button>
+              <CustomSelect 
+                triggerClass="model-selector"
+                value={selectedModel()}
+                onChange={(val) => setSelectedModel(val)}
+                options={[
+                  { value: 'Gemini 3.5 Flash (Medium)', label: 'Gemini 3.5 Flash (Medium)' },
+                  { value: 'Gemini 1.5 Pro (Large)', label: 'Gemini 1.5 Pro (Large)' },
+                  { value: 'Claude 3.5 Sonnet', label: 'Claude 3.5 Sonnet' },
+                  { value: 'GPT-4o', label: 'GPT-4o' }
+                ]}
+                position="top"
+              />
+            </div>
+            
+            <button 
+              class="send-button" 
+              onClick={() => handleSubmit()}
+              disabled={!input().trim() || !isConnected()}
+              title={!input().trim() ? "Voice input (not supported)" : "Send message"}
+              style={!input().trim() ? "background: transparent; box-shadow: none; color: var(--text-secondary);" : ""}
+            >
+              {!input().trim() ? (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path>
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                  <line x1="12" y1="19" x2="12" y2="23"></line>
+                  <line x1="8" y1="23" x2="16" y2="23"></line>
+                </svg>
+              ) : (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="22" y1="2" x2="11" y2="13"></line>
+                  <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                </svg>
+              )}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
