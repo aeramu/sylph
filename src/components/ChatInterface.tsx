@@ -8,9 +8,11 @@ interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  thinking?: string;
+  isThinking?: boolean;
   images?: { url: string; mimeType: string }[];
   isStreaming?: boolean;
-  tools?: { id?: string; name: string; status: 'running' | 'success' | 'error'; output?: string; resultMsgId?: string }[];
+  tools?: { id?: string; name: string; status: 'running' | 'success' | 'error'; output?: string; resultMsgId?: string; args?: Record<string, any> }[];
 }
 
 interface Attachment {
@@ -65,6 +67,164 @@ function readFile(file: File): Promise<Attachment | null> {
       resolve(null);
     }
   });
+}
+
+// Strip ANSI terminal escape sequences (colors, cursor moves, etc.). Models
+// sometimes emit reasoning/output that quotes colorized terminal text; the
+// browser can't interpret those codes, so they'd otherwise show as literal
+// garbage like "[38;2;128;128;128m".
+// eslint-disable-next-line no-control-regex
+const ANSI_ESCAPE = /[][[\]()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-PR-TZcf-nqry=><]/g;
+function stripAnsi(text: string): string {
+  return text.replace(ANSI_ESCAPE, '');
+}
+
+// Whether a message has anything worth rendering. Aborted/steered turns can
+// leave empty assistant messages in history; rendering them as blank bubbles
+// injects phantom vertical gaps, so skip them (but always keep streaming ones
+// so the live indicator still shows).
+function hasRenderableContent(m: ChatMessage): boolean {
+  return (
+    m.role === 'user' ||
+    !!m.isStreaming ||
+    !!m.isThinking ||
+    !!m.content?.trim() ||
+    !!m.thinking?.trim() ||
+    (m.tools?.length ?? 0) > 0 ||
+    (m.images?.length ?? 0) > 0
+  );
+}
+
+// Short summary for the tool header, e.g. "edit src/App.tsx", "bash npm run build".
+function toolSummary(name: string, args?: Record<string, any>): string {
+  if (!args) return '';
+  switch (name) {
+    case 'bash':
+      return String(args.command || '').slice(0, 80);
+    case 'read':
+    case 'write':
+      return String(args.path || '');
+    case 'edit':
+      return String(args.path || '');
+    case 'grep':
+      return [args.pattern && `"${args.pattern}"`, args.path].filter(Boolean).join(' ');
+    case 'find':
+      return [args.pattern || args.glob, args.path].filter(Boolean).join(' ');
+    case 'ls':
+      return String(args.path || '');
+    default: {
+      const firstStr = Object.values(args).find((v): v is string => typeof v === 'string');
+      return firstStr ? firstStr.slice(0, 80) : '';
+    }
+  }
+}
+
+// Formatted multi-line representation of the tool arguments for the expanded view.
+function formatToolArgs(name: string, args?: Record<string, any>): { label: string; lines: string[] }[] {
+  if (!args) return [];
+  switch (name) {
+    case 'bash':
+      return [{ label: 'Command', lines: [String(args.command || '')] }];
+    case 'read': {
+      const parts = [{ label: 'Path', lines: [String(args.path || '')] }];
+      if (args.offset || args.limit) {
+        parts.push({ label: 'Range', lines: [`${args.offset || 1}-${(args.offset || 1) + (args.limit || 0) - 1}`] });
+      }
+      return parts;
+    }
+    case 'write':
+      return [
+        { label: 'Path', lines: [String(args.path || '')] },
+        { label: 'Content', lines: [String(args.content || '')] },
+      ];
+    case 'edit':
+      return [
+        { label: 'Path', lines: [String(args.path || '')] },
+      ];
+    case 'grep': {
+      const parts = [{ label: 'Pattern', lines: [String(args.pattern || '')] }];
+      if (args.path) parts.push({ label: 'Path', lines: [String(args.path)] });
+      if (args.glob) parts.push({ label: 'Glob', lines: [String(args.glob)] });
+      return parts;
+    }
+    case 'find': {
+      const parts = [{ label: 'Pattern', lines: [String(args.pattern || args.glob || '')] }];
+      if (args.path) parts.push({ label: 'Path', lines: [String(args.path)] });
+      return parts;
+    }
+    case 'ls':
+      return [{ label: 'Path', lines: [String(args.path || '.')] }];
+    default:
+      return [{ label: 'Args', lines: [JSON.stringify(args, null, 2)] }];
+  }
+}
+
+// Normalize the edit tool's arguments into a list of { oldText, newText } pairs.
+// Handles the array form, the legacy flat form, and edits sent as a JSON string.
+function getEdits(args?: Record<string, any>): { oldText: string; newText: string }[] {
+  if (!args) return [];
+  let edits = args.edits;
+  if (typeof edits === 'string') {
+    try { edits = JSON.parse(edits); } catch { edits = undefined; }
+  }
+  if (Array.isArray(edits)) {
+    return edits.map((e: any) => ({ oldText: String(e?.oldText ?? ''), newText: String(e?.newText ?? '') }));
+  }
+  if (typeof args.oldText === 'string' || typeof args.newText === 'string') {
+    return [{ oldText: String(args.oldText ?? ''), newText: String(args.newText ?? '') }];
+  }
+  return [];
+}
+
+type DiffRow = { old?: string; new?: string; type: 'same' | 'add' | 'del' };
+
+// Line-level LCS diff producing aligned rows for a side-by-side view.
+function diffLines(oldText: string, newText: string): DiffRow[] {
+  const a = oldText.split('\n');
+  const b = newText.split('\n');
+  const m = a.length, n = b.length;
+
+  // Guard against pathological O(m*n) blowups on huge edits.
+  if (m * n > 200000) {
+    return [
+      ...a.map((line): DiffRow => ({ old: line, type: 'del' })),
+      ...b.map((line): DiffRow => ({ new: line, type: 'add' })),
+    ];
+  }
+
+  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = m - 1; i >= 0; i--) {
+    for (let j = n - 1; j >= 0; j--) {
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+
+  const rows: DiffRow[] = [];
+  let i = 0, j = 0;
+  while (i < m && j < n) {
+    if (a[i] === b[j]) { rows.push({ old: a[i], new: b[j], type: 'same' }); i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { rows.push({ old: a[i], type: 'del' }); i++; }
+    else { rows.push({ new: b[j], type: 'add' }); j++; }
+  }
+  while (i < m) { rows.push({ old: a[i], type: 'del' }); i++; }
+  while (j < n) { rows.push({ new: b[j], type: 'add' }); j++; }
+  return rows;
+}
+
+function DiffView(props: { oldText: string; newText: string }) {
+  const rows = diffLines(props.oldText, props.newText);
+  return (
+    <div class="diff-view">
+      <For each={rows}>
+        {(row) => (
+          <div class="diff-row">
+            <div class={`diff-cell diff-old ${row.type === 'del' ? 'removed' : ''}`}>{row.old ?? ''}</div>
+            <div class={`diff-cell diff-new ${row.type === 'add' ? 'added' : ''}`}>{row.new ?? ''}</div>
+          </div>
+        )}
+      </For>
+    </div>
+  );
 }
 
 export default function ChatInterface(props: { activeSessionId?: string, activeProjectId?: string, onSelectProject?: (id: string) => void, onSessionCreated: (id: string, projectId?: string) => void, onTurnComplete?: () => void }) {
@@ -294,20 +454,24 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
           currentAssistantMessage = null;
         } else if (m.role === 'assistant') {
           let contentStr = '';
+          let thinkingStr = '';
           const tools: any[] = [];
-          
+
           if (typeof m.content === 'string') {
             contentStr = m.content;
           } else if (Array.isArray(m.content)) {
             m.content.forEach((c: any) => {
               if (c.type === 'text') {
                 contentStr += c.text;
+              } else if (c.type === 'thinking') {
+                thinkingStr += c.thinking || '';
               } else if (c.type === 'toolCall') {
                 tools.push({
                   id: c.id,
                   name: c.name,
                   status: 'running', 
-                  output: ''
+                  output: '',
+                  args: c.arguments,
                 });
               }
             });
@@ -317,6 +481,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
             id: m.id || Math.random().toString(),
             role: 'assistant',
             content: contentStr,
+            thinking: thinkingStr || undefined,
             tools
           };
           mapped.push(msg);
@@ -410,6 +575,19 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
           })
         );
       }
+    } else if (event.type === 'message_update' && event.assistantMessageEvent?.type === 'thinking_start') {
+      // Thinking only streams on the active assistant message (never tool results).
+      if (lastIdx >= 0 && messages[lastIdx].role === 'assistant') {
+        setMessages(lastIdx, 'isThinking', true);
+      }
+    } else if (event.type === 'message_update' && event.assistantMessageEvent?.type === 'thinking_delta') {
+      if (lastIdx >= 0 && messages[lastIdx].role === 'assistant') {
+        setMessages(lastIdx, 'thinking', (t) => (t || '') + event.assistantMessageEvent.delta);
+      }
+    } else if (event.type === 'message_update' && event.assistantMessageEvent?.type === 'thinking_end') {
+      if (lastIdx >= 0 && messages[lastIdx].role === 'assistant') {
+        setMessages(lastIdx, 'isThinking', false);
+      }
     } else if (event.type === 'message_update' && event.assistantMessageEvent?.type === 'text_delta') {
       const msgId = event.message?.id || event.message?.responseId;
       
@@ -441,11 +619,13 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       }
     } else if (event.type === 'message_end') {
       setMessages(m => m.isStreaming === true, 'isStreaming', false);
+      setMessages(m => m.isThinking === true, 'isThinking', false);
     } else if (event.type === 'agent_start') {
       setIsProcessing(true);
     } else if (event.type === 'agent_end') {
       setIsProcessing(false);
       setMessages(m => m.isStreaming === true, 'isStreaming', false);
+      setMessages(m => m.isThinking === true, 'isThinking', false);
       // All message_end persistence has already run before agent_end, so the
       // session file on disk now has real metadata (first message, count).
       if (props.onTurnComplete) props.onTurnComplete();
@@ -455,7 +635,8 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
         setMessages(lastIdx, 'tools', (t) => [...(t || []), { 
           id: event.toolCallId, 
           name: toolName, 
-          status: 'running' as const 
+          status: 'running' as const,
+          args: event.args,
         }]);
       }
     } else if (event.type === 'tool_execution_update') {
@@ -599,7 +780,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     if (!content) return '';
     
     // Process <thinking> and <think> tags into collapsible <details>
-    let processed = content;
+    let processed = stripAnsi(content);
     const openCount = (processed.match(/<thinking>|<think>/g) || []).length;
     const closeCount = (processed.match(/<\/thinking>|<\/think>/g) || []).length;
     
@@ -623,6 +804,32 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     } catch {
       return content;
     }
+  };
+
+  // Collapsible reasoning panel. Auto-expands while the model is actively
+  // thinking, then collapses once the answer text begins streaming.
+  const ThinkingSection = (p: { text: string; active: boolean }) => {
+    const [expanded, setExpanded] = createSignal(p.active);
+    let wasActive = p.active;
+    createEffect(() => {
+      // Collapse automatically on the active -> done transition, but leave the
+      // user's manual toggle alone otherwise.
+      if (wasActive && !p.active) setExpanded(false);
+      wasActive = p.active;
+    });
+    return (
+      <div class={`thinking-block ${p.active ? 'active' : ''}`}>
+        <div class="thinking-summary" onClick={() => setExpanded(!expanded())}>
+          <span class="thinking-summary-label">{p.active ? 'Thinking…' : 'Thought'}</span>
+          <svg class={`thinking-chevron ${expanded() ? 'expanded' : ''}`} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <Show when={expanded()}>
+          <div class={`thinking-content ${p.active ? 'active' : ''}`} innerHTML={renderMarkdown(p.text)} />
+        </Show>
+      </div>
+    );
   };
 
   return (
@@ -686,6 +893,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       <div class="messages-area">
         <For each={messages}>
           {(msg) => (
+            <Show when={hasRenderableContent(msg)}>
             <div class={`message ${msg.role}`}>
               <div class="message-bubble">
                 {msg.images && msg.images.length > 0 && (
@@ -697,29 +905,65 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
                     </For>
                   </div>
                 )}
-                <div 
-                  class="message-content" 
-                  innerHTML={renderMarkdown(msg.content)} 
+                <Show when={msg.role === 'assistant' && (msg.thinking || msg.isThinking)}>
+                  <ThinkingSection text={msg.thinking || ''} active={!!msg.isThinking} />
+                </Show>
+                <div
+                  class="message-content"
+                  innerHTML={renderMarkdown(msg.content)}
                 />
                 
                 {msg.tools && msg.tools.length > 0 && (
                   <div class="tool-executions">
                     <For each={msg.tools}>
-                      {(tool) => (
-                        <div class="tool-execution">
-                          <div class={`tool-header ${tool.status}`}>
-                            <span class="tool-icon">
-                              {tool.status === 'running' ? '⏳' : tool.status === 'error' ? '❌' : '✅'}
-                            </span>
-                            <span class="tool-name">{tool.name}</span>
-                          </div>
-                          {tool.output && (
-                            <div class="tool-body">
-                              {tool.output}
+                      {(tool) => {
+                        // Running tools stay expanded; finished ones auto-collapse.
+                        const [expanded, setExpanded] = createSignal(tool.status === 'running');
+                        const summary = toolSummary(tool.name, tool.args);
+                        const argSections = formatToolArgs(tool.name, tool.args);
+                        return (
+                          <div class="tool-execution">
+                            <div
+                              class={`tool-header ${tool.status} ${expanded() ? 'expanded' : ''}`}
+                              onClick={() => setExpanded(!expanded())}
+                            >
+                              <span class="tool-name">{tool.name}</span>
+                              {summary && <span class="tool-summary">{summary}</span>}
+                              {(argSections.length > 0 || tool.output) && (
+                                <svg class="tool-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                  <polyline points="6 9 12 15 18 9"></polyline>
+                                </svg>
+                              )}
                             </div>
-                          )}
-                        </div>
-                      )}
+                            <Show when={expanded()}>
+                              {argSections.length > 0 && (
+                                <div class="tool-call">
+                                  <For each={argSections}>
+                                    {(section) => (
+                                      <div class={`tool-call-section ${section.label.toLowerCase()}`}>
+                                        <div class="tool-call-label">{section.label}</div>
+                                        <pre class="tool-call-value">{section.lines.join('\n')}</pre>
+                                      </div>
+                                    )}
+                                  </For>
+                                </div>
+                              )}
+                              {tool.name === 'edit' && (
+                                <div class="tool-diffs">
+                                  <For each={getEdits(tool.args)}>
+                                    {(ed) => <DiffView oldText={ed.oldText} newText={ed.newText} />}
+                                  </For>
+                                </div>
+                              )}
+                              {tool.output && (
+                                <div class="tool-body">
+                                  {stripAnsi(tool.output)}
+                                </div>
+                              )}
+                            </Show>
+                          </div>
+                        );
+                      }}
                     </For>
                   </div>
                 )}
@@ -733,9 +977,10 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
                 )}
               </div>
             </div>
+            </Show>
           )}
         </For>
-        
+
         {isProcessing() && !messages.find(m => m.isStreaming) && (
           <div class="message assistant">
             <div class="message-bubble">
