@@ -163,12 +163,6 @@ function ProjectItem(props: {
 
       <Show when={expanded()}>
         <div class="project-sessions">
-          <Show when={props.activeProjectId === props.project.id && !props.activeSessionId}>
-            <div class="session-item active">
-              <div class="session-title">New Chat</div>
-              <div class="session-meta">Just now</div>
-            </div>
-          </Show>
           <For each={visibleSessions()}>
             {(session) => (
               <div

@@ -12,7 +12,7 @@ interface ChatMessage {
   tools?: { id?: string; name: string; status: 'running' | 'success' | 'error'; output?: string; resultMsgId?: string }[];
 }
 
-export default function ChatInterface(props: { activeSessionId?: string, activeProjectId?: string, onSelectProject?: (id: string) => void, onSessionCreated: (id: string, projectId?: string) => void, onStreamStart?: () => void }) {
+export default function ChatInterface(props: { activeSessionId?: string, activeProjectId?: string, onSelectProject?: (id: string) => void, onSessionCreated: (id: string, projectId?: string) => void, onTurnComplete?: () => void }) {
   const [messages, setMessages] = createStore<ChatMessage[]>([]);
   const [input, setInput] = createSignal('');
   const [isProcessing, setIsProcessing] = createSignal(false);
@@ -25,9 +25,11 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   const [models, setModels] = createSignal<{value: string, label: string}[]>([]);
   const [selectedModel, setSelectedModel] = createSignal('');
 
-  // Session whose creation this client just triggered; skip the history
-  // reset/refetch when it becomes active so the in-flight stream isn't wiped.
-  let justCreatedSessionId: string | null = null;
+  // Session id promised by the /api/chat response but not yet committed as
+  // active. The HTTP response is the single authoritative source of the id;
+  // SSE events for an uncommitted session are buffered until it commits.
+  let pendingSessionId: string | null = null;
+  let pendingEventBuffer: any[] = [];
   // Guards fetchHistory against stale responses when switching sessions fast.
   let historyRequestSeq = 0;
 
@@ -102,10 +104,13 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
 
   createEffect(() => {
     const id = props.activeSessionId; // track
-    if (id && justCreatedSessionId === id) {
-      // This client created the session and is already streaming into it;
-      // don't wipe the optimistic messages.
-      justCreatedSessionId = null;
+    if (id && pendingSessionId === id) {
+      // We just committed a session we created; it's already streaming, so
+      // replay buffered events instead of wiping and reloading history.
+      pendingSessionId = null;
+      const buffered = pendingEventBuffer;
+      pendingEventBuffer = [];
+      for (const e of buffered) applyEvent(e);
       return;
     }
     setMessages([]);
@@ -253,21 +258,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     };
   };
 
-  const handleAgentEvent = (event: any) => {
-    if (event.sessionId) {
-      if (props.activeSessionId && event.sessionId !== props.activeSessionId) {
-        return;
-      }
-      if (!props.activeSessionId) {
-        if (isProcessing()) {
-          justCreatedSessionId = event.sessionId;
-          props.onSessionCreated(event.sessionId);
-        } else {
-          return;
-        }
-      }
-    }
-
+  const applyEvent = (event: any) => {
     const lastIdx = messages.length - 1;
 
     if (event.type === 'message_start') {
@@ -330,10 +321,12 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       setMessages(m => m.isStreaming === true, 'isStreaming', false);
     } else if (event.type === 'agent_start') {
       setIsProcessing(true);
-      if (props.onStreamStart) props.onStreamStart();
     } else if (event.type === 'agent_end') {
       setIsProcessing(false);
       setMessages(m => m.isStreaming === true, 'isStreaming', false);
+      // All message_end persistence has already run before agent_end, so the
+      // session file on disk now has real metadata (first message, count).
+      if (props.onTurnComplete) props.onTurnComplete();
     } else if (event.type === 'tool_execution_start') {
       if (lastIdx >= 0 && messages[lastIdx].role === 'assistant') {
         const toolName = event.toolName || event.name || (event.toolCall && event.toolCall.name) || 'tool';
@@ -356,6 +349,20 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
         );
       }
     }
+  };
+
+  // Gate live events by the committed session. Events for a not-yet-committed
+  // new session are buffered until the /api/chat response promises its id.
+  const handleAgentEvent = (event: any) => {
+    if (event.sessionId) {
+      if (props.activeSessionId) {
+        if (event.sessionId !== props.activeSessionId) return;
+      } else {
+        pendingEventBuffer.push(event);
+        return;
+      }
+    }
+    applyEvent(event);
   };
 
   const handleSubmit = async (e?: Event) => {
@@ -383,7 +390,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       });
       const data = await res.json();
       if (data.sessionId && data.sessionId !== props.activeSessionId) {
-        justCreatedSessionId = data.sessionId;
+        pendingSessionId = data.sessionId;
         props.onSessionCreated(data.sessionId, data.projectId);
       }
     } catch (err) {

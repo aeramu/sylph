@@ -27,7 +27,7 @@ function App() {
             setActiveProjectId(newProjectId);
           }
         }}
-        onStreamStart={() => {
+        onTurnComplete={() => {
           setRefreshSidebar(r => r + 1);
         }}
       />
