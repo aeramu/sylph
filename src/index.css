@@ -483,7 +483,8 @@ body {
   display: flex;
   flex-direction: column;
   padding: 0.25rem;
-  overflow: hidden;
+  max-height: 300px;
+  overflow-y: auto;
   animation: dropdownFadeIn 0.15s ease-out;
 }
 
