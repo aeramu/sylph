@@ -31,22 +31,27 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   // Guards fetchHistory against stale responses when switching sessions fast.
   let historyRequestSeq = 0;
 
-  createEffect(() => {
+  const fetchProjects = () => {
     fetch(`/api/projects`).then(res => res.json()).then(data => {
       setProjects(data.projects || []);
     });
-    
+  };
+
+  const fetchModels = () => {
     fetch('/api/models').then(res => res.json()).then(data => {
       if (data.models && data.models.length > 0) {
         const mapped = data.models.map((m: any) => ({ value: m.id, label: m.name }));
         setModels(mapped);
 
-        // Default to a flash model if available, otherwise the first one
-        const defaultModel = mapped.find((m: any) => m.label.toLowerCase().includes('flash')) || mapped[0];
-        setSelectedModel(defaultModel.value);
+        let saved: string | null = null;
+        try { saved = localStorage.getItem('sylph.selectedModel'); } catch {}
+        const initial = (saved && mapped.find((m: any) => m.value === saved))
+          || mapped.find((m: any) => m.label.toLowerCase().includes('flash'))
+          || mapped[0];
+        if (initial) setSelectedModel(initial.value);
       }
     }).catch(console.error);
-  });
+  };
 
   const filteredCommands = createMemo(() => {
     const text = input();
@@ -70,6 +75,11 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     setSelectedIndex(0);
   });
   
+  const selectModel = (id: string) => {
+    setSelectedModel(id);
+    try { localStorage.setItem('sylph.selectedModel', id); } catch {}
+  };
+
   let messagesEndRef: HTMLDivElement | undefined;
   let eventSource: EventSource | null = null;
   
@@ -83,6 +93,8 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   });
 
   onMount(() => {
+    fetchProjects();
+    fetchModels();
     fetchCommands();
     fetchResources();
     connectSSE();
@@ -631,7 +643,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
               <CustomSelect
                 triggerClass="model-selector"
                 value={selectedModel()}
-                onChange={(val) => setSelectedModel(val)}
+                onChange={(val) => selectModel(val)}
                 options={models()}
                 placeholder="Default model"
                 position="top"

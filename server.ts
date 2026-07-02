@@ -78,20 +78,15 @@ interface RuntimeEntry {
 const activeRuntimes = new Map<string, RuntimeEntry>();
 const clients: Set<express.Response> = new Set();
 
-async function buildRuntime(sessionManager: any, cwd: string, modelId?: string) {
+async function buildRuntime(sessionManager: any, cwd: string) {
   const factory: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
     const services = await createAgentSessionServices({ cwd });
-
-    const model = modelId
-      ? services.modelRegistry.getAll().find((m: any) => m.id === modelId)
-      : undefined;
 
     return {
       ...(await createAgentSessionFromServices({
         services,
         sessionManager,
         sessionStartEvent,
-        model,
       })),
       services,
       diagnostics: services.diagnostics,
@@ -113,7 +108,7 @@ function touchRuntime(sessionId: string) {
   if (entry) entry.lastUsed = Date.now();
 }
 
-async function getOrInitRuntime(sessionId?: string, projectId?: string, modelId?: string) {
+async function getOrInitRuntime(sessionId?: string, projectId?: string) {
   if (sessionId && activeRuntimes.has(sessionId)) {
     touchRuntime(sessionId);
     return activeRuntimes.get(sessionId)!.runtime;
@@ -150,7 +145,7 @@ async function getOrInitRuntime(sessionId?: string, projectId?: string, modelId?
     sessionManager = SessionManager.create(targetCwd);
   }
 
-  const runtime = await buildRuntime(sessionManager, targetCwd, modelId);
+  const runtime = await buildRuntime(sessionManager, targetCwd);
 
   // Broadcast events to all SSE clients with sessionId attached.
   runtime.session.subscribe((event: AgentSessionEvent) => {
@@ -410,9 +405,20 @@ app.post("/api/chat", async (req, res) => {
   }
 
   try {
-    const runtime = await getOrInitRuntime(sessionId, project_id, modelId);
+    const runtime = await getOrInitRuntime(sessionId, project_id);
     const resolvedSessionId = runtime.session.sessionId;
     touchRuntime(resolvedSessionId);
+
+    if (modelId) {
+      const targetModel = runtime.services.modelRegistry.getAvailable().find((m: any) => m.id === modelId);
+      if (!targetModel) {
+        return res.status(400).json({ error: `Unknown or unavailable model: ${modelId}` });
+      }
+      const current = runtime.session.model;
+      if (!current || current.id !== modelId) {
+        await runtime.session.setModel(targetModel);
+      }
+    }
 
     const resolvedProject = getProjects().find(p => p.path === runtime.session.cwd);
 
