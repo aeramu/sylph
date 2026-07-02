@@ -8,15 +8,44 @@ import {
   createAgentSessionFromServices,
   getAgentDir,
   SessionManager,
-  type CreateAgentSessionRuntimeFactory,
-  type AgentSessionEvent,
+  ModelRegistry,
+  AuthStorage
 } from "@earendil-works/pi-coding-agent";
+import type {
+  CreateAgentSessionRuntimeFactory,
+  AgentSessionEvent
+} from "@earendil-works/pi-coding-agent";
+
+const HOST = "127.0.0.1";
+const PORT = Number(process.env.PORT) || 3001;
+const ALLOWED_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+const RUNTIME_IDLE_MS = 30 * 60 * 1000;
+const EVICTION_INTERVAL_MS = 5 * 60 * 1000;
+
+const SYLPH_DIR = path.join(os.homedir(), ".sylph");
+const PROJECTS_FILE = path.join(SYLPH_DIR, "projects.json");
 
 const app = express();
 app.use(express.json());
 
-const SYLPH_DIR = path.join(os.homedir(), '.sylph');
-const PROJECTS_FILE = path.join(SYLPH_DIR, 'projects.json');
+// Reject requests whose Host header isn't local (defends against DNS rebinding).
+app.use((req, res, next) => {
+  const host = (req.headers.host || "").replace(/:\d+$/, "");
+  if (!ALLOWED_HOSTS.has(host)) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+  next();
+});
+
+// ---------------------------------------------------------------------------
+// Projects store
+// ---------------------------------------------------------------------------
+
+interface Project {
+  id: string;
+  name: string;
+  path: string;
+}
 
 if (!fs.existsSync(SYLPH_DIR)) {
   fs.mkdirSync(SYLPH_DIR, { recursive: true });
@@ -25,15 +54,9 @@ if (!fs.existsSync(PROJECTS_FILE)) {
   fs.writeFileSync(PROJECTS_FILE, JSON.stringify([]));
 }
 
-interface Project {
-  id: string;
-  name: string;
-  path: string;
-}
-
 function getProjects(): Project[] {
   try {
-    return JSON.parse(fs.readFileSync(PROJECTS_FILE, 'utf-8'));
+    return JSON.parse(fs.readFileSync(PROJECTS_FILE, "utf-8"));
   } catch {
     return [];
   }
@@ -43,95 +66,158 @@ function saveProjects(projects: Project[]) {
   fs.writeFileSync(PROJECTS_FILE, JSON.stringify(projects, null, 2));
 }
 
-const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
-  const services = await createAgentSessionServices({ cwd });
-  return {
-    ...(await createAgentSessionFromServices({
-      services,
-      sessionManager,
-      sessionStartEvent,
-    })),
-    services,
-    diagnostics: services.diagnostics,
-  };
-};
+// ---------------------------------------------------------------------------
+// Runtimes
+// ---------------------------------------------------------------------------
 
-const activeRuntimes = new Map<string, any>();
+interface RuntimeEntry {
+  runtime: any;
+  lastUsed: number;
+}
+
+const activeRuntimes = new Map<string, RuntimeEntry>();
 const clients: Set<express.Response> = new Set();
 
-async function getOrInitRuntime(sessionId?: string, projectId?: string) {
-  if (sessionId && activeRuntimes.has(sessionId)) {
-    return activeRuntimes.get(sessionId);
-  }
+async function buildRuntime(sessionManager: any, cwd: string, modelId?: string) {
+  const factory: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
+    const services = await createAgentSessionServices({ cwd });
 
-  let sessionManager;
-  const projects = getProjects();
-  let targetCwd = process.cwd();
+    const model = modelId
+      ? services.modelRegistry.getAll().find((m: any) => m.id === modelId)
+      : undefined;
 
-  if (sessionId) {
-    let found = false;
-    for (const proj of projects) {
-      if (!fs.existsSync(proj.path)) continue;
-      try {
-        const sessions = await SessionManager.list(proj.path);
-        const sessionInfo = sessions.find((s) => s.id === sessionId);
-        if (sessionInfo) {
-          sessionManager = SessionManager.open(sessionInfo.path);
-          targetCwd = proj.path;
-          found = true;
-          break;
-        }
-      } catch (e) {}
-    }
-    if (!found) {
-      try {
-        const sessions = await SessionManager.list(process.cwd());
-        const sessionInfo = sessions.find((s) => s.id === sessionId);
-        if (sessionInfo) {
-          sessionManager = SessionManager.open(sessionInfo.path);
-        } else {
-          throw new Error(`Session ${sessionId} not found in any project`);
-        }
-      } catch {
-        throw new Error(`Session ${sessionId} not found in any project`);
-      }
-    }
-  } else {
-    // New session
-    if (projectId) {
-      const proj = projects.find(p => p.id === projectId);
-      if (proj) {
-        targetCwd = proj.path;
-      }
-    }
-    sessionManager = SessionManager.create(targetCwd);
-  }
+    return {
+      ...(await createAgentSessionFromServices({
+        services,
+        sessionManager,
+        sessionStartEvent,
+        model,
+      })),
+      services,
+      diagnostics: services.diagnostics,
+    };
+  };
 
-  const runtime = await createAgentSessionRuntime(createRuntime, {
-    cwd: targetCwd,
+  const runtime = await createAgentSessionRuntime(factory, {
+    cwd,
     agentDir: getAgentDir(),
     sessionManager,
   });
 
-  const session = runtime.session;
-  await session.bindExtensions({});
-  
-  // Broadcast event to all SSE clients with sessionId injected
-  session.subscribe((event: AgentSessionEvent) => {
-    const payload = {
-      sessionId: sessionManager.getSessionId(),
-      ...event
-    };
-    const data = JSON.stringify(payload);
+  await runtime.session.bindExtensions({});
+  return runtime;
+}
+
+function touchRuntime(sessionId: string) {
+  const entry = activeRuntimes.get(sessionId);
+  if (entry) entry.lastUsed = Date.now();
+}
+
+async function getOrInitRuntime(sessionId?: string, projectId?: string, modelId?: string) {
+  if (sessionId && activeRuntimes.has(sessionId)) {
+    touchRuntime(sessionId);
+    return activeRuntimes.get(sessionId)!.runtime;
+  }
+
+  const projects = getProjects();
+  let sessionManager: any;
+  let targetCwd = process.cwd();
+
+  if (sessionId) {
+    // Resume: locate the session in a known project (or the server cwd).
+    const searchDirs = [
+      ...projects.filter(p => fs.existsSync(p.path)).map(p => p.path),
+      process.cwd(),
+    ];
+    for (const dir of searchDirs) {
+      try {
+        const sessions = await SessionManager.list(dir);
+        const sessionInfo = sessions.find((s) => s.id === sessionId);
+        if (sessionInfo) {
+          sessionManager = SessionManager.open(sessionInfo.path);
+          targetCwd = dir;
+          break;
+        }
+      } catch { /* ignore unreadable dirs */ }
+    }
+    if (!sessionManager) {
+      throw new Error(`Session ${sessionId} not found in any project`);
+    }
+  } else {
+    // New session.
+    const proj = projectId ? projects.find(p => p.id === projectId) : undefined;
+    if (proj) targetCwd = proj.path;
+    sessionManager = SessionManager.create(targetCwd);
+  }
+
+  const runtime = await buildRuntime(sessionManager, targetCwd, modelId);
+
+  // Broadcast events to all SSE clients with sessionId attached.
+  runtime.session.subscribe((event: AgentSessionEvent) => {
+    const data = JSON.stringify({ sessionId: sessionManager.getSessionId(), ...event });
     for (const client of clients) {
       client.write(`data: ${data}\n\n`);
     }
   });
 
   const resolvedSessionId = sessionManager.getSessionId();
-  activeRuntimes.set(resolvedSessionId, runtime);
+  activeRuntimes.set(resolvedSessionId, { runtime, lastUsed: Date.now() });
   return runtime;
 }
+
+// A single cached runtime used only to introspect commands/skills/extensions,
+// so listing them doesn't create a new session per request.
+let introspectionRuntimePromise: Promise<any> | null = null;
+
+function getIntrospectionRuntime() {
+  if (!introspectionRuntimePromise) {
+    introspectionRuntimePromise = (async () => {
+      const projects = getProjects();
+      const cwd = projects.find(p => fs.existsSync(p.path))?.path || process.cwd();
+      return buildRuntime(SessionManager.create(cwd), cwd);
+    })().catch(err => {
+      introspectionRuntimePromise = null; // allow retry on failure
+      throw err;
+    });
+  }
+  return introspectionRuntimePromise;
+}
+
+// Evict idle, non-streaming runtimes.
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, entry] of activeRuntimes) {
+    if (entry.runtime.session?.isStreaming) continue;
+    if (now - entry.lastUsed > RUNTIME_IDLE_MS) {
+      activeRuntimes.delete(id);
+      try {
+        entry.runtime.dispose?.();
+      } catch (err) {
+        console.error(`Failed to dispose runtime ${id}:`, err);
+      }
+    }
+  }
+}, EVICTION_INTERVAL_MS).unref();
+
+function handleError(res: express.Response, err: any) {
+  console.error(err);
+  res.status(500).json({ error: err?.message || "Internal error" });
+}
+
+// ---------------------------------------------------------------------------
+// Routes
+// ---------------------------------------------------------------------------
+
+app.get("/api/models", (_req, res) => {
+  try {
+    const authStorage = AuthStorage.create(path.join(getAgentDir(), "auth.json"));
+    const registry = ModelRegistry.create(authStorage, path.join(getAgentDir(), "models.json"));
+    const available = registry.getAvailable();
+    res.json({ models: available.map(m => ({ id: m.id, provider: m.provider, name: m.name || m.id })) });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
 
 app.get("/api/stream", (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
@@ -145,27 +231,32 @@ app.get("/api/stream", (req, res) => {
   }, 15000);
 
   clients.add(res);
-  
+
   req.on("close", () => {
     clients.delete(res);
     clearInterval(keepAlive);
   });
 });
 
-app.get("/api/projects", (req, res) => {
+app.get("/api/projects", (_req, res) => {
   res.json({ projects: getProjects() });
 });
 
 app.post("/api/projects", (req, res) => {
   const { path: dirPath, name } = req.body;
-  if (!dirPath || !fs.existsSync(dirPath)) {
+  if (!dirPath || typeof dirPath !== "string" || !fs.existsSync(dirPath)) {
     return res.status(400).json({ error: "Invalid path" });
   }
+  const normalized = path.resolve(dirPath);
   const projects = getProjects();
+  const existing = projects.find(p => path.resolve(p.path) === normalized);
+  if (existing) {
+    return res.status(409).json({ error: "Project already added", project: existing });
+  }
   const newProj: Project = {
     id: "proj-" + Date.now().toString(),
-    name: name || path.basename(dirPath),
-    path: dirPath
+    name: name || path.basename(normalized),
+    path: normalized,
   };
   projects.push(newProj);
   saveProjects(projects);
@@ -173,9 +264,7 @@ app.post("/api/projects", (req, res) => {
 });
 
 app.delete("/api/projects/:id", (req, res) => {
-  const projects = getProjects();
-  const filtered = projects.filter(p => p.id !== req.params.id);
-  saveProjects(filtered);
+  saveProjects(getProjects().filter(p => p.id !== req.params.id));
   res.json({ success: true });
 });
 
@@ -185,20 +274,19 @@ app.get("/api/fs/list", async (req, res) => {
     if (!fs.existsSync(dirPath)) {
       return res.status(404).json({ error: "Directory not found" });
     }
-    
+
     const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
     const directories = entries
-      .filter(dirent => dirent.isDirectory() && !dirent.name.startsWith('.'))
+      .filter(dirent => dirent.isDirectory() && !dirent.name.startsWith("."))
       .map(dirent => ({
         name: dirent.name,
-        path: path.join(dirPath, dirent.name)
-      }));
-      
-    directories.sort((a, b) => a.name.localeCompare(b.name));
-    
+        path: path.join(dirPath, dirent.name),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
     res.json({ directories, currentPath: dirPath });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    handleError(res, err);
   }
 });
 
@@ -206,26 +294,24 @@ app.get("/api/sessions", async (req, res) => {
   try {
     const projectId = req.query.project_id as string;
     let targetDir = process.cwd();
-    
+
     if (projectId) {
-      const projects = getProjects();
-      const proj = projects.find(p => p.id === projectId);
-      if (proj) {
-        targetDir = proj.path;
-      } else {
+      const proj = getProjects().find(p => p.id === projectId);
+      if (!proj) {
         return res.status(404).json({ error: "Project not found" });
       }
+      targetDir = proj.path;
     }
 
     if (!fs.existsSync(targetDir)) {
-       return res.json({ sessions: [] });
+      return res.json({ sessions: [] });
     }
 
     const sessions = await SessionManager.list(targetDir);
     sessions.sort((a, b) => new Date(b.modified).getTime() - new Date(a.modified).getTime());
     res.json({ sessions });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    handleError(res, err);
   }
 });
 
@@ -237,18 +323,16 @@ app.get("/api/history", async (req, res) => {
   try {
     const runtime = await getOrInitRuntime(sessionId);
     res.json({ messages: runtime.session.messages || [] });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    handleError(res, err);
   }
 });
 
-app.get("/api/commands", async (req, res) => {
+app.get("/api/commands", async (_req, res) => {
   try {
-    const projects = getProjects();
-    const firstProjId = projects.length > 0 ? projects[0].id : undefined;
-    const runtime = await getOrInitRuntime(undefined, firstProjId);
-    
+    const runtime = await getIntrospectionRuntime();
     const session = runtime.session as any;
+
     const extensionCommands = session.extensionRunner.getRegisteredCommands().map((c: any) => ({
       name: c.invocationName,
       description: c.description,
@@ -264,87 +348,74 @@ app.get("/api/commands", async (req, res) => {
       description: s.description,
       source: "skill",
     }));
-    
+
     res.json({ commands: [...extensionCommands, ...templates, ...skills] });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    handleError(res, err);
   }
 });
 
-app.get("/api/resources", async (req, res) => {
+function extensionDisplayName(pathStr: string): string {
+  if (!pathStr.includes("node_modules/")) {
+    return pathStr.split(/[\\/]/).pop() || pathStr;
+  }
+  const parts = pathStr.split("node_modules/")[1].split("/");
+  let pkgName = parts[0];
+  let restIndex = 1;
+  if (pkgName.startsWith("@")) {
+    pkgName = parts[0] + "/" + parts[1];
+    restIndex = 2;
+  }
+  const rest = parts.slice(restIndex);
+  if (rest.length === 1 && (rest[0] === "index.ts" || rest[0] === "index.js")) {
+    return pkgName;
+  }
+  const basename = rest[rest.length - 1];
+  if (basename === "index.ts" || basename === "index.js") {
+    return `${pkgName}:${rest[rest.length - 2]}`;
+  }
+  return `${pkgName}:${basename}`;
+}
+
+app.get("/api/resources", async (_req, res) => {
   try {
-    const projects = getProjects();
-    const firstProjId = projects.length > 0 ? projects[0].id : undefined;
-    const runtime = await getOrInitRuntime(undefined, firstProjId);
+    const runtime = await getIntrospectionRuntime();
     const session = runtime.session as any;
-    
-    const extensions = (session._resourceLoader?.getExtensions()?.extensions || []).map((e: any) => {
-      let name;
-      const pathStr = e.path;
-      
-      if (pathStr.includes('node_modules/')) {
-        const parts = pathStr.split('node_modules/')[1].split('/');
-        let pkgName = parts[0];
-        let restIndex = 1;
-        if (pkgName.startsWith('@')) {
-          pkgName = parts[0] + '/' + parts[1];
-          restIndex = 2;
-        }
-        
-        const rest = parts.slice(restIndex);
-        if (rest.length === 1 && (rest[0] === 'index.ts' || rest[0] === 'index.js')) {
-          name = pkgName;
-        } else {
-          const basename = rest[rest.length - 1];
-          if (basename === 'index.ts' || basename === 'index.js') {
-             name = `${pkgName}:${rest[rest.length - 2]}`;
-          } else {
-             name = `${pkgName}:${basename}`;
-          }
-        }
-      } else {
-        name = pathStr.split(/[\\/]/).pop();
-      }
-      
-      return {
-        name,
-        source: "extension",
-      };
-    });
-    
+
+    const extensions = (session._resourceLoader?.getExtensions()?.extensions || []).map((e: any) => ({
+      name: extensionDisplayName(e.path),
+      source: "extension",
+    }));
     const templates = (session.promptTemplates || []).map((t: any) => ({
       name: t.name,
       description: t.description,
       source: "prompt",
     }));
-    
     const skills = (session._resourceLoader?.getSkills()?.skills || []).map((s: any) => ({
       name: s.name,
       description: s.description,
       source: "skill",
     }));
-    
+
     res.json({ resources: [...extensions, ...templates, ...skills] });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    handleError(res, err);
   }
 });
 
 app.post("/api/chat", async (req, res) => {
-  const { prompt, sessionId, project_id } = req.body;
+  const { sessionId, prompt, project_id, modelId } = req.body;
   if (!prompt) {
-    return res.status(400).json({ error: "Prompt is required" });
+    return res.status(400).json({ error: "prompt is required" });
   }
 
   try {
-    const runtime = await getOrInitRuntime(sessionId, project_id);
+    const runtime = await getOrInitRuntime(sessionId, project_id, modelId);
     const resolvedSessionId = runtime.session.sessionId;
-    
-    // Find the projectId based on the runtime's cwd
-    const projects = getProjects();
-    const resolvedProject = projects.find(p => p.path === runtime.session.cwd);
-    const resolvedProjectId = resolvedProject ? resolvedProject.id : undefined;
-    
+    touchRuntime(resolvedSessionId);
+
+    const resolvedProject = getProjects().find(p => p.path === runtime.session.cwd);
+
     if (runtime.session.isStreaming) {
       runtime.session.steer(prompt).catch((err: any) => {
         console.error("Prompt error:", err);
@@ -355,13 +426,26 @@ app.post("/api/chat", async (req, res) => {
       });
     }
 
-    res.json({ success: true, sessionId: resolvedSessionId, projectId: resolvedProjectId });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.json({ success: true, sessionId: resolvedSessionId, projectId: resolvedProject?.id });
+  } catch (err) {
+    handleError(res, err);
   }
 });
 
-const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
-  console.log(`Backend server listening on port ${PORT}`);
+app.post("/api/chat/:sessionId/abort", async (req, res) => {
+  const { sessionId } = req.params;
+  try {
+    const entry = activeRuntimes.get(sessionId);
+    if (!entry) {
+      return res.status(404).json({ error: "Session not found" });
+    }
+    await entry.runtime.session.abort();
+    res.json({ success: true });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+app.listen(PORT, HOST, () => {
+  console.log(`Backend server listening on http://${HOST}:${PORT}`);
 });

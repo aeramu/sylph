@@ -1,4 +1,4 @@
-import { createSignal, createEffect, createMemo, For, onCleanup, onMount } from 'solid-js';
+import { createSignal, createEffect, createMemo, For, Show, onCleanup, onMount } from 'solid-js';
 import { createStore } from 'solid-js/store';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
@@ -21,20 +21,31 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   const [commandsList, setCommandsList] = createSignal<{name: string, source: string, description?: string}[]>([]);
   const [resourcesList, setResourcesList] = createSignal<{name: string, source: string, description?: string}[]>([]);
   const [selectedIndex, setSelectedIndex] = createSignal(0);
-  const [projectName, setProjectName] = createSignal('');
   const [projects, setProjects] = createSignal<any[]>([]);
-  const [selectedModel, setSelectedModel] = createSignal('Gemini 3.5 Flash (Medium)');
-  
+  const [models, setModels] = createSignal<{value: string, label: string}[]>([]);
+  const [selectedModel, setSelectedModel] = createSignal('');
+
+  // Session whose creation this client just triggered; skip the history
+  // reset/refetch when it becomes active so the in-flight stream isn't wiped.
+  let justCreatedSessionId: string | null = null;
+  // Guards fetchHistory against stale responses when switching sessions fast.
+  let historyRequestSeq = 0;
+
   createEffect(() => {
     fetch(`/api/projects`).then(res => res.json()).then(data => {
       setProjects(data.projects || []);
-      if (props.activeProjectId) {
-        const proj = data.projects?.find((p: any) => p.id === props.activeProjectId);
-        if (proj) setProjectName(proj.name);
-      } else {
-        setProjectName('');
-      }
     });
+    
+    fetch('/api/models').then(res => res.json()).then(data => {
+      if (data.models && data.models.length > 0) {
+        const mapped = data.models.map((m: any) => ({ value: m.id, label: m.name }));
+        setModels(mapped);
+
+        // Default to a flash model if available, otherwise the first one
+        const defaultModel = mapped.find((m: any) => m.label.toLowerCase().includes('flash')) || mapped[0];
+        setSelectedModel(defaultModel.value);
+      }
+    }).catch(console.error);
   });
 
   const filteredCommands = createMemo(() => {
@@ -78,7 +89,13 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   });
 
   createEffect(() => {
-    props.activeSessionId; // track
+    const id = props.activeSessionId; // track
+    if (id && justCreatedSessionId === id) {
+      // This client created the session and is already streaming into it;
+      // don't wipe the optimistic messages.
+      justCreatedSessionId = null;
+      return;
+    }
     setMessages([]);
     fetchHistory();
   });
@@ -112,10 +129,12 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       setMessages([]);
       return;
     }
+    const seq = ++historyRequestSeq;
     try {
       const res = await fetch(`/api/history?sessionId=${props.activeSessionId}`);
       const data = await res.json();
-      
+      if (seq !== historyRequestSeq) return; // a newer request superseded this one
+
       const mapped: ChatMessage[] = [];
       let currentAssistantMessage: ChatMessage | null = null;
 
@@ -177,7 +196,15 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
           }
         }
       }
-        
+
+      // Tools with no recorded result were interrupted; don't leave them
+      // spinning as "running" forever.
+      for (const m of mapped) {
+        m.tools?.forEach(t => {
+          if (t.status === 'running') t.status = 'error';
+        });
+      }
+
       setMessages(mapped);
     } catch (err) {
       console.error('Failed to load history:', err);
@@ -221,6 +248,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       }
       if (!props.activeSessionId) {
         if (isProcessing()) {
+          justCreatedSessionId = event.sessionId;
           props.onSessionCreated(event.sessionId);
         } else {
           return;
@@ -305,14 +333,14 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       }
     } else if (event.type === 'tool_execution_update') {
       if (lastIdx >= 0 && messages[lastIdx].role === 'assistant') {
-        setMessages(lastIdx, 'tools', (tools) => 
-          tools ? tools.map((t) => (t.id === event.toolCallId || !t.id) ? { ...t, output: (t.output || '') + (event.delta || '') } : t) : []
+        setMessages(lastIdx, 'tools', (tools) =>
+          tools ? tools.map((t) => t.id === event.toolCallId ? { ...t, output: (t.output || '') + (event.delta || '') } : t) : []
         );
       }
     } else if (event.type === 'tool_execution_end') {
       if (lastIdx >= 0 && messages[lastIdx].role === 'assistant') {
-        setMessages(lastIdx, 'tools', (tools) => 
-          tools ? tools.map((t) => (t.id === event.toolCallId || !t.id) ? { ...t, status: event.isError ? 'error' : 'success' } : t) : []
+        setMessages(lastIdx, 'tools', (tools) =>
+          tools ? tools.map((t) => t.id === event.toolCallId ? { ...t, status: event.isError ? 'error' : 'success' } : t) : []
         );
       }
     }
@@ -334,15 +362,32 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: userMessage, sessionId: props.activeSessionId, project_id: props.activeProjectId }),
+        body: JSON.stringify({ 
+          prompt: userMessage,
+          sessionId: props.activeSessionId,
+          project_id: props.activeProjectId,
+          modelId: selectedModel() || undefined
+        }),
       });
       const data = await res.json();
       if (data.sessionId && data.sessionId !== props.activeSessionId) {
+        justCreatedSessionId = data.sessionId;
         props.onSessionCreated(data.sessionId, data.projectId);
       }
     } catch (err) {
       console.error('Failed to send message:', err);
       setIsProcessing(false);
+    }
+  };
+
+  const handleStop = async () => {
+    if (!props.activeSessionId) return;
+    try {
+      await fetch(`/api/chat/${props.activeSessionId}/abort`, {
+        method: 'POST'
+      });
+    } catch (err) {
+      console.error('Failed to abort:', err);
     }
   };
 
@@ -386,12 +431,28 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
 
   const renderMarkdown = (content: string) => {
     if (!content) return '';
+    
+    // Process <thinking> and <think> tags into collapsible <details>
+    let processed = content;
+    const openCount = (processed.match(/<thinking>|<think>/g) || []).length;
+    const closeCount = (processed.match(/<\/thinking>|<\/think>/g) || []).length;
+    
+    processed = processed
+      .replace(/<thinking>|<think>/g, '<details class="thinking-block" open><summary>Thinking process</summary><div class="thinking-content">\n\n')
+      .replace(/<\/thinking>|<\/think>/g, '\n\n</div></details>');
+      
+    if (openCount > closeCount) {
+      processed += '\n\n</div></details>';
+    }
+
     try {
-      const rawHtml = marked.parse(content, { async: false }) as string;
+      const rawHtml = marked.parse(processed, { async: false }) as string;
+      // Note: deliberately NOT allowing iframe or style attributes — model
+      // output is untrusted and those defeat the point of sanitizing.
       return DOMPurify.sanitize(rawHtml, {
         USE_PROFILES: { html: true, svg: true },
-        ADD_ATTR: ['class', 'target', 'style', 'viewBox', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'id', 'name', 'type', 'checked', 'disabled'],
-        ADD_TAGS: ['svg', 'path', 'g', 'circle', 'rect', 'line', 'polygon', 'polyline', 'defs', 'clipPath', 'text', 'details', 'summary', 'input', 'kbd', 'del', 'iframe']
+        ADD_ATTR: ['class', 'target', 'viewBox', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'id', 'name', 'type', 'checked', 'disabled'],
+        ADD_TAGS: ['svg', 'path', 'g', 'circle', 'rect', 'line', 'polygon', 'polyline', 'defs', 'clipPath', 'text', 'details', 'summary', 'input', 'kbd', 'del']
       });
     } catch {
       return content;
@@ -567,41 +628,50 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
                   <line x1="5" y1="12" x2="19" y2="12"></line>
                 </svg>
               </button>
-              <CustomSelect 
+              <CustomSelect
                 triggerClass="model-selector"
                 value={selectedModel()}
                 onChange={(val) => setSelectedModel(val)}
-                options={[
-                  { value: 'Gemini 3.5 Flash (Medium)', label: 'Gemini 3.5 Flash (Medium)' },
-                  { value: 'Gemini 1.5 Pro (Large)', label: 'Gemini 1.5 Pro (Large)' },
-                  { value: 'Claude 3.5 Sonnet', label: 'Claude 3.5 Sonnet' },
-                  { value: 'GPT-4o', label: 'GPT-4o' }
-                ]}
+                options={models()}
+                placeholder="Default model"
                 position="top"
               />
             </div>
             
-            <button 
-              class="send-button" 
-              onClick={() => handleSubmit()}
-              disabled={!input().trim() || !isConnected()}
-              title={!input().trim() ? "Voice input (not supported)" : "Send message"}
-              style={!input().trim() ? "background: transparent; box-shadow: none; color: var(--text-secondary);" : ""}
-            >
-              {!input().trim() ? (
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path>
-                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-                  <line x1="12" y1="19" x2="12" y2="23"></line>
-                  <line x1="8" y1="23" x2="16" y2="23"></line>
+            <Show when={isProcessing()}>
+              <button 
+                class="stop-button" 
+                onClick={() => handleStop()}
+                title="Stop generation"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
                 </svg>
-              ) : (
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <line x1="22" y1="2" x2="11" y2="13"></line>
-                  <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-                </svg>
-              )}
-            </button>
+              </button>
+            </Show>
+            <Show when={!isProcessing()}>
+              <button 
+                class="send-button" 
+                onClick={() => handleSubmit()}
+                disabled={!input().trim() || !isConnected()}
+                title={!input().trim() ? "Voice input (not supported)" : "Send message"}
+                style={!input().trim() ? "background: transparent; box-shadow: none; color: var(--text-secondary);" : ""}
+              >
+                <Show when={!input().trim()}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                    <line x1="12" y1="19" x2="12" y2="22"></line>
+                  </svg>
+                </Show>
+                <Show when={input().trim()}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="22" y1="2" x2="11" y2="13"></line>
+                    <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                  </svg>
+                </Show>
+              </button>
+            </Show>
           </div>
         </div>
       </div>

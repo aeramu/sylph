@@ -1,28 +1,30 @@
-## Usage
+# sylph
+
+A local web UI for the [pi coding agent](https://www.npmjs.com/package/@earendil-works/pi-coding-agent). Chat with a coding agent across multiple projects, with streamed responses, tool-call output, session history, model selection, and slash-command autocomplete.
+
+## Architecture
+
+- `server.ts` — Express backend (port 3001, localhost only). Wraps `@earendil-works/pi-coding-agent`: manages projects (`~/.sylph/projects.json`), creates/resumes agent sessions, and broadcasts agent events to the browser over SSE (`/api/stream`).
+- `src/` — SolidJS frontend (Vite, port 5173). `/api/*` requests are proxied to the backend (see `vite.config.ts`).
+
+## Setup
+
+Requires Node 20+ and a configured pi agent (auth/models in the agent dir, e.g. `~/.pi`).
 
 ```bash
-$ npm install # or pnpm install or yarn install
+npm install
+npm run dev   # starts vite + backend concurrently
 ```
 
-### Learn more on the [Solid Website](https://solidjs.com) and come chat with us on our [Discord](https://discord.com/invite/solidjs)
+Open http://localhost:5173, add a project (any directory on disk), and start chatting.
 
-## Available Scripts
+## Scripts
 
-In the project directory, you can run:
+- `npm run dev` — dev mode (vite + `tsx server.ts`)
+- `npm run build` — type-check and build frontend to `dist/`
+- `npm run preview` — preview the production build
 
-### `npm run dev`
+## Notes
 
-Runs the app in the development mode.<br>
-Open [http://localhost:5173](http://localhost:5173) to view it in the browser.
-
-### `npm run build`
-
-Builds the app for production to the `dist` folder.<br>
-It correctly bundles Solid in production mode and optimizes the build for the best performance.
-
-The build is minified and the filenames include the hashes.<br>
-Your app is ready to be deployed!
-
-## Deployment
-
-Learn more about deploying your application with the [documentations](https://vite.dev/guide/static-deploy.html)
+- The backend binds to `127.0.0.1` and rejects non-local `Host` headers. It intentionally has no auth — do not expose it beyond localhost, as it can read the filesystem and run an agent in any project directory.
+- Idle agent runtimes are evicted from memory after 30 minutes; sessions themselves are persisted by the agent SDK and can be resumed anytime.
