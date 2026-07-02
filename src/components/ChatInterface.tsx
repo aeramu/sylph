@@ -8,16 +8,130 @@ interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  images?: { url: string; mimeType: string }[];
   isStreaming?: boolean;
   tools?: { id?: string; name: string; status: 'running' | 'success' | 'error'; output?: string; resultMsgId?: string }[];
 }
 
+interface Attachment {
+  id: string;
+  kind: 'image' | 'file';
+  name: string;
+  mimeType: string;
+  size: number;
+  // image
+  data?: string;       // base64 (no data: prefix)
+  previewUrl?: string; // data URL for <img>
+  // text file
+  text?: string;
+}
+
+const TEXT_FILE_EXTENSIONS = [
+  '.txt', '.md', '.markdown', '.json', '.js', '.jsx', '.ts', '.tsx',
+  '.py', '.rb', '.go', '.rs', '.java', '.c', '.cpp', '.h', '.hpp',
+  '.css', '.html', '.xml', '.yml', '.yaml', '.toml', '.ini', '.cfg',
+  '.sh', '.bash', '.zsh', '.sql', '.csv', '.log', '.env', '.vue', '.svelte',
+];
+const MAX_TEXT_FILE_BYTES = 512 * 1024;
+const ACCEPT_ATTR = 'image/*,' + TEXT_FILE_EXTENSIONS.join(',');
+
+function isTextFile(file: File): boolean {
+  if (file.type.startsWith('text/')) return true;
+  const dot = file.name.lastIndexOf('.');
+  if (dot < 0) return false;
+  return TEXT_FILE_EXTENSIONS.includes(file.name.slice(dot).toLowerCase());
+}
+
+function readFile(file: File): Promise<Attachment | null> {
+  return new Promise((resolve) => {
+    const id = Math.random().toString(36).slice(2);
+    const base = { id, name: file.name, mimeType: file.type || 'application/octet-stream', size: file.size };
+
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        const commaIdx = dataUrl.indexOf(',');
+        resolve({ ...base, kind: 'image', data: commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : dataUrl, previewUrl: dataUrl });
+      };
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(file);
+    } else if (isTextFile(file) && file.size <= MAX_TEXT_FILE_BYTES) {
+      const reader = new FileReader();
+      reader.onload = () => resolve({ ...base, kind: 'file', text: reader.result as string });
+      reader.onerror = () => resolve(null);
+      reader.readAsText(file);
+    } else {
+      resolve(null);
+    }
+  });
+}
+
 export default function ChatInterface(props: { activeSessionId?: string, activeProjectId?: string, onSelectProject?: (id: string) => void, onSessionCreated: (id: string, projectId?: string) => void, onTurnComplete?: () => void }) {
+  const [attachments, setAttachments] = createSignal<Attachment[]>([]);
+  const [isDragOver, setIsDragOver] = createSignal(false);
+  let fileInputRef: HTMLInputElement | undefined;
+  let dragCounter = 0;
+
+  const addFiles = async (fileList: FileList | File[]) => {
+    const files = Array.from(fileList);
+    const read = await Promise.all(files.map(readFile));
+    const valid = read.filter((a): a is Attachment => !!a);
+    if (valid.length) setAttachments((prev) => [...prev, ...valid]);
+  };
+
+  const removeAttachment = (id: string) => {
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
+  };
+
+  const handleFileInput = (e: Event) => {
+    const input = e.target as HTMLInputElement;
+    if (input.files?.length) addFiles(input.files);
+    input.value = '';
+  };
+
+  const handlePaste = (e: ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const files: File[] = [];
+    for (const item of items) {
+      if (item.kind === 'file') {
+        const f = item.getAsFile();
+        if (f) files.push(f);
+      }
+    }
+    if (files.length) {
+      e.preventDefault();
+      addFiles(files);
+    }
+  };
+
+  const handleDrop = (e: DragEvent) => {
+    e.preventDefault();
+    dragCounter = 0;
+    setIsDragOver(false);
+    if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files);
+  };
+
+  const handleDragEnter = (e: DragEvent) => {
+    e.preventDefault();
+    if (e.dataTransfer?.types?.includes('Files')) {
+      dragCounter++;
+      setIsDragOver(true);
+    }
+  };
+
+  const handleDragLeave = (e: DragEvent) => {
+    e.preventDefault();
+    dragCounter = Math.max(0, dragCounter - 1);
+    if (dragCounter === 0) setIsDragOver(false);
+  };
   const [messages, setMessages] = createStore<ChatMessage[]>([]);
   const [input, setInput] = createSignal('');
   const [isProcessing, setIsProcessing] = createSignal(false);
   const [isConnected, setIsConnected] = createSignal(false);
   const [showModal, setShowModal] = createSignal<'skill' | 'extension' | null>(null);
+  const [lightboxUrl, setLightboxUrl] = createSignal<string | null>(null);
   const [commandsList, setCommandsList] = createSignal<{name: string, source: string, description?: string}[]>([]);
   const [resourcesList, setResourcesList] = createSignal<{name: string, source: string, description?: string}[]>([]);
   const [selectedIndex, setSelectedIndex] = createSignal(0);
@@ -158,16 +272,24 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       for (const m of (data.messages || [])) {
         if (m.role === 'user') {
           let contentStr = '';
+          const images: { url: string; mimeType: string }[] = [];
           if (typeof m.content === 'string') {
             contentStr = m.content;
           } else if (Array.isArray(m.content)) {
-            contentStr = m.content.filter((c: any) => c.type === 'text').map((c: any) => c.text || '').join('');
+            m.content.forEach((c: any) => {
+              if (c.type === 'text') {
+                contentStr += c.text || '';
+              } else if (c.type === 'image' && c.data) {
+                images.push({ url: `data:${c.mimeType};base64,${c.data}`, mimeType: c.mimeType });
+              }
+            });
           }
           
           mapped.push({
             id: m.id || Math.random().toString(),
             role: 'user',
-            content: contentStr
+            content: contentStr,
+            images: images.length ? images : undefined,
           });
           currentAssistantMessage = null;
         } else if (m.role === 'assistant') {
@@ -367,14 +489,38 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
 
   const handleSubmit = async (e?: Event) => {
     e?.preventDefault();
-    if (!input().trim()) return;
+    if (!input().trim() && attachments().length === 0) return;
 
     const userMessage = input();
+    const pendingAttachments = attachments();
     setInput('');
-    
-    // Add optimistic user message
-    setMessages(messages.length, { id: Date.now().toString(), role: 'user', content: userMessage });
-    
+    setAttachments([]);
+
+    // Attach real image previews to the optimistic bubble; text files stay
+    // inlined in the prompt text (not shown as separate UI elements).
+    const messageImages = pendingAttachments
+      .filter(a => a.kind === 'image' && a.previewUrl)
+      .map(a => ({ url: a.previewUrl!, mimeType: a.mimeType }));
+
+    setMessages(messages.length, {
+      id: Date.now().toString(),
+      role: 'user',
+      content: userMessage,
+      images: messageImages.length ? messageImages : undefined,
+    });
+
+    // Images go through the SDK's images option; text files are inlined into
+    // the prompt so the model receives their contents.
+    const images = pendingAttachments
+      .filter(a => a.kind === 'image' && a.data)
+      .map(a => ({ type: 'image' as const, data: a.data!, mimeType: a.mimeType }));
+    const fileTexts = pendingAttachments.filter(a => a.kind === 'file' && a.text);
+    let promptText = userMessage;
+    if (fileTexts.length) {
+      const inlined = fileTexts.map(f => `<file name="${f.name}">\n${f.text}\n</file>`).join('\n\n');
+      promptText = promptText ? `${promptText}\n\n${inlined}` : inlined;
+    }
+
     setIsProcessing(true);
     
     try {
@@ -382,10 +528,11 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          prompt: userMessage,
+          prompt: promptText,
           sessionId: props.activeSessionId,
           project_id: props.activeProjectId,
-          modelId: selectedModel() || undefined
+          modelId: selectedModel() || undefined,
+          images: images.length ? images : undefined,
         }),
       });
       const data = await res.json();
@@ -530,11 +677,26 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
         </div>
       )}
       
+      <Show when={lightboxUrl()}>
+        <div class="lightbox-overlay" onClick={() => setLightboxUrl(null)}>
+          <img src={lightboxUrl()!} class="lightbox-image" alt="attachment" />
+        </div>
+      </Show>
+      
       <div class="messages-area">
         <For each={messages}>
           {(msg) => (
             <div class={`message ${msg.role}`}>
               <div class="message-bubble">
+                {msg.images && msg.images.length > 0 && (
+                  <div class="message-images">
+                    <For each={msg.images}>
+                      {(img) => (
+                        <img src={img.url} class="message-image" alt="attachment" onClick={() => setLightboxUrl(img.url)} />
+                      )}
+                    </For>
+                  </div>
+                )}
                 <div 
                   class="message-content" 
                   innerHTML={renderMarkdown(msg.content)} 
@@ -603,7 +765,34 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
             />
           </div>
         )}
-        <div class="input-area relative">
+        <div class={`input-area relative ${isDragOver() ? 'drag-over' : ''}`} onDrop={handleDrop} onDragOver={(e) => e.preventDefault()} onDragEnter={handleDragEnter} onDragLeave={handleDragLeave}>
+          <Show when={attachments().length > 0}>
+            <div class="attachment-previews">
+              <For each={attachments()}>
+                {(att) => (
+                  <div class={`attachment-chip ${att.kind === 'image' ? 'is-image' : 'is-file'}`}>
+                    <Show when={att.kind === 'image' && att.previewUrl} fallback={
+                      <span class="attachment-file-icon">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                          <polyline points="14 2 14 8 20 8"></polyline>
+                        </svg>
+                      </span>
+                    }>
+                      <img src={att.previewUrl} alt={att.name} class="attachment-thumb" />
+                    </Show>
+                    <span class="attachment-chip-name" title={att.name}>{att.name}</span>
+                    <button class="attachment-chip-remove" onClick={() => removeAttachment(att.id)} title="Remove">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                      </svg>
+                    </button>
+                  </div>
+                )}
+              </For>
+            </div>
+          </Show>
           {filteredCommands() && (
             <div class="autocomplete-popup">
               <div class="autocomplete-header">
@@ -636,12 +825,21 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
             value={input()}
             onInput={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             rows={1}
             disabled={!isConnected()}
           />
           <div class="input-toolbar">
             <div class="input-toolbar-left">
-              <button class="input-toolbar-btn" title="Add attachment">
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept={ACCEPT_ATTR}
+                style="display: none;"
+                onChange={handleFileInput}
+              />
+              <button class="input-toolbar-btn" title="Add image or file" onClick={() => fileInputRef?.click()}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <line x1="12" y1="5" x2="12" y2="19"></line>
                   <line x1="5" y1="12" x2="19" y2="12"></line>
@@ -672,18 +870,18 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
               <button 
                 class="send-button" 
                 onClick={() => handleSubmit()}
-                disabled={!input().trim() || !isConnected()}
-                title={!input().trim() ? "Voice input (not supported)" : "Send message"}
-                style={!input().trim() ? "background: transparent; box-shadow: none; color: var(--text-secondary);" : ""}
+                disabled={(!input().trim() && attachments().length === 0) || !isConnected()}
+                title={(!input().trim() && attachments().length === 0) ? "Send message" : "Send message"}
+                style={(!input().trim() && attachments().length === 0) ? "background: transparent; box-shadow: none; color: var(--text-secondary);" : ""}
               >
-                <Show when={!input().trim()}>
+                <Show when={!input().trim() && attachments().length === 0}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
                     <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
                     <line x1="12" y1="19" x2="12" y2="22"></line>
                   </svg>
                 </Show>
-                <Show when={input().trim()}>
+                <Show when={input().trim() || attachments().length > 0}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <line x1="22" y1="2" x2="11" y2="13"></line>
                     <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>

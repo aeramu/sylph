@@ -301,6 +301,46 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
+.message-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.message-image {
+  max-width: 400px;
+  max-height: 400px;
+  border-radius: 8px;
+  object-fit: contain;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.message-image:hover {
+  opacity: 0.9;
+}
+
+.lightbox-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  cursor: zoom-out;
+  animation: dropdownFadeIn 0.15s ease-out;
+}
+
+.lightbox-image {
+  max-width: 90vw;
+  max-height: 90vh;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
 .message.assistant .message-bubble {
   padding: 0.5rem 0 1rem 0;
 }
@@ -617,6 +657,78 @@ body {
 .model-selector option {
   background: var(--bg-panel);
   color: var(--text-primary);
+}
+
+.attachment-previews {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem 0;
+}
+
+.attachment-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 0.3rem 0.4rem 0.3rem 0.4rem;
+  max-width: 220px;
+  position: relative;
+  animation: dropdownFadeIn 0.15s ease-out;
+}
+
+.attachment-chip.is-image {
+  padding: 0.25rem 0.35rem 0.25rem 0.25rem;
+}
+
+.attachment-thumb {
+  width: 36px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.attachment-file-icon {
+  display: flex;
+  align-items: center;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.attachment-chip-name {
+  font-size: 0.78rem;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.attachment-chip-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+
+.attachment-chip-remove:hover {
+  background: rgba(255, 80, 80, 0.3);
+  color: var(--text-primary);
+}
+
+.input-area.drag-over {
+  border-color: var(--accent);
+  box-shadow: 0 0 20px var(--accent-glow);
 }
 
 .input-field {

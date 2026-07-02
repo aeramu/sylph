@@ -26,7 +26,7 @@ const SYLPH_DIR = path.join(os.homedir(), ".sylph");
 const PROJECTS_FILE = path.join(SYLPH_DIR, "projects.json");
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '25mb' }));
 
 // Reject requests whose Host header isn't local (defends against DNS rebinding).
 app.use((req, res, next) => {
@@ -399,7 +399,7 @@ app.get("/api/resources", async (_req, res) => {
 });
 
 app.post("/api/chat", async (req, res) => {
-  const { sessionId, prompt, project_id, modelId } = req.body;
+  const { sessionId, prompt, project_id, modelId, images } = req.body;
   if (!prompt) {
     return res.status(400).json({ error: "prompt is required" });
   }
@@ -422,12 +422,14 @@ app.post("/api/chat", async (req, res) => {
 
     const resolvedProject = getProjects().find(p => p.path === runtime.session.cwd);
 
+    const promptOptions = Array.isArray(images) && images.length > 0 ? { images } : undefined;
+
     if (runtime.session.isStreaming) {
-      runtime.session.steer(prompt).catch((err: any) => {
+      runtime.session.steer(prompt, promptOptions?.images).catch((err: any) => {
         console.error("Prompt error:", err);
       });
     } else {
-      runtime.session.prompt(prompt).catch((err: any) => {
+      runtime.session.prompt(prompt, promptOptions).catch((err: any) => {
         console.error("Prompt error:", err);
       });
     }
