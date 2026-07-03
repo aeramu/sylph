@@ -15,6 +15,8 @@ export default function UiRequestModal(props: { request: UiRequest; onRespond: (
   const [textValue, setTextValue] = createSignal(props.request.prefill || '');
   const [selectedIndex, setSelectedIndex] = createSignal(0);
   let cardRef: HTMLDivElement | undefined;
+  let inputFieldRef: HTMLInputElement | undefined;
+  let editorFieldRef: HTMLTextAreaElement | undefined;
 
   const respond = (response: any) => props.onRespond(response);
 
@@ -26,7 +28,15 @@ export default function UiRequestModal(props: { request: UiRequest; onRespond: (
     if (option) respond({ id: props.request.id, value: option });
   };
 
-  onMount(() => cardRef?.focus());
+  onMount(() => {
+    if (props.request.method === 'input') {
+      inputFieldRef?.focus();
+    } else if (props.request.method === 'editor') {
+      editorFieldRef?.focus();
+    } else {
+      cardRef?.focus();
+    }
+  });
 
   return (
     <div
@@ -39,7 +49,13 @@ export default function UiRequestModal(props: { request: UiRequest; onRespond: (
           respond({ id: props.request.id, cancelled: true });
           return;
         }
-        if (props.request.method !== 'select') return;
+        const method = props.request.method;
+        if (method === 'confirm' && e.key === 'Enter') {
+          e.preventDefault();
+          respond({ id: props.request.id, confirmed: true });
+          return;
+        }
+        if (method !== 'select') return;
         const options = selectOptions();
         if (options.length === 0) return;
         if (e.key === 'ArrowUp') {
@@ -99,6 +115,7 @@ export default function UiRequestModal(props: { request: UiRequest; onRespond: (
 
       <Show when={props.request.method === 'input'}>
         <input
+          ref={inputFieldRef}
           class="ui-request-text"
           type="text"
           placeholder={props.request.placeholder || ''}
@@ -115,6 +132,7 @@ export default function UiRequestModal(props: { request: UiRequest; onRespond: (
 
       <Show when={props.request.method === 'editor'}>
         <textarea
+          ref={editorFieldRef}
           class="ui-request-textarea"
           value={textValue()}
           onInput={(e) => setTextValue(e.target.value)}

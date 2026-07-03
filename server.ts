@@ -179,6 +179,8 @@ async function getOrInitRuntime(sessionId?: string, projectId?: string) {
 
 interface PendingUiRequest {
   resolve: (value: any) => void;
+  reject: (err: Error) => void;
+  sessionId: string;
 }
 const pendingUiRequests = new Map<string, PendingUiRequest>();
 
@@ -193,8 +195,8 @@ function createExtensionUiContext(sessionId: string): any {
   // Dialog method: broadcast, block until the browser responds.
   const requestAndWait = (method: string, fields: Record<string, any>): Promise<any> => {
     const id = randomUUID();
-    return new Promise((resolve) => {
-      pendingUiRequests.set(id, { resolve });
+    return new Promise((resolve, reject) => {
+      pendingUiRequests.set(id, { resolve, reject, sessionId });
       broadcastToClients({ sessionId, type: "extension_ui_request", id, method, ...fields });
     });
   };
@@ -316,7 +318,7 @@ function getIntrospectionRuntime() {
     introspectionRuntimePromise = (async () => {
       const projects = getProjects();
       const cwd = projects.find(p => fs.existsSync(p.path))?.path || process.cwd();
-      return buildRuntime(SessionManager.create(cwd), cwd);
+      return buildRuntime(SessionManager.inMemory(cwd), cwd);
     })().catch(err => {
       introspectionRuntimePromise = null; // allow retry on failure
       throw err;
@@ -332,6 +334,14 @@ setInterval(() => {
     if (entry.runtime.session?.isStreaming) continue;
     if (now - entry.lastUsed > RUNTIME_IDLE_MS) {
       activeRuntimes.delete(id);
+      // Reject any still-pending UI prompts for this session so the agent
+      // turn unblocks instead of hanging forever.
+      for (const [reqId, req] of pendingUiRequests) {
+        if (req.sessionId === id) {
+          pendingUiRequests.delete(reqId);
+          req.reject(new Error("session evicted"));
+        }
+      }
       try {
         entry.runtime.dispose?.();
       } catch (err) {
@@ -410,7 +420,7 @@ app.post("/api/projects", (req, res) => {
     return res.status(409).json({ error: "Project already added", project: existing });
   }
   const newProj: Project = {
-    id: "proj-" + Date.now().toString(),
+    id: "proj-" + randomUUID(),
     name: name || path.basename(normalized),
     path: normalized,
   };

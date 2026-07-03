@@ -1,5 +1,5 @@
 import { createSignal, createEffect, createMemo, For, Show, onCleanup, onMount } from 'solid-js';
-import { createStore } from 'solid-js/store';
+import { createStore, produce } from 'solid-js/store';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import CustomSelect from './CustomSelect';
@@ -391,6 +391,10 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       return;
     }
     setMessages([]);
+    setUiRequest(null);
+    setToasts([]);
+    setWidgets({});
+    setStatusEntries(produce((s) => { for (const k of Object.keys(s)) delete s[k]; }));
     fetchHistory();
   });
 
@@ -696,7 +700,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
         break;
       case 'setStatus':
         if (data.statusText === undefined || data.statusText === null) {
-          setStatusEntries(data.statusKey, undefined as any);
+          setStatusEntries(produce((s) => { delete s[data.statusKey]; }));
         } else {
           setStatusEntries(data.statusKey, data.statusText);
         }
@@ -753,7 +757,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       console.error('Failed to send UI response:', err);
     }
     // Reclaim focus to the composer once the blocking request is dismissed.
-    queueMicrotask(() => textareaRef?.focus());
+    requestAnimationFrame(() => textareaRef?.focus());
   };
 
   const handleSubmit = async (e?: Event) => {
@@ -844,7 +848,8 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
         applyCommand(commands[selectedIndex()]);
         return;
       } else if (e.key === 'Escape') {
-        // Just let it be, or we could clear the slash
+        e.preventDefault();
+        setInput('');
       }
     }
 
