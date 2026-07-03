@@ -2,6 +2,7 @@ import express from "express";
 import fs from "fs";
 import path from "path";
 import os from "os";
+import { randomUUID } from "crypto";
 import {
   createAgentSessionRuntime,
   createAgentSessionServices,
@@ -78,7 +79,7 @@ interface RuntimeEntry {
 const activeRuntimes = new Map<string, RuntimeEntry>();
 const clients: Set<express.Response> = new Set();
 
-async function buildRuntime(sessionManager: any, cwd: string) {
+async function buildRuntime(sessionManager: any, cwd: string, opts?: { uiContext?: any }) {
   const factory: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
     const services = await createAgentSessionServices({ cwd });
 
@@ -99,7 +100,11 @@ async function buildRuntime(sessionManager: any, cwd: string) {
     sessionManager,
   });
 
-  await runtime.session.bindExtensions({});
+  await runtime.session.bindExtensions(
+    opts?.uiContext
+      ? { mode: "rpc", uiContext: opts.uiContext }
+      : {},
+  );
   return runtime;
 }
 
@@ -145,7 +150,9 @@ async function getOrInitRuntime(sessionId?: string, projectId?: string) {
     sessionManager = SessionManager.create(targetCwd);
   }
 
-  const runtime = await buildRuntime(sessionManager, targetCwd);
+  const runtime = await buildRuntime(sessionManager, targetCwd, {
+    uiContext: createExtensionUiContext(sessionManager.getSessionId()),
+  });
 
   // Broadcast events to all SSE clients with sessionId attached.
   runtime.session.subscribe((event: AgentSessionEvent) => {
@@ -158,6 +165,146 @@ async function getOrInitRuntime(sessionId?: string, projectId?: string) {
   const resolvedSessionId = sessionManager.getSessionId();
   activeRuntimes.set(resolvedSessionId, { runtime, lastUsed: Date.now() });
   return runtime;
+}
+
+// ---------------------------------------------------------------------------
+// Extension UI bridge
+// ---------------------------------------------------------------------------
+//
+// Extensions (e.g. pi-permission-system) request user input via
+// ctx.ui.select() / input() / confirm() / editor(). In the embedded SDK these
+// are plain async calls, not the RPC stdin/stdout sub-protocol. We bridge them
+// to the browser by broadcasting an extension_ui_request over SSE, then
+// resolving the promise when POST /api/ui-response arrives with the same id.
+
+interface PendingUiRequest {
+  resolve: (value: any) => void;
+}
+const pendingUiRequests = new Map<string, PendingUiRequest>();
+
+function broadcastToClients(payload: any) {
+  const data = JSON.stringify(payload);
+  for (const client of clients) {
+    client.write(`data: ${data}\n\n`);
+  }
+}
+
+function createExtensionUiContext(sessionId: string): any {
+  // Dialog method: broadcast, block until the browser responds.
+  const requestAndWait = (method: string, fields: Record<string, any>): Promise<any> => {
+    const id = randomUUID();
+    return new Promise((resolve) => {
+      pendingUiRequests.set(id, { resolve });
+      broadcastToClients({ sessionId, type: "extension_ui_request", id, method, ...fields });
+    });
+  };
+
+  // Fire-and-forget: broadcast, return immediately.
+  const fire = (method: string, fields: Record<string, any>) => {
+    broadcastToClients({ sessionId, type: "extension_ui_request", id: randomUUID(), method, ...fields });
+  };
+
+  // --- Dialog methods ---
+
+  const select = async (prompt: string, options: string[]) => {
+    const newlineIdx = prompt.indexOf("\n");
+    const title = newlineIdx >= 0 ? prompt.slice(0, newlineIdx) : prompt;
+    const body = newlineIdx >= 0 ? prompt.slice(newlineIdx + 1).trim() : undefined;
+    const res = await requestAndWait("select", {
+      title, ...(body ? { body } : {}), options,
+    });
+    return res?.cancelled ? undefined : res?.value;
+  };
+
+  const confirm = async (title: string, message: string) => {
+    const res = await requestAndWait("confirm", { title, message });
+    return res?.cancelled ? false : Boolean(res?.confirmed);
+  };
+
+  const input = async (title: string, placeholder?: string) => {
+    const res = await requestAndWait("input", { title, ...(placeholder ? { placeholder } : {}) });
+    return res?.cancelled ? undefined : res?.value;
+  };
+
+  const editor = async (title: string, prefill?: string) => {
+    const res = await requestAndWait("editor", { title, ...(prefill ? { prefill } : {}) });
+    return res?.cancelled ? undefined : res?.value;
+  };
+
+  // --- Fire-and-forget: notifications, status, widgets, editor ---
+
+  const notify = (message: string, type?: string) =>
+    fire("notify", { message, ...(type ? { notifyType: type } : {}) });
+
+  const setStatus = (key: string, text: string | undefined) =>
+    fire("setStatus", { statusKey: key, ...(text !== undefined ? { statusText: text } : {}) });
+
+  const setWidget = (key: string, content: any, options?: any) =>
+    fire("setWidget", {
+      widgetKey: key,
+      ...(content ? { widgetLines: content } : {}),
+      ...(options?.placement ? { widgetPlacement: options.placement } : {}),
+    });
+
+  const setWorkingMessage = (message?: string) =>
+    fire("setWorkingMessage", { ...(message !== undefined ? { message } : {}) });
+
+  const setWorkingVisible = (visible: boolean) =>
+    fire("setWorkingVisible", { visible });
+
+  const setWorkingIndicator = (options?: any) =>
+    fire("setWorkingIndicator", { ...(options ? options : {}) });
+
+  const setHiddenThinkingLabel = (label?: string) =>
+    fire("setHiddenThinkingLabel", { ...(label !== undefined ? { label } : {}) });
+
+  const setTitle = (title: string) =>
+    fire("setTitle", { title });
+
+  const pasteToEditor = (text: string) =>
+    fire("pasteToEditor", { text });
+
+  const setEditorText = (text: string) =>
+    fire("setEditorText", { text });
+
+  const setToolsExpanded = (expanded: boolean) =>
+    fire("setToolsExpanded", { expanded });
+
+  // --- Synchronous getters: no async round-trip possible, return defaults ---
+
+  const getEditorText = () => "";
+  const getToolsExpanded = () => false;
+
+  // --- TUI-only methods: no-op or default (no terminal surface to target) ---
+
+  const onTerminalInput = () => () => {};
+  const setFooter = () => {};
+  const setHeader = () => {};
+  const addAutocompleteProvider = () => {};
+  const setEditorComponent = () => {};
+  const getEditorComponent = () => undefined;
+  const getAllThemes = () => [];
+  const getTheme = () => undefined;
+  const setTheme = () => ({ success: false });
+
+  return {
+    // Dialog
+    select, confirm, input, editor,
+    // Fire-and-forget
+    notify, setStatus, setWidget,
+    setWorkingMessage, setWorkingVisible, setWorkingIndicator,
+    setHiddenThinkingLabel, setTitle, pasteToEditor, setEditorText,
+    setToolsExpanded,
+    // Sync getters
+    getEditorText, getToolsExpanded,
+    // TUI-only no-ops
+    onTerminalInput, setFooter, setHeader, addAutocompleteProvider,
+    setEditorComponent, getEditorComponent,
+    get theme() { return undefined; },
+    getAllThemes, getTheme, setTheme,
+    // custom() — TUI overlay, unsupported
+    custom: async () => undefined,
+  };
 }
 
 // A single cached runtime used only to introspect commands/skills/extensions,
@@ -231,6 +378,20 @@ app.get("/api/stream", (req, res) => {
     clients.delete(res);
     clearInterval(keepAlive);
   });
+});
+
+app.post("/api/ui-response", (req, res) => {
+  const { id } = req.body;
+  if (typeof id !== "string") {
+    return res.status(400).json({ error: "id is required" });
+  }
+  const pending = pendingUiRequests.get(id);
+  if (!pending) {
+    return res.status(404).json({ error: "no pending request for this id" });
+  }
+  pendingUiRequests.delete(id);
+  pending.resolve(req.body);
+  res.json({ ok: true });
 });
 
 app.get("/api/projects", (_req, res) => {

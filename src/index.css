@@ -1217,3 +1217,249 @@ body {
 .system-status-btn:hover {
   background: #4f46e5;
 }
+
+/* Extension UI request card (permission prompts, confirm dialogs, etc.) */
+.ui-request-card {
+  width: min(100%, 980px);
+  margin: 0 auto;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid var(--border-color);
+  border-radius: 18px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
+  padding: 1rem;
+}
+
+.ui-request-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.ui-request-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+}
+
+.ui-request-title {
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.ui-request-subtitle {
+  margin-top: 0.2rem;
+  color: var(--text-secondary);
+  font-size: 0.825rem;
+}
+
+.ui-request-body {
+  padding: 0.75rem 0.875rem;
+  margin: 0 0 0.85rem;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  line-height: 1.5;
+  background: rgba(0, 0, 0, 0.22);
+  border-radius: 12px;
+}
+
+.ui-request-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.ui-request-option {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.65rem 0.75rem;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.ui-request-card:focus {
+  outline: none;
+}
+
+.ui-request-option:hover,
+.ui-request-option.selected {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+
+.ui-request-option.selected {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.ui-request-option.approve:first-child,
+.ui-request-option.approve:hover {
+  color: var(--text-primary);
+}
+
+.ui-request-option.deny:hover {
+  color: #fca5a5;
+  border-color: rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.ui-request-option-index {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  flex: 0 0 auto;
+}
+
+.ui-request-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.ui-request-btn {
+  padding: 0.5rem 1rem;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.ui-request-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.ui-request-btn.approve {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.ui-request-btn.approve:hover {
+  background: #4f46e5;
+}
+
+.ui-request-text,
+.ui-request-textarea {
+  width: 100%;
+  padding: 0.65rem 0.75rem;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background: rgba(0, 0, 0, 0.22);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  outline: none;
+}
+
+.ui-request-text:focus,
+.ui-request-textarea:focus {
+  border-color: var(--accent);
+}
+
+.ui-request-textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  resize: vertical;
+}
+
+/* Toast notifications (ctx.ui.notify) */
+.toast-container {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  pointer-events: none;
+}
+
+.toast {
+  padding: 0.65rem 1rem;
+  border-radius: 12px;
+  background: var(--bg-panel, rgba(20, 22, 28, 0.95));
+  border: 1px solid var(--border-color);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  max-width: 360px;
+  word-break: break-word;
+  animation: toast-in 0.2s ease-out;
+}
+
+.toast-warning {
+  border-color: rgba(245, 158, 11, 0.4);
+}
+
+.toast-error {
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+/* Extension status entries (ctx.ui.setStatus) */
+.ext-status-entries {
+  display: flex;
+  gap: 0.5rem;
+  flex: 1;
+  margin: 0 0.5rem;
+}
+
+.ext-status-entry {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Extension widgets (ctx.ui.setWidget) */
+.ext-widget {
+  width: min(100%, 980px);
+  margin: 0 auto 0.5rem;
+  padding: 0.6rem 0.85rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--border-color);
+  font-size: 0.825rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  line-height: 1.5;
+}
+
+.ext-widget-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-secondary);
+}

@@ -3,6 +3,7 @@ import { createStore } from 'solid-js/store';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import CustomSelect from './CustomSelect';
+import UiRequestModal, { type UiRequest } from './UiRequestModal';
 
 interface ChatMessage {
   id: string;
@@ -231,6 +232,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   const [attachments, setAttachments] = createSignal<Attachment[]>([]);
   const [isDragOver, setIsDragOver] = createSignal(false);
   let fileInputRef: HTMLInputElement | undefined;
+  let textareaRef: HTMLTextAreaElement | undefined;
   let dragCounter = 0;
 
   const addFiles = async (fileList: FileList | File[]) => {
@@ -298,6 +300,10 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   const [projects, setProjects] = createSignal<any[]>([]);
   const [models, setModels] = createSignal<{value: string, label: string}[]>([]);
   const [selectedModel, setSelectedModel] = createSignal('');
+  const [uiRequest, setUiRequest] = createSignal<UiRequest | null>(null);
+  const [toasts, setToasts] = createSignal<{id: string; message: string; type: string}[]>([]);
+  const [statusEntries, setStatusEntries] = createStore<Record<string, string>>({});
+  const [widgets, setWidgets] = createSignal<Record<string, {lines: string[]; placement?: string}>>({});
 
   // Session id promised by the /api/chat response but not yet committed as
   // active. The HTTP response is the single authoritative source of the id;
@@ -331,17 +337,14 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
 
   const filteredCommands = createMemo(() => {
     const text = input();
-    if (!text.startsWith('/')) return null;
-    
-    // Extract the word immediately after the slash
-    const match = text.match(/^\/(\S*)/);
+    const match = text.match(/^\/([^\s]*)$/);
     if (!match) return null;
-    
+
     const query = match[1].toLowerCase();
-    const matches = commandsList().filter(cmd => 
+    const matches = commandsList().filter(cmd =>
       cmd.name.toLowerCase().includes(query)
     );
-    
+
     return matches.length > 0 ? matches : null;
   });
 
@@ -541,6 +544,12 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
         return;
       }
       
+      if (data.type === 'extension_ui_request') {
+        if (props.activeSessionId && data.sessionId !== props.activeSessionId) return;
+        handleUiMethod(data);
+        return;
+      }
+      
       handleAgentEvent(data);
     };
   };
@@ -668,6 +677,85 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     applyEvent(event);
   };
 
+  const showToast = (message: string, type: string = 'info') => {
+    const id = Math.random().toString(36).slice(2);
+    setToasts((prev) => [...prev, { id, message, type }]);
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 4000);
+  };
+
+  const handleUiMethod = (data: any) => {
+    switch (data.method) {
+      case 'select':
+      case 'confirm':
+      case 'input':
+      case 'editor':
+        setUiRequest(data);
+        break;
+      case 'notify':
+        showToast(data.message, data.notifyType || 'info');
+        break;
+      case 'setStatus':
+        if (data.statusText === undefined || data.statusText === null) {
+          setStatusEntries(data.statusKey, undefined as any);
+        } else {
+          setStatusEntries(data.statusKey, data.statusText);
+        }
+        break;
+      case 'setWidget':
+        setWidgets((prev) => {
+          const next = { ...prev };
+          if (!data.widgetLines) {
+            delete next[data.widgetKey];
+          } else {
+            next[data.widgetKey] = { lines: data.widgetLines, placement: data.widgetPlacement };
+          }
+          return next;
+        });
+        break;
+      case 'setTitle':
+        if (data.title) document.title = data.title;
+        break;
+      case 'setEditorText':
+        if (textareaRef) textareaRef.value = data.text || '';
+        setInput(data.text || '');
+        break;
+      case 'pasteToEditor':
+        if (textareaRef) {
+          const cur = textareaRef.value;
+          const pos = textareaRef.selectionStart;
+          const pasted = cur.slice(0, pos) + (data.text || '') + cur.slice(textareaRef.selectionEnd);
+          textareaRef.value = pasted;
+          setInput(pasted);
+          textareaRef.focus();
+        }
+        break;
+      case 'setWorkingMessage':
+      case 'setWorkingVisible':
+      case 'setWorkingIndicator':
+      case 'setHiddenThinkingLabel':
+      case 'setToolsExpanded':
+        // These affect streaming/UX presentation; no visual surface needed yet.
+        break;
+      default:
+        break;
+    }
+  };
+
+  const handleUiRespond = async (response: any) => {
+    setUiRequest(null);
+    try {
+      await fetch('/api/ui-response', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(response),
+      });
+    } catch (err) {
+      console.error('Failed to send UI response:', err);
+    }
+    // Reclaim focus to the composer once the blocking request is dismissed.
+    queueMicrotask(() => textareaRef?.focus());
+  };
+
   const handleSubmit = async (e?: Event) => {
     e?.preventDefault();
     if (!input().trim() && attachments().length === 0) return;
@@ -702,8 +790,6 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       promptText = promptText ? `${promptText}\n\n${inlined}` : inlined;
     }
 
-    setIsProcessing(true);
-    
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
@@ -836,6 +922,11 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     <div class={`chat-container ${messages.length === 0 ? 'empty-mode' : ''}`}>
       <div class="system-status">
         <div>{isConnected() ? '🟢 Agent Connected' : '🔴 Agent Disconnected'}</div>
+        <div class="ext-status-entries">
+          <For each={Object.entries(statusEntries)}>
+            {([key, text]) => <span class="ext-status-entry" title={key}>{text}</span>}
+          </For>
+        </div>
         <div style="display: flex; gap: 0.5rem;">
           <button 
             class="system-status-btn"
@@ -851,6 +942,16 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
           </button>
         </div>
       </div>
+
+      <Show when={toasts().length > 0}>
+        <div class="toast-container">
+          <For each={toasts()}>
+            {(toast) => (
+              <div class={`toast toast-${toast.type}`}>{toast.message}</div>
+            )}
+          </For>
+        </div>
+      </Show>
 
       {showModal() && (
         <div class="skills-modal-overlay">
@@ -996,6 +1097,19 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       </div>
 
       <div class="input-wrapper">
+        <Show when={Object.keys(widgets()).length > 0}>
+          <For each={Object.entries(widgets())}>
+            {([key, widget]) => (
+              <div class={`ext-widget ext-widget-${widget.placement || 'aboveEditor'}`}>
+                <For each={widget.lines}>{(line) => <div class="ext-widget-line">{line}</div>}</For>
+              </div>
+            )}
+          </For>
+        </Show>
+        <Show when={uiRequest()} keyed>
+          {(req) => <UiRequestModal request={req} onRespond={handleUiRespond} />}
+        </Show>
+        <Show when={!uiRequest()}>
         {messages.length === 0 && (
           <div class="top-project-row">
             <CustomSelect 
@@ -1065,6 +1179,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
             </div>
           )}
           <textarea
+            ref={textareaRef}
             class="input-field"
             placeholder="Ask anything, @ to mention, / for actions"
             value={input()}
@@ -1072,7 +1187,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             rows={1}
-            disabled={!isConnected()}
+            disabled={!isConnected() || !!uiRequest()}
           />
           <div class="input-toolbar">
             <div class="input-toolbar-left">
@@ -1084,7 +1199,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
                 style="display: none;"
                 onChange={handleFileInput}
               />
-              <button class="input-toolbar-btn" title="Add image or file" onClick={() => fileInputRef?.click()}>
+              <button class="input-toolbar-btn" title="Add image or file" disabled={!!uiRequest()} onClick={() => fileInputRef?.click()}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <line x1="12" y1="5" x2="12" y2="19"></line>
                   <line x1="5" y1="12" x2="19" y2="12"></line>
@@ -1115,8 +1230,8 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
               <button 
                 class="send-button" 
                 onClick={() => handleSubmit()}
-                disabled={(!input().trim() && attachments().length === 0) || !isConnected()}
-                title={(!input().trim() && attachments().length === 0) ? "Send message" : "Send message"}
+                disabled={!!uiRequest() || (!input().trim() && attachments().length === 0) || !isConnected()}
+                title={uiRequest() ? "Respond to the request first" : "Send message"}
                 style={(!input().trim() && attachments().length === 0) ? "background: transparent; box-shadow: none; color: var(--text-secondary);" : ""}
               >
                 <Show when={!input().trim() && attachments().length === 0}>
@@ -1136,6 +1251,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
             </Show>
           </div>
         </div>
+        </Show>
       </div>
     </div>
   );
