@@ -9,8 +9,10 @@ export interface ToolCall {
 
 export interface ChatMessage {
   id: string;
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'notification';
   content: string;
+  // For role 'notification': controls styling ('info' | 'warning' | 'error').
+  notifyType?: string;
   thinking?: string;
   isThinking?: boolean;
   images?: { url: string; mimeType: string }[];
@@ -70,12 +72,6 @@ export const THINKING_LEVELS: ThinkingLevelOption[] = [
   { value: 'high', label: 'High' },
   { value: 'xhigh', label: 'XHigh' },
 ];
-
-export interface Toast {
-  id: string;
-  message: string;
-  type: string;
-}
 
 export interface ExtWidget {
   lines: string[];

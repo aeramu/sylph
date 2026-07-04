@@ -5,6 +5,19 @@ import ThinkingSection from './ThinkingSection';
 import ToolExecution from './ToolExecution';
 
 export default function MessageBubble(props: { msg: ChatMessage; onImageClick: (url: string) => void }) {
+  if (props.msg.role === 'notification') {
+    return (
+      <div class={`chat-notification chat-notification-${props.msg.notifyType || 'info'}`}>
+        <svg class="chat-notification-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="16" x2="12" y2="12"></line>
+          <line x1="12" y1="8" x2="12.01" y2="8"></line>
+        </svg>
+        <span class="chat-notification-text">{props.msg.content}</span>
+      </div>
+    );
+  }
+
   return (
     <div class={`message ${props.msg.role}`}>
       <div class="message-bubble">

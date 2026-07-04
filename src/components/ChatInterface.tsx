@@ -1,6 +1,6 @@
 import { createSignal, createEffect, For, Show, onCleanup, onMount } from 'solid-js';
 import { createStore, produce } from 'solid-js/store';
-import type { Attachment, ChatMessage, CommandInfo, ExtWidget, ModelOption, ResourceInfo, ThinkingLevel, Toast } from '../types';
+import type { Attachment, ChatMessage, CommandInfo, ExtWidget, ModelOption, ResourceInfo, ThinkingLevel } from '../types';
 import { THINKING_LEVELS } from '../types';
 import { applyAgentEvent } from '../lib/chatEvents';
 import { hasRenderableContent, mapHistoryToMessages } from '../lib/messages';
@@ -22,7 +22,6 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   const [models, setModels] = createSignal<ModelOption[]>([]);
   const [selectedModel, setSelectedModel] = createSignal('');
   const [uiRequest, setUiRequest] = createSignal<UiRequest | null>(null);
-  const [toasts, setToasts] = createSignal<Toast[]>([]);
   const [statusEntries, setStatusEntries] = createStore<Record<string, string>>({});
   const [widgets, setWidgets] = createSignal<Record<string, ExtWidget>>({});
 
@@ -111,7 +110,6 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     }
     setMessages([]);
     setUiRequest(null);
-    setToasts([]);
     setWidgets({});
     setStatusEntries(produce((s) => { for (const k of Object.keys(s)) delete s[k]; }));
     fetchHistory();
@@ -214,10 +212,13 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     applyEvent(event);
   };
 
-  const showToast = (message: string, type: string = 'info') => {
-    const id = Math.random().toString(36).slice(2);
-    setToasts((prev) => [...prev, { id, message, type }]);
-    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 4000);
+  const addNotification = (message: string, type: string = 'info') => {
+    setMessages(messages.length, {
+      id: Math.random().toString(36).slice(2),
+      role: 'notification',
+      content: message,
+      notifyType: type,
+    });
   };
 
   const handleUiMethod = (data: any) => {
@@ -229,7 +230,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
         setUiRequest(data);
         break;
       case 'notify':
-        showToast(data.message, data.notifyType || 'info');
+        addNotification(data.message, data.notifyType || 'info');
         break;
       case 'setStatus':
         if (data.statusText === undefined || data.statusText === null) {
@@ -387,16 +388,6 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
           </button>
         </div>
       </div>
-
-      <Show when={toasts().length > 0}>
-        <div class="toast-container">
-          <For each={toasts()}>
-            {(toast) => (
-              <div class={`toast toast-${toast.type}`}>{toast.message}</div>
-            )}
-          </For>
-        </div>
-      </Show>
 
       <Show when={showModal()} keyed>
         {(kind) => (

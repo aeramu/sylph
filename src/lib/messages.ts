@@ -7,6 +7,7 @@ import type { ChatMessage, ToolCall } from '../types';
 export function hasRenderableContent(m: ChatMessage): boolean {
   return (
     m.role === 'user' ||
+    m.role === 'notification' ||
     !!m.isStreaming ||
     !!m.isThinking ||
     !!m.content?.trim() ||
