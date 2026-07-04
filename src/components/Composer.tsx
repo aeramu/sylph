@@ -31,6 +31,7 @@ export default function Composer(props: {
   const [selectedIndex, setSelectedIndex] = createSignal(0);
   let fileInputRef: HTMLInputElement | undefined;
   let textareaRef: HTMLTextAreaElement | undefined;
+  let commandListRef: HTMLDivElement | undefined;
   let dragCounter = 0;
 
   props.api?.({
@@ -123,6 +124,25 @@ export default function Composer(props: {
     setSelectedIndex(0);
   });
 
+  createEffect(() => {
+    // Keep the highlighted command visible: the drop-up list is reversed and
+    // scrollable, so the default (index 0) sits at the bottom and arrow
+    // navigation can move the selection out of the current scroll window.
+    selectedIndex();
+    filteredCommands();
+    const list = commandListRef;
+    if (!list) return;
+    const el = list.querySelector('.autocomplete-item.selected') as HTMLElement | null;
+    if (!el) return;
+    const elRect = el.getBoundingClientRect();
+    const listRect = list.getBoundingClientRect();
+    if (elRect.top < listRect.top) {
+      list.scrollTop -= listRect.top - elRect.top;
+    } else if (elRect.bottom > listRect.bottom) {
+      list.scrollTop += elRect.bottom - listRect.bottom;
+    }
+  });
+
   const applyCommand = (cmd: { name: string }) => {
     // Replace the initial slash word with the completed command
     const text = input();
@@ -208,13 +228,17 @@ export default function Composer(props: {
           <div class="autocomplete-header">
             Slash Commands
           </div>
-          <div class="autocomplete-list">
+          <div class="autocomplete-list" ref={commandListRef}>
             <For each={[...filteredCommands()!].reverse()}>
               {(cmd, index) => {
                 const originalIndex = () => filteredCommands()!.length - 1 - index();
                 return (
                   <div
                     class={`autocomplete-item ${originalIndex() === selectedIndex() ? 'selected' : ''}`}
+                    // Keep focus in the textarea: without this, mousedown blurs
+                    // the field and the reflow can swallow the click so the
+                    // command is never applied and the popup stays open.
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={() => applyCommand(cmd)}
                   >
                     <div class="autocomplete-item-title">
