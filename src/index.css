@@ -348,6 +348,20 @@ body {
   font-size: 0.95rem;
 }
 
+.message-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #fca5a5;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
 .message-content p {
   margin-bottom: 0.8rem;
 }
@@ -796,7 +810,8 @@ body {
   color: var(--text-primary);
 }
 
-.model-selector {
+.model-selector,
+.thinking-selector {
   display: flex;
   align-items: center;
   gap: 0.4rem;
@@ -812,12 +827,14 @@ body {
   transition: all 0.2s;
 }
 
-.model-selector:hover {
+.model-selector:hover,
+.thinking-selector:hover {
   background: rgba(255, 255, 255, 0.05);
   color: var(--text-primary);
 }
 
-.model-selector:focus {
+.model-selector:focus,
+.thinking-selector:focus {
   outline: none;
 }
 

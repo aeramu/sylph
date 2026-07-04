@@ -11,6 +11,7 @@ export function hasRenderableContent(m: ChatMessage): boolean {
     !!m.isThinking ||
     !!m.content?.trim() ||
     !!m.thinking?.trim() ||
+    !!m.errorMessage?.trim() ||
     (m.tools?.length ?? 0) > 0 ||
     (m.images?.length ?? 0) > 0
   );
@@ -78,6 +79,10 @@ export function mapHistoryToMessages(rawMessages: any[]): ChatMessage[] {
         thinking: thinkingStr || undefined,
         tools
       };
+      // Preserve error state from persisted history.
+      if (m.stopReason === 'error' && m.errorMessage) {
+        msg.errorMessage = m.errorMessage;
+      }
       mapped.push(msg);
       currentAssistantMessage = msg;
     } else if (m.role === 'toolResult' && currentAssistantMessage && currentAssistantMessage.tools) {

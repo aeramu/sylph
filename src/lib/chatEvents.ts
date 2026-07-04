@@ -20,7 +20,17 @@ export function applyAgentEvent(
     const msgId = event.message?.id || event.message?.responseId || Date.now().toString();
 
     if (event.message.role === 'assistant') {
-      setMessages(messages.length, { id: msgId, role: 'assistant', content: '', isStreaming: true });
+      // An assistant message can arrive already terminated with an error
+      // (e.g. provider rate limit, usage limit reached). Capture the error
+      // text instead of leaving an empty streaming bubble forever.
+      const isError = event.message.stopReason === 'error' && event.message.errorMessage;
+      setMessages(messages.length, {
+        id: msgId,
+        role: 'assistant',
+        content: '',
+        isStreaming: !isError,
+        ...(isError ? { errorMessage: event.message.errorMessage } : {}),
+      });
     } else if (event.message.role === 'toolResult') {
       const toolCallId = event.message.toolCallId;
       let initialOutput = '';
@@ -86,7 +96,15 @@ export function applyAgentEvent(
       }
     }
   } else if (event.type === 'message_end') {
-    setMessages(m => m.isStreaming === true, 'isStreaming', false);
+    // message_end can also carry an error if the failure happens mid-stream.
+    if (event.message?.stopReason === 'error' && event.message?.errorMessage) {
+      if (lastIdx >= 0 && messages[lastIdx].role === 'assistant') {
+        setMessages(lastIdx, 'errorMessage', event.message.errorMessage);
+        setMessages(lastIdx, 'isStreaming', false);
+      }
+    } else {
+      setMessages(m => m.isStreaming === true, 'isStreaming', false);
+    }
     setMessages(m => m.isThinking === true, 'isThinking', false);
   } else if (event.type === 'agent_start') {
     callbacks.setProcessing(true);

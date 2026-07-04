@@ -1,6 +1,7 @@
 import { createSignal, createEffect, For, Show, onCleanup, onMount } from 'solid-js';
 import { createStore, produce } from 'solid-js/store';
-import type { Attachment, ChatMessage, CommandInfo, ExtWidget, ModelOption, ResourceInfo, Toast } from '../types';
+import type { Attachment, ChatMessage, CommandInfo, ExtWidget, ModelOption, ResourceInfo, ThinkingLevel, Toast } from '../types';
+import { THINKING_LEVELS } from '../types';
 import { applyAgentEvent } from '../lib/chatEvents';
 import { hasRenderableContent, mapHistoryToMessages } from '../lib/messages';
 import CustomSelect from './CustomSelect';
@@ -44,13 +45,15 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   const fetchModels = () => {
     fetch('/api/models').then(res => res.json()).then(data => {
       if (data.models && data.models.length > 0) {
-        const mapped = data.models.map((m: any) => ({ value: m.id, label: m.name }));
+        // Use the server-provided value ("provider/id") directly as the
+        // select value, so the ID round-trips without name ambiguity.
+        const mapped = data.models.map((m: any) => ({ value: m.value || `${m.provider}/${m.id}`, label: m.id }));
         setModels(mapped);
 
         let saved: string | null = null;
         try { saved = localStorage.getItem('sylph.selectedModel'); } catch {}
         const initial = (saved && mapped.find((m: any) => m.value === saved))
-          || mapped.find((m: any) => m.label.toLowerCase().includes('flash'))
+          || mapped.find((m: any) => m.value.toLowerCase().includes('flash'))
           || mapped[0];
         if (initial) setSelectedModel(initial.value);
       }
@@ -60,6 +63,19 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   const selectModel = (id: string) => {
     setSelectedModel(id);
     try { localStorage.setItem('sylph.selectedModel', id); } catch {}
+  };
+
+  const [selectedThinkingLevel, setSelectedThinkingLevel] = createSignal<ThinkingLevel>('medium');
+
+  // Restore persisted thinking level preference.
+  try {
+    const saved = localStorage.getItem('sylph.thinkingLevel') as ThinkingLevel | null;
+    if (saved && THINKING_LEVELS.some((l) => l.value === saved)) setSelectedThinkingLevel(saved);
+  } catch {}
+
+  const selectThinkingLevel = (level: ThinkingLevel) => {
+    setSelectedThinkingLevel(level);
+    try { localStorage.setItem('sylph.thinkingLevel', level); } catch {}
   };
 
   let messagesEndRef: HTMLDivElement | undefined;
@@ -304,17 +320,35 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
           sessionId: props.activeSessionId,
           project_id: props.activeProjectId,
           modelId: selectedModel() || undefined,
+          thinkingLevel: selectedThinkingLevel(),
           images: images.length ? images : undefined,
         }),
       });
       const data = await res.json();
+      if (!res.ok) {
+        // Server-side error (unknown model, no auth, provider error, etc.).
+        // Render it as an assistant error bubble so the user sees what went
+        // wrong instead of a silent hang.
+        setMessages(messages.length, {
+          id: Date.now().toString() + '-err',
+          role: 'assistant',
+          content: '',
+          errorMessage: data.error || `Request failed (${res.status})`,
+        });
+        return;
+      }
       if (data.sessionId && data.sessionId !== props.activeSessionId) {
         pendingSessionId = data.sessionId;
         props.onSessionCreated(data.sessionId, data.projectId);
       }
     } catch (err) {
       console.error('Failed to send message:', err);
-      setIsProcessing(false);
+      setMessages(messages.length, {
+        id: Date.now().toString() + '-err',
+        role: 'assistant',
+        content: '',
+        errorMessage: err instanceof Error ? err.message : 'Failed to connect to server',
+      });
     }
   };
 
@@ -437,6 +471,9 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
             models={models()}
             selectedModel={selectedModel()}
             onSelectModel={selectModel}
+            thinkingLevels={THINKING_LEVELS}
+            selectedThinkingLevel={selectedThinkingLevel()}
+            onSelectThinkingLevel={selectThinkingLevel}
             onSubmit={handleSubmit}
             onStop={handleStop}
             api={(api) => { composerApi = api; }}

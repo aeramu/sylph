@@ -15,6 +15,7 @@ export interface ChatMessage {
   isThinking?: boolean;
   images?: { url: string; mimeType: string }[];
   isStreaming?: boolean;
+  errorMessage?: string;
   tools?: ToolCall[];
 }
 
@@ -53,6 +54,22 @@ export interface ModelOption {
   value: string;
   label: string;
 }
+
+export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+
+export interface ThinkingLevelOption {
+  value: ThinkingLevel;
+  label: string;
+}
+
+export const THINKING_LEVELS: ThinkingLevelOption[] = [
+  { value: 'off', label: 'Off' },
+  { value: 'minimal', label: 'Minimal' },
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+  { value: 'xhigh', label: 'XHigh' },
+];
 
 export interface Toast {
   id: string;

@@ -6,8 +6,6 @@ import { randomUUID } from "crypto";
 import {
   getAgentDir,
   SessionManager,
-  ModelRegistry,
-  AuthStorage
 } from "@earendil-works/pi-coding-agent";
 import { getProjects, saveProjects, type Project } from "./projects.ts";
 import { addClient, removeClient } from "./sse.ts";
@@ -44,12 +42,23 @@ function extensionDisplayName(pathStr: string): string {
 export function createRouter(): express.Router {
   const router = express.Router();
 
-  router.get("/api/models", (_req, res) => {
+  router.get("/api/models", async (_req, res) => {
     try {
-      const authStorage = AuthStorage.create(path.join(getAgentDir(), "auth.json"));
-      const registry = ModelRegistry.create(authStorage, path.join(getAgentDir(), "models.json"));
-      const available = registry.getAvailable();
-      res.json({ models: available.map(m => ({ id: m.id, provider: m.provider, name: m.name || m.id })) });
+      // Use the introspection runtime's session registry, not a standalone
+      // ModelRegistry. Extension-registered providers (e.g. pi-9router-ext)
+      // call pi.registerProvider() at session_start, which adds their models
+      // to the session's registry only. A standalone registry would only see
+      // built-in models and models.json — missing all extension providers.
+      const runtime = await getIntrospectionRuntime();
+      const available = runtime.session.modelRegistry.getAvailable();
+      res.json({
+        models: available.map(m => ({
+          id: m.id,
+          provider: m.provider,
+          value: `${m.provider}/${m.id}`,
+          label: m.id,
+        })),
+      });
     } catch (err) {
       handleError(res, err);
     }
@@ -229,7 +238,7 @@ export function createRouter(): express.Router {
   });
 
   router.post("/api/chat", async (req, res) => {
-    const { sessionId, prompt, project_id, modelId, images } = req.body;
+    const { sessionId, prompt, project_id, modelId, thinkingLevel, images } = req.body;
     if (!prompt) {
       return res.status(400).json({ error: "prompt is required" });
     }
@@ -240,14 +249,22 @@ export function createRouter(): express.Router {
       touchRuntime(resolvedSessionId);
 
       if (modelId) {
-        const targetModel = runtime.services.modelRegistry.getAvailable().find((m: any) => m.id === modelId);
+        const available = runtime.session.modelRegistry.getAvailable();
+        // Accept either "provider/id" (the select value) or a bare id.
+        const targetModel = modelId.includes("/")
+          ? available.find((m: any) => `${m.provider}/${m.id}` === modelId)
+          : available.find((m: any) => m.id === modelId);
         if (!targetModel) {
           return res.status(400).json({ error: `Unknown or unavailable model: ${modelId}` });
         }
         const current = runtime.session.model;
-        if (!current || current.id !== modelId) {
+        if (!current || current.id !== targetModel.id) {
           await runtime.session.setModel(targetModel);
         }
+      }
+
+      if (thinkingLevel && typeof thinkingLevel === "string") {
+        runtime.session.setThinkingLevel(thinkingLevel);
       }
 
       const resolvedProject = getProjects().find(p => p.path === runtime.session.cwd);

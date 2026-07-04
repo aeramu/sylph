@@ -25,6 +25,17 @@ export default function MessageBubble(props: { msg: ChatMessage; onImageClick: (
           innerHTML={renderMarkdown(props.msg.content)}
         />
 
+        <Show when={props.msg.errorMessage}>
+          <div class="message-error">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0; margin-top: 2px;">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="8" x2="12" y2="12"></line>
+              <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+            <span>{props.msg.errorMessage}</span>
+          </div>
+        </Show>
+
         {props.msg.tools && props.msg.tools.length > 0 && (
           <div class="tool-executions">
             <For each={props.msg.tools}>

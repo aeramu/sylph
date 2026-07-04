@@ -1,5 +1,5 @@
 import { createSignal, createEffect, createMemo, For, Show } from 'solid-js';
-import type { Attachment, CommandInfo, ModelOption } from '../types';
+import type { Attachment, CommandInfo, ModelOption, ThinkingLevel, ThinkingLevelOption } from '../types';
 import { ACCEPT_ATTR, readFile } from '../lib/attachments';
 import CustomSelect from './CustomSelect';
 
@@ -18,6 +18,9 @@ export default function Composer(props: {
   models: ModelOption[];
   selectedModel: string;
   onSelectModel: (id: string) => void;
+  thinkingLevels: ThinkingLevelOption[];
+  selectedThinkingLevel: ThinkingLevel;
+  onSelectThinkingLevel: (level: ThinkingLevel) => void;
   onSubmit: (text: string, attachments: Attachment[]) => void;
   onStop: () => void;
   api?: (api: ComposerApi) => void;
@@ -259,6 +262,14 @@ export default function Composer(props: {
             onChange={(val) => props.onSelectModel(val)}
             options={props.models}
             placeholder="Default model"
+            position="top"
+          />
+          <CustomSelect
+            triggerClass="thinking-selector"
+            value={props.selectedThinkingLevel}
+            onChange={(val) => props.onSelectThinkingLevel(val as ThinkingLevel)}
+            options={props.thinkingLevels}
+            placeholder="Thinking"
             position="top"
           />
         </div>
