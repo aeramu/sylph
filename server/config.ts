@@ -1,0 +1,11 @@
+import path from "path";
+import os from "os";
+
+export const HOST = "127.0.0.1";
+export const PORT = Number(process.env.PORT) || 3001;
+export const ALLOWED_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+export const RUNTIME_IDLE_MS = 30 * 60 * 1000;
+export const EVICTION_INTERVAL_MS = 5 * 60 * 1000;
+
+export const SYLPH_DIR = path.join(os.homedir(), ".sylph");
+export const PROJECTS_FILE = path.join(SYLPH_DIR, "projects.json");

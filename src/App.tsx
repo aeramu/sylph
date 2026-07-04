@@ -1,7 +1,6 @@
 import { createSignal } from 'solid-js';
 import ChatInterface from './components/ChatInterface';
 import SessionSidebar from './components/SessionSidebar';
-import './index.css';
 
 function App() {
   const [activeSessionId, setActiveSessionId] = createSignal<string | undefined>(undefined);
