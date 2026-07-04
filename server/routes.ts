@@ -4,7 +4,6 @@ import path from "path";
 import os from "os";
 import { randomUUID } from "crypto";
 import {
-  getAgentDir,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { getProjects, saveProjects, type Project } from "./projects.ts";
@@ -52,7 +51,7 @@ export function createRouter(): express.Router {
       const runtime = await getIntrospectionRuntime();
       const available = runtime.session.modelRegistry.getAvailable();
       res.json({
-        models: available.map(m => ({
+        models: available.map((m: any) => ({
           id: m.id,
           provider: m.provider,
           value: `${m.provider}/${m.id}`,

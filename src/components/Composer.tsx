@@ -345,6 +345,10 @@ export default function Composer(props: {
             options={props.models}
             placeholder="Default model"
             position="top"
+            searchable
+            searchPlaceholder="Search models..."
+            noOptionsText="No models found"
+            groupBy={(opt) => opt.provider}
           />
           <CustomSelect
             triggerClass="thinking-selector"

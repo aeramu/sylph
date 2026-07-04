@@ -55,6 +55,8 @@ export interface ProjectInfo {
 export interface ModelOption {
   value: string;
   label: string;
+  provider?: string;
+  searchText?: string;
 }
 
 export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';

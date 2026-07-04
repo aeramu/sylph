@@ -46,7 +46,16 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       if (data.models && data.models.length > 0) {
         // Use the server-provided value ("provider/id") directly as the
         // select value, so the ID round-trips without name ambiguity.
-        const mapped = data.models.map((m: any) => ({ value: m.value || `${m.provider}/${m.id}`, label: m.id }));
+        const mapped = data.models.map((m: any) => {
+          const value = m.value || `${m.provider}/${m.id}`;
+          const provider = m.provider || String(value).split('/')[0] || 'Other';
+          return {
+            value,
+            label: m.id,
+            provider,
+            searchText: `${provider} ${m.id} ${value}`,
+          };
+        });
         setModels(mapped);
 
         let saved: string | null = null;
