@@ -1,7 +1,11 @@
 import { createSignal, createEffect, createMemo, For, Show } from 'solid-js';
 import type { Attachment, CommandInfo, ModelOption, ThinkingLevel, ThinkingLevelOption } from '../types';
 import { ACCEPT_ATTR, readFile } from '../lib/attachments';
-import CustomSelect from './CustomSelect';
+import CustomSelect, { type CustomSelectApi } from './CustomSelect';
+
+// Built-in slash commands handled locally by the composer (they run a UI
+// action instead of being sent to the agent). Their `run` is filled in below.
+interface BuiltinCommand extends CommandInfo { builtin: true; run: () => void }
 
 // Subsequence fuzzy match: every char of `query` must appear in `target` in
 // order (e.g. "9rourel" matches "9router-reload"). Returns a relevance score
@@ -84,7 +88,19 @@ export default function Composer(props: {
   let fileInputRef: HTMLInputElement | undefined;
   let textareaRef: HTMLTextAreaElement | undefined;
   let commandListRef: HTMLDivElement | undefined;
+  let modelSelectApi: CustomSelectApi | undefined;
   let dragCounter = 0;
+
+  const builtinCommands: BuiltinCommand[] = [
+    {
+      name: 'model',
+      source: 'built-in',
+      description: 'Switch the active model',
+      builtin: true,
+      run: () => modelSelectApi?.open(),
+    },
+  ];
+  const isBuiltin = (cmd: CommandInfo): cmd is BuiltinCommand => (cmd as BuiltinCommand).builtin === true;
 
   props.api?.({
     setText: (text) => {
@@ -163,10 +179,11 @@ export default function Composer(props: {
     if (!match) return null;
 
     const query = match[1].toLowerCase();
-    if (query === '') return props.commands.length > 0 ? props.commands : null;
+    const all: CommandInfo[] = [...builtinCommands, ...props.commands];
+    if (query === '') return all.length > 0 ? all : null;
 
     const scored: { cmd: CommandInfo; score: number }[] = [];
-    for (const cmd of props.commands) {
+    for (const cmd of all) {
       const score = fuzzyScore(query, cmd.name.toLowerCase());
       if (score !== null) scored.push({ cmd, score });
     }
@@ -201,7 +218,15 @@ export default function Composer(props: {
     }
   });
 
-  const applyCommand = (cmd: { name: string }) => {
+  const applyCommand = (cmd: CommandInfo) => {
+    // Built-in commands run a local UI action and clear the input rather than
+    // completing the text or being sent to the agent.
+    if (isBuiltin(cmd)) {
+      setInput('');
+      setSelectedIndex(0);
+      cmd.run();
+      return;
+    }
     // Replace the initial slash word with the completed command
     const text = input();
     const replaced = text.replace(/^\/\S*/, `/${cmd.name} `);
@@ -211,6 +236,14 @@ export default function Composer(props: {
 
   const handleSubmit = (e?: Event) => {
     e?.preventDefault();
+    // Intercept a bare built-in command (e.g. "/model") so it runs its action
+    // instead of being sent to the agent.
+    const builtin = builtinCommands.find(c => `/${c.name}` === input().trim());
+    if (builtin) {
+      setInput('');
+      builtin.run();
+      return;
+    }
     if (!input().trim() && attachments().length === 0) return;
     const text = input();
     const pending = attachments();
@@ -341,7 +374,12 @@ export default function Composer(props: {
           <CustomSelect
             triggerClass="model-selector"
             value={props.selectedModel}
-            onChange={(val) => props.onSelectModel(val)}
+            onChange={(val) => {
+              props.onSelectModel(val);
+              // Return focus to the composer after picking a model (rAF so it
+              // runs once the dropdown has closed and the DOM has reconciled).
+              requestAnimationFrame(() => textareaRef?.focus());
+            }}
             options={props.models}
             placeholder="Default model"
             position="top"
@@ -349,6 +387,7 @@ export default function Composer(props: {
             searchPlaceholder="Search models..."
             noOptionsText="No models found"
             groupBy={(opt) => opt.provider}
+            api={(a) => { modelSelectApi = a; }}
           />
           <CustomSelect
             triggerClass="thinking-selector"

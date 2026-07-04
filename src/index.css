@@ -789,14 +789,20 @@ body {
   gap: 0.5rem;
 }
 
-.custom-select-option:hover {
-  background: rgba(255, 255, 255, 0.05);
+.custom-select-option:hover,
+.custom-select-option.highlighted {
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .custom-select-option.selected {
   background: var(--accent-glow);
   color: var(--accent);
   font-weight: 500;
+}
+
+.custom-select-option.selected.highlighted {
+  background: var(--accent-glow);
+  box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.5);
 }
 
 .chat-container:not(.empty-mode) .input-wrapper {

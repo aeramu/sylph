@@ -9,6 +9,12 @@ export interface CustomSelectOption {
   searchText?: string;
 }
 
+export interface CustomSelectApi {
+  open: () => void;
+  close: () => void;
+  toggle: () => void;
+}
+
 interface CustomSelectProps {
   options: CustomSelectOption[];
   value: string;
@@ -20,6 +26,7 @@ interface CustomSelectProps {
   searchPlaceholder?: string;
   noOptionsText?: string;
   groupBy?: (option: CustomSelectOption) => string | undefined;
+  api?: (api: CustomSelectApi) => void;
 }
 
 // Same subsequence fuzzy matcher used by slash command selection.
@@ -69,8 +76,17 @@ function fuzzyScore(query: string, target: string): number | null {
 export default function CustomSelect(props: CustomSelectProps) {
   const [isOpen, setIsOpen] = createSignal(false);
   const [query, setQuery] = createSignal('');
+  const [highlighted, setHighlighted] = createSignal(0);
   let containerRef: HTMLDivElement | undefined;
   let searchInputRef: HTMLInputElement | undefined;
+  let optionsRef: HTMLDivElement | undefined;
+  let triggerRef: HTMLButtonElement | undefined;
+
+  props.api?.({
+    open: () => setIsOpen(true),
+    close: () => setIsOpen(false),
+    toggle: () => setIsOpen((v) => !v),
+  });
 
   const handleClickOutside = (e: MouseEvent) => {
     if (containerRef && !containerRef.contains(e.target as Node)) {
@@ -81,7 +97,7 @@ export default function CustomSelect(props: CustomSelectProps) {
   onMount(() => {
     document.addEventListener('mousedown', handleClickOutside);
   });
-  
+
   onCleanup(() => {
     document.removeEventListener('mousedown', handleClickOutside);
   });
@@ -91,7 +107,10 @@ export default function CustomSelect(props: CustomSelectProps) {
       setQuery('');
       return;
     }
+    // On open, focus the search field (searchable) or the trigger so the
+    // dropdown receives arrow/enter/escape keys either way.
     if (props.searchable) queueMicrotask(() => searchInputRef?.focus());
+    else queueMicrotask(() => triggerRef?.focus());
   });
 
   const selectedOption = () => props.options.find(o => o.value === props.value);
@@ -143,6 +162,62 @@ export default function CustomSelect(props: CustomSelectProps) {
     return groups;
   });
 
+  // Visual (top-to-bottom) order of options for keyboard navigation.
+  const flatOptions = createMemo(() => groupedOptions().flatMap(g => g.options));
+
+  createEffect(() => {
+    // When the list opens or the filter changes, put the highlight on the
+    // current value (fresh open) or the top result (while searching).
+    query();
+    if (!isOpen()) return;
+    const opts = flatOptions();
+    const selIdx = opts.findIndex(o => o.value === props.value);
+    setHighlighted(query() ? 0 : (selIdx >= 0 ? selIdx : 0));
+  });
+
+  createEffect(() => {
+    // Keep the highlighted option scrolled into view within the dropdown.
+    highlighted();
+    const list = optionsRef;
+    if (!isOpen() || !list) return;
+    const el = list.querySelector('.custom-select-option.highlighted') as HTMLElement | null;
+    if (!el) return;
+    const er = el.getBoundingClientRect();
+    const lr = list.getBoundingClientRect();
+    if (er.top < lr.top) list.scrollTop -= lr.top - er.top;
+    else if (er.bottom > lr.bottom) list.scrollTop += er.bottom - lr.bottom;
+  });
+
+  const moveHighlight = (delta: number) => {
+    const n = flatOptions().length;
+    if (n === 0) return;
+    setHighlighted((h) => (h + delta + n) % n);
+  };
+
+  const commitHighlight = () => {
+    const opt = flatOptions()[highlighted()];
+    if (opt) {
+      props.onChange(opt.value);
+      setIsOpen(false);
+    }
+  };
+
+  const handleKeyNav = (e: KeyboardEvent) => {
+    if (!isOpen()) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        setIsOpen(true);
+      }
+      return;
+    }
+    if (e.key === 'ArrowDown') { e.preventDefault(); moveHighlight(1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); moveHighlight(-1); }
+    else if (e.key === 'Enter') { e.preventDefault(); commitHighlight(); }
+    else if (e.key === 'Escape') { e.preventDefault(); setIsOpen(false); }
+  };
+
+  const isHighlighted = (opt: CustomSelectOption) => flatOptions()[highlighted()] === opt;
+
   const renderIcon = (iconType?: string) => {
     if (iconType === 'folder') {
       return (
@@ -156,9 +231,11 @@ export default function CustomSelect(props: CustomSelectProps) {
 
   return (
     <div class="custom-select-container" ref={containerRef}>
-      <button 
-        class={`custom-select-trigger ${props.triggerClass || ''}`} 
+      <button
+        ref={triggerRef}
+        class={`custom-select-trigger ${props.triggerClass || ''}`}
         onClick={() => setIsOpen(!isOpen())}
+        onKeyDown={handleKeyNav}
         type="button"
       >
         {selectedOption()?.icon && renderIcon(selectedOption()?.icon)}
@@ -180,16 +257,11 @@ export default function CustomSelect(props: CustomSelectProps) {
                 value={query()}
                 placeholder={props.searchPlaceholder || 'Search...'}
                 onInput={(e) => setQuery(e.currentTarget.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Escape') {
-                    e.preventDefault();
-                    setIsOpen(false);
-                  }
-                }}
+                onKeyDown={handleKeyNav}
               />
             </div>
           </Show>
-          <div class="custom-select-options">
+          <div class="custom-select-options" ref={optionsRef}>
             <Show when={filteredOptions().length > 0} fallback={
               <div class="custom-select-empty">{props.noOptionsText || 'No options found'}</div>
             }>
@@ -201,8 +273,9 @@ export default function CustomSelect(props: CustomSelectProps) {
                     </Show>
                     <For each={group.options}>
                       {(opt) => (
-                        <div 
-                          class={`custom-select-option ${props.value === opt.value ? 'selected' : ''}`}
+                        <div
+                          class={`custom-select-option ${props.value === opt.value ? 'selected' : ''} ${isHighlighted(opt) ? 'highlighted' : ''}`}
+                          onMouseEnter={() => setHighlighted(flatOptions().indexOf(opt))}
                           onClick={() => {
                             props.onChange(opt.value);
                             setIsOpen(false);
