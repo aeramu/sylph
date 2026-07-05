@@ -52,6 +52,16 @@ export interface ProjectInfo {
   path: string;
 }
 
+// A session created in this app instance that the server session list may
+// not include yet (it's still on its first turn). The sidebar shows these
+// so a fresh chat doesn't vanish when another session becomes active.
+export interface DraftSession {
+  id: string;
+  projectId?: string;
+  firstMessage: string;
+  createdAt: string;
+}
+
 export interface ModelOption {
   value: string;
   label: string;

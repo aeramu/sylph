@@ -1,4 +1,5 @@
 import { createResource, createSignal, For, createEffect, Show } from 'solid-js';
+import type { DraftSession } from '../types';
 import AddProjectModal from './AddProjectModal';
 
 interface ProjectInfo {
@@ -67,7 +68,8 @@ function ProjectItem(props: {
   onSelectProject: (id?: string) => void,
   onNewChat: () => void,
   onDelete: () => void,
-  refreshTrigger: number
+  refreshTrigger: number,
+  draftSessions: DraftSession[]
 }) {
   const [expanded, setExpanded] = createSignal(false);
   const [showAll, setShowAll] = createSignal(false);
@@ -100,22 +102,27 @@ function ProjectItem(props: {
     }
   });
 
-  const visibleSessions = () => {
-    let list = sessions() ? [...sessions()!] : [];
-
-    // Optimistically inject the active session if it hasn't been fetched yet
-    if (props.activeSessionId && props.activeProjectId === props.project.id) {
-      if (!list.some(s => s.id === props.activeSessionId)) {
+  // Fetched sessions plus locally created ones the server list doesn't
+  // include yet (fresh chats still on their first turn). Titled with the
+  // first prompt so they don't vanish or read "New Chat" while streaming.
+  const mergedSessions = () => {
+    const list = sessions() ? [...sessions()!] : [];
+    for (const draft of props.draftSessions) {
+      if (!list.some(s => s.id === draft.id)) {
         list.unshift({
-          id: props.activeSessionId,
-          name: 'New Chat',
-          modified: new Date().toISOString(),
+          id: draft.id,
+          name: draft.firstMessage || 'New Chat',
+          modified: draft.createdAt,
           messageCount: 1,
-          firstMessage: ''
+          firstMessage: draft.firstMessage,
         });
       }
     }
+    return list;
+  };
 
+  const visibleSessions = () => {
+    const list = mergedSessions();
     if (!showAll()) return list.slice(0, SESSION_PREVIEW_COUNT);
     return list;
   };
@@ -179,12 +186,12 @@ function ProjectItem(props: {
               </div>
             )}
           </For>
-          <Show when={sessions() && sessions()!.length > SESSION_PREVIEW_COUNT}>
+          <Show when={mergedSessions().length > SESSION_PREVIEW_COUNT}>
             <div class="session-list-toggle" onClick={() => setShowAll(!showAll())}>
-              {showAll() ? 'See less' : `See all (${sessions()!.length})`}
+              {showAll() ? 'See less' : `See all (${mergedSessions().length})`}
             </div>
           </Show>
-          <Show when={!sessions() || sessions()!.length === 0}>
+          <Show when={mergedSessions().length === 0}>
             <div class="session-list-empty">No chats yet.</div>
           </Show>
         </div>
@@ -198,7 +205,9 @@ export default function SessionSidebar(props: {
   activeProjectId?: string,
   onSelectSession: (id?: string) => void,
   onSelectProject: (id?: string) => void,
-  refreshTrigger: number
+  refreshTrigger: number,
+  draftSessions: DraftSession[]
+  onProjectsChanged?: () => void,
 }) {
   const [projects, { refetch }] = createResource(fetchProjects);
   const [showAddProject, setShowAddProject] = createSignal(false);
@@ -211,6 +220,7 @@ export default function SessionSidebar(props: {
         props.onSelectSession(undefined);
       }
       refetch();
+      props.onProjectsChanged?.();
     } catch (e) {
       console.error(e);
     }
@@ -246,6 +256,7 @@ export default function SessionSidebar(props: {
               }}
               onDelete={() => handleDeleteProject(proj.id)}
               refreshTrigger={props.refreshTrigger}
+              draftSessions={props.draftSessions.filter(d => d.projectId === proj.id)}
             />
           )}
         </For>
@@ -263,6 +274,7 @@ export default function SessionSidebar(props: {
           onAdded={() => {
             setShowAddProject(false);
             refetch();
+            props.onProjectsChanged?.();
           }}
         />
       )}

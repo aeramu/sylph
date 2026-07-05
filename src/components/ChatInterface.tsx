@@ -10,7 +10,7 @@ import MessageBubble from './MessageBubble';
 import ResourcesModal from './ResourcesModal';
 import UiRequestModal, { type UiRequest } from './UiRequestModal';
 
-export default function ChatInterface(props: { activeSessionId?: string, activeProjectId?: string, onSelectProject?: (id: string) => void, onSessionCreated: (id: string, projectId?: string) => void, onTurnComplete?: () => void }) {
+export default function ChatInterface(props: { activeSessionId?: string, activeProjectId?: string, onSelectProject?: (id: string) => void, onSessionCreated: (id: string, projectId?: string, firstMessage?: string) => void, onTurnComplete?: () => void, projectRefreshTrigger?: number }) {
   const [messages, setMessages] = createStore<ChatMessage[]>([]);
   const [isProcessing, setIsProcessing] = createSignal(false);
   const [isConnected, setIsConnected] = createSignal(false);
@@ -102,24 +102,63 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     try { localStorage.setItem('sylph.thinkingLevel', level); } catch {}
   };
 
+  let messagesAreaRef: HTMLDivElement | undefined;
   let messagesEndRef: HTMLDivElement | undefined;
   let eventSource: EventSource | null = null;
 
+  // "Pinned to bottom" = the view should follow new content as it streams.
+  // The user breaks the pin by scrolling up to read history; we restore it
+  // when they scroll back near the bottom, or when they submit a prompt.
+  const [pinnedToBottom, setPinnedToBottom] = createSignal(true);
+  const NEAR_BOTTOM_THRESHOLD = 80; // px slack so tiny renders don't unpin
+
+  const isNearBottom = (el: HTMLElement) =>
+    el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_BOTTOM_THRESHOLD;
+
+  const handleScroll = () => {
+    if (!messagesAreaRef) return;
+    setPinnedToBottom(isNearBottom(messagesAreaRef));
+  };
+
+  // Instant scroll during streaming. Smooth scroll fired on every delta
+  // feels laggy because each animation is cancelled by the next one.
   const scrollToBottom = () => {
-    messagesEndRef?.scrollIntoView({ behavior: 'smooth' });
+    if (messagesAreaRef) {
+      messagesAreaRef.scrollTop = messagesAreaRef.scrollHeight;
+    } else {
+      messagesEndRef?.scrollIntoView({ behavior: 'auto' });
+    }
   };
 
   createEffect(() => {
-    messages.length; // Trigger effect on message count change
-    scrollToBottom();
+    const count = messages.length; // re-run when messages are added/removed
+    // Re-run on streaming content/thinking deltas too, so the view follows
+    // the live message instead of only when a brand-new bubble appears.
+    for (let i = count - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.isStreaming) {
+        void m.content; // track
+        void m.thinking; // track
+        break;
+      }
+    }
+    if (pinnedToBottom()) scrollToBottom();
   });
 
   onMount(() => {
-    fetchProjects();
     fetchModels();
     fetchCommands();
     fetchResources();
     connectSSE();
+  });
+
+  // Project list drives the "Select a Project" dropdown for new chats.
+  // Refetch on mount and whenever projects are added/removed elsewhere
+  // (the sidebar's Add Project modal), so the dropdown never shows a stale
+  // snapshot that's missing a freshly created project.
+  createEffect(() => {
+    void props.projectRefreshTrigger; // track
+    fetchProjects();
   });
 
   createEffect(() => {
@@ -142,6 +181,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     awaitingSessionCommit = false;
     pendingEventBuffer = [];
     setMessages([]);
+    setPinnedToBottom(true); // fresh session — follow from the bottom
     setUiRequest(null);
     setWidgets({});
     setStatusEntries(produce((s) => { for (const k of Object.keys(s)) delete s[k]; }));
@@ -355,6 +395,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       content: userMessage,
       images: messageImages.length ? messageImages : undefined,
     });
+    setPinnedToBottom(true); // user just sent — follow the reply
 
     // Images go through the SDK's images option; text files are inlined into
     // the prompt so the model receives their contents.
@@ -408,8 +449,10 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       }
       if (data.sessionId && data.sessionId !== props.activeSessionId) {
         // The session-switch effect replays the buffer and clears the flag.
+        // Fall back to the locally selected project if the server couldn't
+        // resolve one, so the sidebar draft still lands in the right group.
         pendingSessionId = data.sessionId;
-        props.onSessionCreated(data.sessionId, data.projectId);
+        props.onSessionCreated(data.sessionId, data.projectId ?? props.activeProjectId, userMessage.slice(0, 200));
       } else {
         stopBuffering();
       }
@@ -473,7 +516,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
         </div>
       </Show>
 
-      <div class="messages-area">
+      <div class="messages-area" ref={messagesAreaRef} onScroll={handleScroll}>
         <For each={messages}>
           {(msg) => (
             <Show when={hasRenderableContent(msg)}>

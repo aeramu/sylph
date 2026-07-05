@@ -6,11 +6,24 @@ import { renderMarkdown } from '../lib/markdown';
 export default function ThinkingSection(p: { text: string; active: boolean }) {
   const [expanded, setExpanded] = createSignal(p.active);
   let wasActive = p.active;
+  let contentRef: HTMLDivElement | undefined;
+
   createEffect(() => {
     // Collapse automatically on the active -> done transition, but leave the
     // user's manual toggle alone otherwise.
     if (wasActive && !p.active) setExpanded(false);
     wasActive = p.active;
+  });
+
+  // The thinking panel has its own bounded scroll area (max-height), so the
+  // outer messages-area can't follow its growth. While actively thinking,
+  // keep its inner view pinned to the latest token.
+  createEffect(() => {
+    if (p.text && p.active && contentRef) {
+      // Track p.text for reactivity; keep the bounded panel pinned to its
+      // latest line as thinking streams in.
+      contentRef.scrollTop = contentRef.scrollHeight;
+    }
   });
   return (
     <div class={`thinking-block ${p.active ? 'active' : ''}`}>
@@ -21,7 +34,11 @@ export default function ThinkingSection(p: { text: string; active: boolean }) {
         </svg>
       </div>
       <Show when={expanded()}>
-        <div class={`thinking-content ${p.active ? 'active' : ''}`} innerHTML={renderMarkdown(p.text)} />
+        <div
+          ref={contentRef}
+          class={`thinking-content ${p.active ? 'active' : ''}`}
+          innerHTML={renderMarkdown(p.text)}
+        />
       </Show>
     </div>
   );
