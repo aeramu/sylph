@@ -1,6 +1,6 @@
 import { For, Show } from 'solid-js';
 import type { ChatMessage } from '../types';
-import { renderMarkdown } from '../lib/markdown';
+import { renderMarkdown, stripThinkingBlocks } from '../lib/markdown';
 import ThinkingSection from './ThinkingSection';
 import ToolExecution from './ToolExecution';
 
@@ -35,7 +35,11 @@ export default function MessageBubble(props: { msg: ChatMessage; onImageClick: (
         </Show>
         <div
           class="message-content"
-          innerHTML={renderMarkdown(props.msg.content)}
+          innerHTML={renderMarkdown(
+            props.msg.role === 'assistant' && props.msg.thinking
+              ? stripThinkingBlocks(props.msg.content)
+              : props.msg.content
+          )}
         />
 
         <Show when={props.msg.errorMessage}>

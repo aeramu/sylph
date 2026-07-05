@@ -12,20 +12,37 @@ export function stripAnsi(text: string): string {
   return text.replace(ANSI_ESCAPE, '');
 }
 
-export function renderMarkdown(content: string): string {
+export function stripThinkingBlocks(text: string): string {
+  return text
+    // Remove complete <think>...</think> / <thinking>...</thinking> blocks.
+    .replace(/<(?:think|thinking)>[\s\S]*?<\/(?:think|thinking)>/gi, '')
+    // During malformed/partial streams, remove an opening tag through EOF.
+    .replace(/<(?:think|thinking)>[\s\S]*$/gi, '')
+    // Remove stray tags without deleting surrounding answer text.
+    .replace(/<\/?(?:think|thinking)>/gi, '')
+    .trimStart();
+}
+
+export function renderMarkdown(content: string, options: { processThinkingTags?: boolean } = {}): string {
   if (!content) return '';
 
-  // Process <thinking> and <think> tags into collapsible <details>
+  const { processThinkingTags = true } = options;
   let processed = stripAnsi(content);
-  const openCount = (processed.match(/<thinking>|<think>/g) || []).length;
-  const closeCount = (processed.match(/<\/thinking>|<\/think>/g) || []).length;
 
-  processed = processed
-    .replace(/<thinking>|<think>/g, '<details class="thinking-block" open><summary>Thinking process</summary><div class="thinking-content">\n\n')
-    .replace(/<\/thinking>|<\/think>/g, '\n\n</div></details>');
+  // Process <thinking> and <think> tags into collapsible <details> for normal
+  // assistant content. Dedicated thinking panels already provide their own
+  // collapsible UI, so callers can disable this to avoid nested accordions.
+  if (processThinkingTags) {
+    const openCount = (processed.match(/<thinking>|<think>/g) || []).length;
+    const closeCount = (processed.match(/<\/thinking>|<\/think>/g) || []).length;
 
-  if (openCount > closeCount) {
-    processed += '\n\n</div></details>';
+    processed = processed
+      .replace(/<thinking>|<think>/g, '<details class="thinking-block" open><summary>Thinking process</summary><div class="thinking-content">\n\n')
+      .replace(/<\/thinking>|<\/think>/g, '\n\n</div></details>');
+
+    if (openCount > closeCount) {
+      processed += '\n\n</div></details>';
+    }
   }
 
   try {

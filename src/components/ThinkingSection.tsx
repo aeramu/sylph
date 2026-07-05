@@ -37,7 +37,7 @@ export default function ThinkingSection(p: { text: string; active: boolean }) {
         <div
           ref={contentRef}
           class={`thinking-content ${p.active ? 'active' : ''}`}
-          innerHTML={renderMarkdown(p.text)}
+          innerHTML={renderMarkdown(p.text, { processThinkingTags: false })}
         />
       </Show>
     </div>
