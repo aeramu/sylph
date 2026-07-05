@@ -64,6 +64,7 @@ export interface ComposerApi {
   setText: (text: string) => void;
   pasteText: (text: string) => void;
   focus: () => void;
+  addFiles: (fileList: FileList | File[]) => Promise<void>;
 }
 
 export default function Composer(props: {
@@ -102,6 +103,13 @@ export default function Composer(props: {
   ];
   const isBuiltin = (cmd: CommandInfo): cmd is BuiltinCommand => (cmd as BuiltinCommand).builtin === true;
 
+  const addFiles = async (fileList: FileList | File[]) => {
+    const files = Array.from(fileList);
+    const read = await Promise.all(files.map(readFile));
+    const valid = read.filter((a): a is Attachment => !!a);
+    if (valid.length) setAttachments((prev) => [...prev, ...valid]);
+  };
+
   props.api?.({
     setText: (text) => {
       if (textareaRef) textareaRef.value = text;
@@ -117,14 +125,8 @@ export default function Composer(props: {
       textareaRef.focus();
     },
     focus: () => textareaRef?.focus(),
+    addFiles,
   });
-
-  const addFiles = async (fileList: FileList | File[]) => {
-    const files = Array.from(fileList);
-    const read = await Promise.all(files.map(readFile));
-    const valid = read.filter((a): a is Attachment => !!a);
-    if (valid.length) setAttachments((prev) => [...prev, ...valid]);
-  };
 
   const removeAttachment = (id: string) => {
     setAttachments((prev) => prev.filter((a) => a.id !== id));
@@ -154,6 +156,7 @@ export default function Composer(props: {
 
   const handleDrop = (e: DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     dragCounter = 0;
     setIsDragOver(false);
     if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files);
@@ -161,6 +164,7 @@ export default function Composer(props: {
 
   const handleDragEnter = (e: DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     if (e.dataTransfer?.types?.includes('Files')) {
       dragCounter++;
       setIsDragOver(true);
@@ -169,6 +173,7 @@ export default function Composer(props: {
 
   const handleDragLeave = (e: DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     dragCounter = Math.max(0, dragCounter - 1);
     if (dragCounter === 0) setIsDragOver(false);
   };
