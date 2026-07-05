@@ -443,6 +443,24 @@ body {
   min-width: 0;
 }
 
+.tool-edit-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.tool-edit-stat.added {
+  color: var(--success);
+}
+
+.tool-edit-stat.deleted {
+  color: var(--danger);
+}
+
 .tool-call {
   padding: 0.5rem 0 0.25rem 1.1rem;
   display: flex;

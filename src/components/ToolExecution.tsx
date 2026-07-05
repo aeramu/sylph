@@ -2,7 +2,24 @@ import { createSignal, createEffect, For, Show } from 'solid-js';
 import type { ToolCall } from '../types';
 import { stripAnsi } from '../lib/markdown';
 import { toolSummary, formatToolArgs, getEdits } from '../lib/toolFormat';
+import { diffLines } from '../lib/diff';
 import DiffView from './DiffView';
+
+function editLineStats(args?: Record<string, any>): { added: number; deleted: number } | null {
+  const edits = getEdits(args);
+  if (edits.length === 0) return null;
+
+  return edits.reduce(
+    (total, edit) => {
+      for (const row of diffLines(edit.oldText, edit.newText)) {
+        if (row.type === 'add') total.added += 1;
+        if (row.type === 'del') total.deleted += 1;
+      }
+      return total;
+    },
+    { added: 0, deleted: 0 },
+  );
+}
 
 export default function ToolExecution(props: { tool: ToolCall }) {
   // Running tools stay expanded; finished ones auto-collapse on the
@@ -17,6 +34,7 @@ export default function ToolExecution(props: { tool: ToolCall }) {
   });
   const summary = toolSummary(props.tool.name, props.tool.args);
   const argSections = formatToolArgs(props.tool.name, props.tool.args);
+  const lineStats = () => props.tool.name === 'edit' ? editLineStats(props.tool.args) : null;
   return (
     <div class="tool-execution">
       <div
@@ -25,6 +43,14 @@ export default function ToolExecution(props: { tool: ToolCall }) {
       >
         <span class="tool-name">{props.tool.name}</span>
         {summary && <span class="tool-summary">{summary}</span>}
+        <Show when={lineStats()}>
+          {(stats) => (
+            <span class="tool-edit-stats">
+              <span class="tool-edit-stat added">+{stats().added}</span>
+              <span class="tool-edit-stat deleted">-{stats().deleted}</span>
+            </span>
+          )}
+        </Show>
         {(argSections.length > 0 || props.tool.output) && (
           <svg class="tool-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="6 9 12 15 18 9"></polyline>
