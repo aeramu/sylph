@@ -46,7 +46,14 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
 
   const fetchProjects = () => {
     fetch(`/api/projects`).then(res => res.json()).then(data => {
-      setProjects(data.projects || []);
+      const list = data.projects || [];
+      setProjects(list);
+      // Auto-select the first project on initial load so the composer
+      // doesn't sit on a "Select a Project" placeholder when projects
+      // already exist.
+      if (!props.activeProjectId && list.length > 0 && props.onSelectProject) {
+        props.onSelectProject(list[0].id);
+      }
     });
   };
 
