@@ -193,6 +193,14 @@ export default function Composer(props: {
     return scored.length > 0 ? scored.map(s => s.cmd) : null;
   });
 
+  // Drop-up render order (best match nearest the input). Kept null-safe so the
+  // reactive `each` below never spreads null during the truthy -> null
+  // transition, which would throw and freeze the composer's reactivity.
+  const reversedCommands = createMemo(() => {
+    const cmds = filteredCommands();
+    return cmds ? [...cmds].reverse() : [];
+  });
+
   createEffect(() => {
     // Reset selected index when filtered list changes
     filteredCommands();
@@ -314,15 +322,15 @@ export default function Composer(props: {
           </For>
         </div>
       </Show>
-      {filteredCommands() && (
+      <Show when={filteredCommands()}>
         <div class="autocomplete-popup">
           <div class="autocomplete-header">
             Slash Commands
           </div>
           <div class="autocomplete-list" ref={commandListRef}>
-            <For each={[...filteredCommands()!].reverse()}>
+            <For each={reversedCommands()}>
               {(cmd, index) => {
-                const originalIndex = () => filteredCommands()!.length - 1 - index();
+                const originalIndex = () => reversedCommands().length - 1 - index();
                 return (
                   <div
                     class={`autocomplete-item ${originalIndex() === selectedIndex() ? 'selected' : ''}`}
@@ -343,13 +351,13 @@ export default function Composer(props: {
             </For>
           </div>
         </div>
-      )}
+      </Show>
       <textarea
         ref={textareaRef}
         class="input-field"
         placeholder="Ask anything, @ to mention, / for actions"
         value={input()}
-        onInput={(e) => setInput(e.target.value)}
+        onInput={(e) => setInput(e.currentTarget.value)}
         onKeyDown={handleKeyDown}
         onPaste={handlePaste}
         rows={1}
