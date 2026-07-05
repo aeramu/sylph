@@ -13,9 +13,21 @@ interface PendingUiRequest {
   resolve: (value: any) => void;
   reject: (err: Error) => void;
   sessionId: string;
+  // The broadcast event, kept so a client that missed (or discarded) the
+  // one-shot SSE broadcast can re-show the dialog later.
+  payload: Record<string, any>;
 }
 
 const pendingUiRequests = new Map<string, PendingUiRequest>();
+
+// Unanswered dialog payloads for a session, oldest first.
+export function getPendingUiRequests(sessionId: string): Record<string, any>[] {
+  const out: Record<string, any>[] = [];
+  for (const req of pendingUiRequests.values()) {
+    if (req.sessionId === sessionId) out.push(req.payload);
+  }
+  return out;
+}
 
 // Resolve the pending request matching this browser response. Returns false
 // if nothing is waiting on that id.
@@ -42,9 +54,10 @@ export function createExtensionUiContext(sessionId: string): any {
   // Dialog method: broadcast, block until the browser responds.
   const requestAndWait = (method: string, fields: Record<string, any>): Promise<any> => {
     const id = randomUUID();
+    const payload = { sessionId, type: "extension_ui_request", id, method, ...fields };
     return new Promise((resolve, reject) => {
-      pendingUiRequests.set(id, { resolve, reject, sessionId });
-      broadcast({ sessionId, type: "extension_ui_request", id, method, ...fields });
+      pendingUiRequests.set(id, { resolve, reject, sessionId, payload });
+      broadcast(payload);
     });
   };
 

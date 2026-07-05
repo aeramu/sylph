@@ -6,6 +6,22 @@ export interface AgentEventCallbacks {
   onTurnComplete?: () => void;
 }
 
+// Index of the assistant message live events should mutate: the streaming
+// one, or failing that the most recent assistant message. Deltas used to
+// target messages[length - 1], which silently dropped them whenever a
+// steering prompt (optimistic user bubble) or a notification was appended
+// behind the still-streaming assistant message.
+function liveAssistantIdx(messages: ChatMessage[]): number {
+  let lastAssistant = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role !== 'assistant') continue;
+    if (m.isStreaming) return i;
+    if (lastAssistant < 0) lastAssistant = i;
+  }
+  return lastAssistant;
+}
+
 // Apply one streamed agent event to the messages store. Extracted from the
 // component so the SSE plumbing and the store mutation logic stay separate.
 export function applyAgentEvent(
@@ -14,8 +30,6 @@ export function applyAgentEvent(
   event: any,
   callbacks: AgentEventCallbacks,
 ) {
-  const lastIdx = messages.length - 1;
-
   if (event.type === 'message_start') {
     const msgId = event.message?.id || event.message?.responseId || Date.now().toString();
 
@@ -55,16 +69,19 @@ export function applyAgentEvent(
     }
   } else if (event.type === 'message_update' && event.assistantMessageEvent?.type === 'thinking_start') {
     // Thinking only streams on the active assistant message (never tool results).
-    if (lastIdx >= 0 && messages[lastIdx].role === 'assistant') {
-      setMessages(lastIdx, 'isThinking', true);
+    const idx = liveAssistantIdx(messages);
+    if (idx >= 0) {
+      setMessages(idx, 'isThinking', true);
     }
   } else if (event.type === 'message_update' && event.assistantMessageEvent?.type === 'thinking_delta') {
-    if (lastIdx >= 0 && messages[lastIdx].role === 'assistant') {
-      setMessages(lastIdx, 'thinking', (t) => (t || '') + event.assistantMessageEvent.delta);
+    const idx = liveAssistantIdx(messages);
+    if (idx >= 0) {
+      setMessages(idx, 'thinking', (t) => (t || '') + event.assistantMessageEvent.delta);
     }
   } else if (event.type === 'message_update' && event.assistantMessageEvent?.type === 'thinking_end') {
-    if (lastIdx >= 0 && messages[lastIdx].role === 'assistant') {
-      setMessages(lastIdx, 'isThinking', false);
+    const idx = liveAssistantIdx(messages);
+    if (idx >= 0) {
+      setMessages(idx, 'isThinking', false);
     }
   } else if (event.type === 'message_update' && event.assistantMessageEvent?.type === 'text_delta') {
     const msgId = event.message?.id || event.message?.responseId;
@@ -91,16 +108,18 @@ export function applyAgentEvent(
         );
       }
     } else {
-      if (lastIdx >= 0 && messages[lastIdx].role === 'assistant') {
-        setMessages(lastIdx, 'content', (c) => (c || '') + event.assistantMessageEvent.delta);
+      const idx = liveAssistantIdx(messages);
+      if (idx >= 0) {
+        setMessages(idx, 'content', (c) => (c || '') + event.assistantMessageEvent.delta);
       }
     }
   } else if (event.type === 'message_end') {
     // message_end can also carry an error if the failure happens mid-stream.
     if (event.message?.stopReason === 'error' && event.message?.errorMessage) {
-      if (lastIdx >= 0 && messages[lastIdx].role === 'assistant') {
-        setMessages(lastIdx, 'errorMessage', event.message.errorMessage);
-        setMessages(lastIdx, 'isStreaming', false);
+      const idx = liveAssistantIdx(messages);
+      if (idx >= 0) {
+        setMessages(idx, 'errorMessage', event.message.errorMessage);
+        setMessages(idx, 'isStreaming', false);
       }
     } else {
       setMessages(m => m.isStreaming === true, 'isStreaming', false);
@@ -116,9 +135,10 @@ export function applyAgentEvent(
     // session file on disk now has real metadata (first message, count).
     callbacks.onTurnComplete?.();
   } else if (event.type === 'tool_execution_start') {
-    if (lastIdx >= 0 && messages[lastIdx].role === 'assistant') {
+    const idx = liveAssistantIdx(messages);
+    if (idx >= 0) {
       const toolName = event.toolName || event.name || (event.toolCall && event.toolCall.name) || 'tool';
-      setMessages(lastIdx, 'tools', (t) => [...(t || []), {
+      setMessages(idx, 'tools', (t) => [...(t || []), {
         id: event.toolCallId,
         name: toolName,
         status: 'running' as const,
@@ -126,15 +146,23 @@ export function applyAgentEvent(
       }]);
     }
   } else if (event.type === 'tool_execution_update') {
-    if (lastIdx >= 0 && messages[lastIdx].role === 'assistant') {
-      setMessages(lastIdx, 'tools', (tools) =>
-        tools ? tools.map((t) => t.id === event.toolCallId ? { ...t, output: (t.output || '') + (event.delta || '') } : t) : []
+    // Match the tool by id anywhere (like toolResult message_start does):
+    // the owning assistant message need not be the last one anymore.
+    if (event.toolCallId) {
+      setMessages(
+        m => m.role === 'assistant' && !!m.tools?.some(t => t.id === event.toolCallId),
+        'tools',
+        t => t.id === event.toolCallId,
+        tool => ({ ...tool, output: (tool.output || '') + (event.delta || '') })
       );
     }
   } else if (event.type === 'tool_execution_end') {
-    if (lastIdx >= 0 && messages[lastIdx].role === 'assistant') {
-      setMessages(lastIdx, 'tools', (tools) =>
-        tools ? tools.map((t) => t.id === event.toolCallId ? { ...t, status: event.isError ? 'error' : 'success' } : t) : []
+    if (event.toolCallId) {
+      setMessages(
+        m => m.role === 'assistant' && !!m.tools?.some(t => t.id === event.toolCallId),
+        'tools',
+        t => t.id === event.toolCallId,
+        tool => ({ ...tool, status: (event.isError ? 'error' : 'success') as 'error' | 'success' })
       );
     }
   }

@@ -8,7 +8,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { getProjects, saveProjects, type Project } from "./projects.ts";
 import { addClient, removeClient } from "./sse.ts";
-import { resolveUiRequest } from "./uiBridge.ts";
+import { resolveUiRequest, getPendingUiRequests } from "./uiBridge.ts";
 import { getActiveRuntime, getOrInitRuntime, getIntrospectionRuntime, touchRuntime } from "./runtimes.ts";
 
 function handleError(res: express.Response, err: any) {
@@ -182,6 +182,9 @@ export function createRouter(): express.Router {
         // Lets the client restore the working indicator when it opens a
         // session that is currently mid-turn.
         isStreaming: !!runtime.session.isStreaming,
+        // Dialogs the agent is still blocked on; their SSE broadcast was a
+        // one-shot the client may have missed while on another session.
+        pendingUiRequests: getPendingUiRequests(sessionId),
       });
     } catch (err) {
       handleError(res, err);

@@ -127,7 +127,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       const buffered = pendingEventBuffer;
       pendingEventBuffer = [];
       for (const e of buffered) {
-        if (e.sessionId === id) applyEvent(e);
+        if (e.sessionId === id) dispatchSessionEvent(e);
       }
       return;
     }
@@ -181,6 +181,12 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       // the working indicator we'd otherwise only get from the agent_start we
       // missed.
       setIsProcessing(!!data.isStreaming);
+      // Re-show a dialog the agent is still blocked on (its one-shot SSE
+      // broadcast was dropped if we were on another session at the time).
+      // Set-only: a request that arrived live during this fetch must not be
+      // cleared by a snapshot built before it existed.
+      const pendingUi = data.pendingUiRequests?.[0];
+      if (pendingUi && !uiRequest()) setUiRequest(pendingUi);
     } catch (err) {
       console.error('Failed to load history:', err);
     } finally {
@@ -214,13 +220,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
         return;
       }
 
-      if (data.type === 'extension_ui_request') {
-        if (props.activeSessionId && data.sessionId !== props.activeSessionId) return;
-        handleUiMethod(data);
-        return;
-      }
-
-      handleAgentEvent(data);
+      handleSessionEvent(data);
     };
   };
 
@@ -231,14 +231,18 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     });
   };
 
-  // Gate live events by the committed session. Events for a not-yet-committed
-  // new session are buffered until the /api/chat response promises its id;
-  // with no submission in flight, foreign-session events are just dropped.
-  const handleAgentEvent = (event: any) => {
+  // Gate live session events (agent events and extension UI requests) by the
+  // committed session. Events for a not-yet-committed new session are
+  // buffered until the /api/chat response promises its id; with no submission
+  // in flight, foreign-session events are just dropped.
+  const handleSessionEvent = (event: any) => {
     if (event.sessionId) {
       if (props.activeSessionId) {
         if (event.sessionId !== props.activeSessionId) return;
-        if (historyLoading) return; // already part of the loading snapshot
+        // Agent events during a history fetch are already part of the
+        // snapshot being loaded; UI requests are not (the snapshot only
+        // carries ones pending when it was built), so let them through.
+        if (historyLoading && event.type !== 'extension_ui_request') return;
       } else if (awaitingSessionCommit) {
         pendingEventBuffer.push(event);
         return;
@@ -246,7 +250,15 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
         return;
       }
     }
-    applyEvent(event);
+    dispatchSessionEvent(event);
+  };
+
+  const dispatchSessionEvent = (event: any) => {
+    if (event.type === 'extension_ui_request') {
+      handleUiMethod(event);
+    } else {
+      applyEvent(event);
+    }
   };
 
   const addNotification = (message: string, type: string = 'info') => {
