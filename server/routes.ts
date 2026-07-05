@@ -177,7 +177,12 @@ export function createRouter(): express.Router {
     }
     try {
       const runtime = await getOrInitRuntime(sessionId);
-      res.json({ messages: runtime.session.messages || [] });
+      res.json({
+        messages: runtime.session.messages || [],
+        // Lets the client restore the working indicator when it opens a
+        // session that is currently mid-turn.
+        isStreaming: !!runtime.session.isStreaming,
+      });
     } catch (err) {
       handleError(res, err);
     }

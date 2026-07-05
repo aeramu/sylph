@@ -31,9 +31,18 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   // active. The HTTP response is the single authoritative source of the id;
   // SSE events for an uncommitted session are buffered until it commits.
   let pendingSessionId: string | null = null;
+  // True from submitting a prompt with no active session until that session
+  // commits (or the request fails). Buffering is gated on it so an idle
+  // new-chat screen doesn't accumulate events from unrelated sessions.
+  let awaitingSessionCommit = false;
   let pendingEventBuffer: any[] = [];
   // Guards fetchHistory against stale responses when switching sessions fast.
   let historyRequestSeq = 0;
+  // While a snapshot is in flight, live events for the session are dropped:
+  // the server serves the snapshot from the same live state, so events
+  // received during the fetch are already part of it (applying them too
+  // would duplicate streamed content).
+  let historyLoading = false;
 
   const fetchProjects = () => {
     fetch(`/api/projects`).then(res => res.json()).then(data => {
@@ -110,13 +119,21 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     const id = props.activeSessionId; // track
     if (id && pendingSessionId === id) {
       // We just committed a session we created; it's already streaming, so
-      // replay buffered events instead of wiping and reloading history.
+      // replay buffered events instead of wiping and reloading history. Only
+      // this session's events: while /api/chat was in flight, other sessions
+      // may have streamed into the buffer too.
       pendingSessionId = null;
+      awaitingSessionCommit = false;
       const buffered = pendingEventBuffer;
       pendingEventBuffer = [];
-      for (const e of buffered) applyEvent(e);
+      for (const e of buffered) {
+        if (e.sessionId === id) applyEvent(e);
+      }
       return;
     }
+    pendingSessionId = null;
+    awaitingSessionCommit = false;
+    pendingEventBuffer = [];
     setMessages([]);
     setUiRequest(null);
     setWidgets({});
@@ -154,13 +171,20 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       return;
     }
     const seq = ++historyRequestSeq;
+    historyLoading = true;
     try {
       const res = await fetch(`/api/history?sessionId=${props.activeSessionId}`);
       const data = await res.json();
       if (seq !== historyRequestSeq) return; // a newer request superseded this one
       setMessages(mapHistoryToMessages(data.messages || []));
+      // The session may be mid-turn (e.g. re-opened while streaming); restore
+      // the working indicator we'd otherwise only get from the agent_start we
+      // missed.
+      setIsProcessing(!!data.isStreaming);
     } catch (err) {
       console.error('Failed to load history:', err);
+    } finally {
+      if (seq === historyRequestSeq) historyLoading = false;
     }
   };
 
@@ -208,13 +232,17 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   };
 
   // Gate live events by the committed session. Events for a not-yet-committed
-  // new session are buffered until the /api/chat response promises its id.
+  // new session are buffered until the /api/chat response promises its id;
+  // with no submission in flight, foreign-session events are just dropped.
   const handleAgentEvent = (event: any) => {
     if (event.sessionId) {
       if (props.activeSessionId) {
         if (event.sessionId !== props.activeSessionId) return;
-      } else {
+        if (historyLoading) return; // already part of the loading snapshot
+      } else if (awaitingSessionCommit) {
         pendingEventBuffer.push(event);
+        return;
+      } else {
         return;
       }
     }
@@ -321,6 +349,17 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       promptText = promptText ? `${promptText}\n\n${inlined}` : inlined;
     }
 
+    // For a brand-new chat the session id only arrives with the /api/chat
+    // response; buffer this session's SSE events until then.
+    const isNewSession = !props.activeSessionId;
+    if (isNewSession) awaitingSessionCommit = true;
+    const stopBuffering = () => {
+      if (isNewSession) {
+        awaitingSessionCommit = false;
+        pendingEventBuffer = [];
+      }
+    };
+
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
@@ -336,6 +375,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       });
       const data = await res.json();
       if (!res.ok) {
+        stopBuffering();
         // Server-side error (unknown model, no auth, provider error, etc.).
         // Render it as an assistant error bubble so the user sees what went
         // wrong instead of a silent hang.
@@ -348,10 +388,14 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
         return;
       }
       if (data.sessionId && data.sessionId !== props.activeSessionId) {
+        // The session-switch effect replays the buffer and clears the flag.
         pendingSessionId = data.sessionId;
         props.onSessionCreated(data.sessionId, data.projectId);
+      } else {
+        stopBuffering();
       }
     } catch (err) {
+      stopBuffering();
       console.error('Failed to send message:', err);
       setMessages(messages.length, {
         id: Date.now().toString() + '-err',
