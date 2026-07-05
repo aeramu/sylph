@@ -1,12 +1,20 @@
-import { createSignal, For, Show } from 'solid-js';
+import { createSignal, createEffect, For, Show } from 'solid-js';
 import type { ToolCall } from '../types';
 import { stripAnsi } from '../lib/markdown';
 import { toolSummary, formatToolArgs, getEdits } from '../lib/toolFormat';
 import DiffView from './DiffView';
 
 export default function ToolExecution(props: { tool: ToolCall }) {
-  // Running tools stay expanded; finished ones auto-collapse.
-  const [expanded, setExpanded] = createSignal(props.tool.status === 'running');
+  // Running tools stay expanded; finished ones auto-collapse on the
+  // running -> done transition (same pattern as ThinkingSection). Manual
+  // toggles after that are left alone.
+  const isRunning = () => props.tool.status === 'running';
+  const [expanded, setExpanded] = createSignal(isRunning());
+  let wasRunning = isRunning();
+  createEffect(() => {
+    if (wasRunning && !isRunning()) setExpanded(false);
+    wasRunning = isRunning();
+  });
   const summary = toolSummary(props.tool.name, props.tool.args);
   const argSections = formatToolArgs(props.tool.name, props.tool.args);
   return (
