@@ -105,6 +105,8 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   let messagesAreaRef: HTMLDivElement | undefined;
   let messagesEndRef: HTMLDivElement | undefined;
   let eventSource: EventSource | null = null;
+  let chatDragCounter = 0;
+  const [isChatDragOver, setIsChatDragOver] = createSignal(false);
 
   // "Pinned to bottom" = the view should follow new content as it streams.
   // The user breaks the pin by scrolling up to read history; we restore it
@@ -479,8 +481,56 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     }
   };
 
+  const hasDraggedFiles = (e: DragEvent) => e.dataTransfer?.types?.includes('Files');
+
+  const handleChatDragEnter = (e: DragEvent) => {
+    if (!hasDraggedFiles(e) || uiRequest()) return;
+    e.preventDefault();
+    chatDragCounter++;
+    setIsChatDragOver(true);
+  };
+
+  const handleChatDragOver = (e: DragEvent) => {
+    if (!hasDraggedFiles(e) || uiRequest()) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+  };
+
+  const handleChatDragLeave = (e: DragEvent) => {
+    if (!hasDraggedFiles(e) || uiRequest()) return;
+    e.preventDefault();
+    chatDragCounter = Math.max(0, chatDragCounter - 1);
+    if (chatDragCounter === 0) setIsChatDragOver(false);
+  };
+
+  const handleChatDrop = (e: DragEvent) => {
+    if (!hasDraggedFiles(e) || uiRequest()) return;
+    e.preventDefault();
+    chatDragCounter = 0;
+    setIsChatDragOver(false);
+    if (e.dataTransfer?.files?.length) {
+      composerApi?.addFiles(e.dataTransfer.files);
+      requestAnimationFrame(() => composerApi?.focus());
+    }
+  };
+
   return (
-    <div class={`chat-container ${messages.length === 0 ? 'empty-mode' : ''}`}>
+    <div
+      class={`chat-container ${messages.length === 0 ? 'empty-mode' : ''} ${isChatDragOver() ? 'chat-drag-over' : ''}`}
+      onDragEnter={handleChatDragEnter}
+      onDragOver={handleChatDragOver}
+      onDragLeave={handleChatDragLeave}
+      onDrop={handleChatDrop}
+    >
+      <Show when={isChatDragOver()}>
+        <div class="chat-drop-overlay">
+          <div class="chat-drop-card">
+            <div class="chat-drop-icon">＋</div>
+            <div class="chat-drop-title">Drop files or images to attach</div>
+            <div class="chat-drop-subtitle">They’ll be added to the message composer</div>
+          </div>
+        </div>
+      </Show>
       <div class="system-status">
         <div>{isConnected() ? '🟢 Agent Connected' : '🔴 Agent Disconnected'}</div>
         <div class="ext-status-entries">
