@@ -11,7 +11,7 @@ const readOnlyExtensions: Extension[] = [
   EditorState.readOnly.of(true),
 ];
 
-function diffEditorExtensions(path?: string): Extension[] {
+function diffEditorExtensions(languageExtensions: Extension[]): Extension[] {
   return [
     basicSetup,
     sylphEditorTheme,
@@ -19,7 +19,7 @@ function diffEditorExtensions(path?: string): Extension[] {
     sylphSyntaxHighlighting,
     EditorView.lineWrapping,
     EditorState.tabSize.of(2),
-    ...languageExtensionForPath(path),
+    ...languageExtensions,
     ...readOnlyExtensions,
   ];
 }
@@ -32,28 +32,35 @@ export default function DiffView(props: { oldText: string; newText: string; path
     const oldText = props.oldText;
     const newText = props.newText;
     const path = props.path;
+    let cancelled = false;
 
-    if (!container) return;
+    onCleanup(() => {
+      cancelled = true;
+    });
 
-    mergeView?.destroy();
-    container.replaceChildren();
+    void languageExtensionForPath(path).then((languageExtensions) => {
+      if (cancelled || !container) return;
 
-    mergeView = new MergeView({
-      a: {
-        doc: oldText,
-        extensions: diffEditorExtensions(path),
-      },
-      b: {
-        doc: newText,
-        extensions: diffEditorExtensions(path),
-      },
-      parent: container,
-      highlightChanges: true,
-      gutter: true,
-      collapseUnchanged: {
-        margin: 4,
-        minSize: 12,
-      },
+      mergeView?.destroy();
+      container.replaceChildren();
+
+      mergeView = new MergeView({
+        a: {
+          doc: oldText,
+          extensions: diffEditorExtensions(languageExtensions),
+        },
+        b: {
+          doc: newText,
+          extensions: diffEditorExtensions(languageExtensions),
+        },
+        parent: container,
+        highlightChanges: true,
+        gutter: true,
+        collapseUnchanged: {
+          margin: 4,
+          minSize: 12,
+        },
+      });
     });
   });
 

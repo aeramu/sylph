@@ -10,14 +10,14 @@ const readOnlyExtensions: Extension[] = [
   EditorState.readOnly.of(true),
 ];
 
-function codeViewExtensions(path?: string): Extension[] {
+function codeViewExtensions(languageExtensions: Extension[]): Extension[] {
   return [
     basicSetup,
     sylphEditorTheme,
     sylphSyntaxHighlighting,
     EditorView.lineWrapping,
     EditorState.tabSize.of(2),
-    ...languageExtensionForPath(path),
+    ...languageExtensions,
     ...readOnlyExtensions,
   ];
 }
@@ -29,16 +29,23 @@ export default function CodeView(props: { code: string; path?: string; class?: s
   createEffect(() => {
     const code = props.code;
     const path = props.path;
+    let cancelled = false;
 
-    if (!container) return;
+    onCleanup(() => {
+      cancelled = true;
+    });
 
-    view?.destroy();
-    container.replaceChildren();
+    void languageExtensionForPath(path).then((languageExtensions) => {
+      if (cancelled || !container) return;
 
-    view = new EditorView({
-      parent: container,
-      doc: code,
-      extensions: codeViewExtensions(path),
+      view?.destroy();
+      container.replaceChildren();
+
+      view = new EditorView({
+        parent: container,
+        doc: code,
+        extensions: codeViewExtensions(languageExtensions),
+      });
     });
   });
 
