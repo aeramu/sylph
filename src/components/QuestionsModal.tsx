@@ -185,7 +185,7 @@ export default function QuestionsModal(props: { request: QuestionsRequest; onRes
                     <Show when={isSel() && preview()}>
                       <div
                         class="message-content"
-                        style="margin:6px 0 8px 24px;max-height:260px;overflow:auto;padding:8px 12px;border-radius:8px;background:rgba(127,127,127,.08);font-size:.9em;"
+                        style="margin:6px 0 8px;max-height:260px;overflow:auto;padding:8px 12px;border-radius:8px;background:rgba(127,127,127,.08);font-size:.9em;"
                         innerHTML={renderMarkdown(preview() || '')}
                       />
                     </Show>

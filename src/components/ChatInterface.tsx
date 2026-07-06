@@ -187,6 +187,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     setMessages([]);
     setPinnedToBottom(true); // fresh session — follow from the bottom
     setUiRequest(null);
+    setQuestionsRequest(null);
     setWidgets({});
     setStatusEntries(produce((s) => { for (const k of Object.keys(s)) delete s[k]; }));
     fetchHistory();
@@ -219,6 +220,8 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   const fetchHistory = async () => {
     if (!props.activeSessionId) {
       setMessages([]);
+      setUiRequest(null);
+      setQuestionsRequest(null);
       return;
     }
     const seq = ++historyRequestSeq;
