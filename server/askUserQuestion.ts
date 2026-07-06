@@ -96,3 +96,5 @@ export const askUserQuestionExtension: ExtensionFactory = (pi: ExtensionAPI) => 
     },
   });
 };
+
+export default askUserQuestionExtension;

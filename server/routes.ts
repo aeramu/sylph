@@ -16,7 +16,25 @@ function handleError(res: express.Response, err: any) {
   res.status(500).json({ error: err?.message || "Internal error" });
 }
 
-function extensionDisplayName(pathStr: string): string {
+function extensionDisplayName(extensionOrPath: string | {
+  path: string;
+  tools?: Map<string, unknown>;
+  commands?: Map<string, unknown>;
+}): string {
+  const pathStr = typeof extensionOrPath === "string" ? extensionOrPath : extensionOrPath.path;
+
+  // Inline extension factories are assigned synthetic paths by pi, e.g.
+  // "<inline:1>". pi does not currently attach a first-class extension name
+  // to inline factories, so derive a stable display name from the single thing
+  // the inline extension contributes when possible.
+  if (pathStr.startsWith("<inline:") && typeof extensionOrPath !== "string") {
+    const toolNames = Array.from(extensionOrPath.tools?.keys() ?? []);
+    if (toolNames.length === 1) return toolNames[0];
+
+    const commandNames = Array.from(extensionOrPath.commands?.keys() ?? []);
+    if (commandNames.length === 1) return commandNames[0];
+  }
+
   if (!pathStr.includes("node_modules/")) {
     return pathStr.split(/[\\/]/).pop() || pathStr;
   }
@@ -224,7 +242,7 @@ export function createRouter(): express.Router {
       const session = runtime.session as any;
 
       const extensions = (session._resourceLoader?.getExtensions()?.extensions || []).map((e: any) => ({
-        name: extensionDisplayName(e.path),
+        name: extensionDisplayName(e),
         source: "extension",
       }));
       const templates = (session.promptTemplates || []).map((t: any) => ({

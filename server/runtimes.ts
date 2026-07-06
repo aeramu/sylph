@@ -1,4 +1,6 @@
 import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import {
   createAgentSessionRuntime,
   createAgentSessionServices,
@@ -14,7 +16,6 @@ import { RUNTIME_IDLE_MS, EVICTION_INTERVAL_MS } from "./config.ts";
 import { getProjects } from "./projects.ts";
 import { broadcast } from "./sse.ts";
 import { createExtensionUiContext, rejectPendingForSession } from "./uiBridge.ts";
-import { askUserQuestionExtension } from "./askUserQuestion.ts";
 
 interface RuntimeEntry {
   runtime: any;
@@ -22,14 +23,19 @@ interface RuntimeEntry {
 }
 
 const activeRuntimes = new Map<string, RuntimeEntry>();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const askUserQuestionExtensionPath = path.join(__dirname, "askUserQuestion.ts");
 
 async function buildRuntime(sessionManager: any, cwd: string, opts?: { uiContext?: any }) {
   const factory: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
     const services = await createAgentSessionServices({
       cwd,
       // Register sylph's native, browser-rendered ask_user_question tool in
-      // every runtime (replaces the TUI-only @juicesharp version).
-      resourceLoaderOptions: { extensionFactories: [askUserQuestionExtension] },
+      // every runtime (replaces the TUI-only @juicesharp version). Use a real
+      // extension path instead of an inline factory so /api/resources can show
+      // the filename rather than pi's synthetic <inline:1> id.
+      resourceLoaderOptions: { additionalExtensionPaths: [askUserQuestionExtensionPath] },
     });
 
     return {
