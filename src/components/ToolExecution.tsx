@@ -4,6 +4,7 @@ import { stripAnsi } from '../lib/markdown';
 import { toolSummary, formatToolArgs, getEdits } from '../lib/toolFormat';
 import { diffLines } from '../lib/diff';
 import DiffView from './DiffView';
+import CodeView from './CodeView';
 
 function editLineStats(args?: Record<string, any>): { added: number; deleted: number } | null {
   const edits = getEdits(args);
@@ -32,6 +33,7 @@ export default function ToolExecution(props: { tool: ToolCall }) {
     if (wasRunning && !isRunning()) setExpanded(false);
     wasRunning = isRunning();
   });
+  const toolPath = () => String(props.tool.args?.path ?? '');
   const summary = toolSummary(props.tool.name, props.tool.args);
   const argSections = formatToolArgs(props.tool.name, props.tool.args);
   const lineStats = () => props.tool.name === 'edit' ? editLineStats(props.tool.args) : null;
@@ -64,7 +66,12 @@ export default function ToolExecution(props: { tool: ToolCall }) {
               {(section) => (
                 <div class={`tool-call-section ${section.label.toLowerCase()}`}>
                   <div class="tool-call-label">{section.label}</div>
-                  <pre class="tool-call-value">{section.lines.join('\n')}</pre>
+                  <Show
+                    when={props.tool.name === 'write' && section.label === 'Content'}
+                    fallback={<pre class="tool-call-value">{section.lines.join('\n')}</pre>}
+                  >
+                    <CodeView code={section.lines.join('\n')} path={toolPath()} class="tool-call-code" />
+                  </Show>
                 </div>
               )}
             </For>
@@ -73,14 +80,21 @@ export default function ToolExecution(props: { tool: ToolCall }) {
         {props.tool.name === 'edit' && (
           <div class="tool-diffs">
             <For each={getEdits(props.tool.args)}>
-              {(ed) => <DiffView oldText={ed.oldText} newText={ed.newText} />}
+              {(ed) => <DiffView oldText={ed.oldText} newText={ed.newText} path={toolPath()} />}
             </For>
           </div>
         )}
         {props.tool.output && (
-          <div class="tool-body">
-            {stripAnsi(props.tool.output)}
-          </div>
+          <Show
+            when={props.tool.name === 'read'}
+            fallback={(
+              <div class="tool-body">
+                {stripAnsi(props.tool.output)}
+              </div>
+            )}
+          >
+            <CodeView code={stripAnsi(props.tool.output)} path={toolPath()} class="tool-body-code" />
+          </Show>
         )}
       </Show>
     </div>

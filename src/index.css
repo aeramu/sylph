@@ -686,37 +686,6 @@ body {
   overflow-y: auto;
 }
 
-.diff-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-}
-
-.diff-cell {
-  font-family: var(--font-mono);
-  font-size: 0.76rem;
-  line-height: 1.5;
-  padding: 0 0.6rem;
-  white-space: pre-wrap;
-  word-break: break-word;
-  min-height: 1.15em;
-  color: var(--text-primary);
-  border-left: 2px solid transparent;
-}
-
-.diff-cell.diff-old {
-  border-right: 1px solid var(--border-color);
-}
-
-.diff-cell.removed {
-  background: rgba(239, 68, 68, 0.13);
-  border-left-color: var(--danger);
-}
-
-.diff-cell.added {
-  background: rgba(34, 197, 94, 0.13);
-  border-left-color: var(--success);
-}
-
 .tool-body {
   margin: 0.35rem 0 0.25rem 1.1rem;
   padding: 0.6rem 0.75rem;
