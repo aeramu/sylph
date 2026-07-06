@@ -97,7 +97,7 @@ export function createExtensionUiContext(sessionId: string): any {
   // server/askUserQuestion.ts). Broadcasts the full structured spec — including
   // per-option descriptions and previews — and resolves with the user's answers
   // (index-aligned with spec.questions) or a cancellation.
-  const askQuestions = async (spec: any) => {
+  const questions = async (spec: any) => {
     const res = await requestAndWait("questions", { questions: spec?.questions ?? [] });
     if (!res || res.cancelled) return { cancelled: true, answers: [] };
     return { cancelled: false, answers: Array.isArray(res.answers) ? res.answers : [] };
@@ -161,7 +161,7 @@ export function createExtensionUiContext(sessionId: string): any {
 
   return {
     // Dialog
-    select, confirm, input, editor, askQuestions,
+    select, confirm, input, editor, questions,
     // Fire-and-forget
     notify, setStatus, setWidget,
     setWorkingMessage, setWorkingVisible, setWorkingIndicator,

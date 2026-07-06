@@ -4,7 +4,7 @@
 // through ctx.ui.custom() — a pi-tui terminal overlay that sylph's browser UI
 // can't display. Instead of bridging the terminal, we register our own tool
 // (same shape) whose UI runs natively in the browser: execute() hands the
-// structured params to ctx.ui.askQuestions(), which sylph's uiBridge turns into
+// structured params to ctx.ui.questions(), which sylph's uiBridge turns into
 // an SSE dialog request and resolves with the user's answers.
 //
 // Registered as an inline extensionFactory (see runtimes.ts) so it loads into
@@ -77,7 +77,7 @@ export const askUserQuestionExtension: ExtensionFactory = (pi: ExtensionAPI) => 
     parameters: QuestionParamsSchema,
     execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
       const p = params as QuestionParams;
-      const ask = (ctx.ui as any)?.askQuestions;
+      const ask = (ctx.ui as any)?.questions;
       if (!ctx.hasUI || typeof ask !== "function") {
         return textResult(
           "ask_user_question is unavailable: no interactive UI in this session. Ask in plain conversation or proceed with a reasonable default.",
