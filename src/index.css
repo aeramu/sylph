@@ -494,6 +494,101 @@ body {
   font-size: 0.85rem;
 }
 
+.message-content .code-block {
+  margin: 0.95rem 0;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: rgba(10, 12, 16, 0.86);
+}
+
+.message-content .code-block-header {
+  display: flex;
+  align-items: center;
+  min-height: 2rem;
+  padding: 0.35rem 0.8rem;
+  border-bottom: 1px solid var(--border-color);
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.message-content .code-block pre {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent !important;
+}
+
+.cm-highlighted .tok-comment,
+.cm-highlighted .tok-meta {
+  color: #7f8ea3;
+  font-style: italic;
+}
+
+.cm-highlighted .tok-keyword,
+.cm-highlighted .tok-operator {
+  color: #c4b5fd;
+}
+
+.cm-highlighted .tok-string,
+.cm-highlighted .tok-string2,
+.cm-highlighted .tok-url {
+  color: #86efac;
+}
+
+.cm-highlighted .tok-number,
+.cm-highlighted .tok-bool,
+.cm-highlighted .tok-atom,
+.cm-highlighted .tok-literal {
+  color: #fbbf24;
+}
+
+.cm-highlighted .tok-variableName,
+.cm-highlighted .tok-propertyName,
+.cm-highlighted .tok-labelName {
+  color: #bfdbfe;
+}
+
+.cm-highlighted .tok-definition {
+  color: #f9a8d4;
+}
+
+.cm-highlighted .tok-variableName2,
+.cm-highlighted .tok-typeName,
+.cm-highlighted .tok-className,
+.cm-highlighted .tok-namespace {
+  color: #67e8f9;
+}
+
+.cm-highlighted .tok-function,
+.cm-highlighted .tok-macroName {
+  color: #f9a8d4;
+}
+
+.cm-highlighted .tok-heading,
+.cm-highlighted .tok-strong {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.cm-highlighted .tok-emphasis {
+  font-style: italic;
+}
+
+.cm-highlighted .tok-link {
+  color: #a5b4fc;
+  text-decoration: underline;
+}
+
+.cm-highlighted .tok-invalid {
+  color: #fecaca;
+  background: rgba(239, 68, 68, 0.18);
+}
+
 .message-content blockquote {
   margin: 0.9rem 0;
   padding: 0.15rem 0 0.15rem 0.9rem;

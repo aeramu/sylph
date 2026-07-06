@@ -1,5 +1,6 @@
 import { createSignal, createEffect, Show } from 'solid-js';
 import { renderMarkdown } from '../lib/markdown';
+import { highlightMarkdownCodeBlocks } from '../lib/codeHighlight';
 
 // Collapsible reasoning panel. Auto-expands while the model is actively
 // thinking, then collapses once the answer text begins streaming.
@@ -19,6 +20,9 @@ export default function ThinkingSection(p: { text: string; active: boolean }) {
   // outer messages-area can't follow its growth. While actively thinking,
   // keep its inner view pinned to the latest token.
   createEffect(() => {
+    void p.text;
+    highlightMarkdownCodeBlocks(contentRef);
+
     if (p.text && p.active && contentRef) {
       // Track p.text for reactivity; keep the bounded panel pinned to its
       // latest line as thinking streams in.

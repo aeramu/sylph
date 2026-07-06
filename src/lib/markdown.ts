@@ -1,5 +1,6 @@
-import { marked } from 'marked';
+import { marked, Renderer } from 'marked';
 import DOMPurify from 'dompurify';
+import { escapeHtml, normalizeFenceLanguage } from './codeHighlight';
 
 // Strip ANSI terminal escape sequences (colors, cursor moves, etc.). Models
 // sometimes emit reasoning/output that quotes colorized terminal text; the
@@ -46,7 +47,19 @@ export function renderMarkdown(content: string, options: { processThinkingTags?:
   }
 
   try {
-    const rawHtml = marked.parse(processed, { async: false }) as string;
+    const renderer = new Renderer();
+    renderer.code = ({ text, lang }) => {
+      const language = normalizeFenceLanguage(lang || '');
+      const languageClass = language ? ` language-${escapeHtml(language)}` : '';
+      const languageAttr = language ? ` data-lang="${escapeHtml(language)}"` : '';
+      const languageLabel = language
+        ? `<div class="code-block-header">${escapeHtml(language)}</div>`
+        : '';
+
+      return `<div class="code-block">${languageLabel}<pre><code class="${languageClass}"${languageAttr}>${escapeHtml(text)}</code></pre></div>`;
+    };
+
+    const rawHtml = marked.parse(processed, { async: false, renderer }) as string;
     // Note: deliberately NOT allowing iframe or style attributes — model
     // output is untrusted and those defeat the point of sanitizing.
     return DOMPurify.sanitize(rawHtml, {

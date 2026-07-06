@@ -1,10 +1,18 @@
-import { For, Show } from 'solid-js';
+import { createEffect, For, Show } from 'solid-js';
 import type { ChatMessage } from '../types';
 import { renderMarkdown, stripThinkingBlocks } from '../lib/markdown';
+import { highlightMarkdownCodeBlocks } from '../lib/codeHighlight';
 import ThinkingSection from './ThinkingSection';
 import ToolExecution from './ToolExecution';
 
 export default function MessageBubble(props: { msg: ChatMessage; onImageClick: (url: string) => void }) {
+  let contentRef: HTMLDivElement | undefined;
+
+  createEffect(() => {
+    void props.msg.content;
+    highlightMarkdownCodeBlocks(contentRef);
+  });
+
   if (props.msg.role === 'notification') {
     return (
       <div class={`chat-notification chat-notification-${props.msg.notifyType || 'info'}`}>
@@ -34,6 +42,7 @@ export default function MessageBubble(props: { msg: ChatMessage; onImageClick: (
           <ThinkingSection text={props.msg.thinking || ''} active={!!props.msg.isThinking} />
         </Show>
         <div
+          ref={contentRef}
           class="message-content"
           innerHTML={renderMarkdown(
             props.msg.role === 'assistant'
