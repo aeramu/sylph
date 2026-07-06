@@ -1448,14 +1448,23 @@ body {
 }
 
 .ui-request-option:hover,
+.ui-request-option.focused,
 .ui-request-option.selected {
   background: rgba(255, 255, 255, 0.06);
   border-color: var(--border-color);
   color: var(--text-primary);
 }
 
+.ui-request-option.focused {
+  box-shadow: inset 0 0 0 1px rgba(124, 108, 240, 0.32);
+}
+
 .ui-request-option.selected {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.ui-request-option.focused.selected {
+  box-shadow: inset 0 0 0 1px rgba(124, 108, 240, 0.48);
 }
 
 .ui-request-option.approve:first-child,

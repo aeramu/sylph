@@ -9,6 +9,7 @@ import Composer, { type ComposerApi } from './Composer';
 import MessageBubble from './MessageBubble';
 import ResourcesModal from './ResourcesModal';
 import UiRequestModal, { type UiRequest } from './UiRequestModal';
+import QuestionsModal, { type QuestionsRequest } from './QuestionsModal';
 
 export default function ChatInterface(props: { activeSessionId?: string, activeProjectId?: string, onSelectProject?: (id: string) => void, onSessionCreated: (id: string, projectId?: string, firstMessage?: string) => void, onTurnComplete?: () => void, projectRefreshTrigger?: number }) {
   const [messages, setMessages] = createStore<ChatMessage[]>([]);
@@ -22,6 +23,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   const [models, setModels] = createSignal<ModelOption[]>([]);
   const [selectedModel, setSelectedModel] = createSignal('');
   const [uiRequest, setUiRequest] = createSignal<UiRequest | null>(null);
+  const [questionsRequest, setQuestionsRequest] = createSignal<QuestionsRequest | null>(null);
   const [statusEntries, setStatusEntries] = createStore<Record<string, string>>({});
   const [widgets, setWidgets] = createSignal<Record<string, ExtWidget>>({});
 
@@ -235,7 +237,10 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       // Set-only: a request that arrived live during this fetch must not be
       // cleared by a snapshot built before it existed.
       const pendingUi = data.pendingUiRequests?.[0];
-      if (pendingUi && !uiRequest()) setUiRequest(pendingUi);
+      if (pendingUi && !uiRequest() && !questionsRequest()) {
+        if (pendingUi.method === 'questions') setQuestionsRequest(pendingUi);
+        else setUiRequest(pendingUi);
+      }
     } catch (err) {
       console.error('Failed to load history:', err);
     } finally {
@@ -327,6 +332,9 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       case 'editor':
         setUiRequest(data);
         break;
+      case 'questions':
+        setQuestionsRequest(data);
+        break;
       case 'notify':
         addNotification(data.message, data.notifyType || 'info');
         break;
@@ -371,6 +379,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
 
   const handleUiRespond = async (response: any) => {
     setUiRequest(null);
+    setQuestionsRequest(null);
     try {
       await fetch('/api/ui-response', {
         method: 'POST',
@@ -602,9 +611,12 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
         <Show when={uiRequest()} keyed>
           {(req) => <UiRequestModal request={req} onRespond={handleUiRespond} />}
         </Show>
+        <Show when={questionsRequest()} keyed>
+          {(req) => <QuestionsModal request={req} onRespond={handleUiRespond} />}
+        </Show>
         {/* Hidden (not unmounted) while a UI request is active so draft text
             and attachments survive permission prompts. */}
-        <div style={uiRequest() ? 'display: none;' : ''}>
+        <div style={uiRequest() || questionsRequest() ? 'display: none;' : ''}>
           {messages.length === 0 && (
             <div class="top-project-row">
               <CustomSelect
@@ -622,7 +634,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
           <Composer
             isConnected={isConnected()}
             isProcessing={isProcessing()}
-            disabled={!!uiRequest()}
+            disabled={!!uiRequest() || !!questionsRequest()}
             commands={commandsList()}
             models={models()}
             selectedModel={selectedModel()}

@@ -93,6 +93,16 @@ export function createExtensionUiContext(sessionId: string): any {
     return res?.cancelled ? undefined : res?.value;
   };
 
+  // Rich multi-question dialog for sylph's native ask_user_question tool (see
+  // server/askUserQuestion.ts). Broadcasts the full structured spec — including
+  // per-option descriptions and previews — and resolves with the user's answers
+  // (index-aligned with spec.questions) or a cancellation.
+  const askQuestions = async (spec: any) => {
+    const res = await requestAndWait("questions", { questions: spec?.questions ?? [] });
+    if (!res || res.cancelled) return { cancelled: true, answers: [] };
+    return { cancelled: false, answers: Array.isArray(res.answers) ? res.answers : [] };
+  };
+
   // --- Fire-and-forget: notifications, status, widgets, editor ---
 
   const notify = (message: string, type?: string) =>
@@ -151,7 +161,7 @@ export function createExtensionUiContext(sessionId: string): any {
 
   return {
     // Dialog
-    select, confirm, input, editor,
+    select, confirm, input, editor, askQuestions,
     // Fire-and-forget
     notify, setStatus, setWidget,
     setWorkingMessage, setWorkingVisible, setWorkingIndicator,

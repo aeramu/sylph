@@ -14,6 +14,7 @@ import { RUNTIME_IDLE_MS, EVICTION_INTERVAL_MS } from "./config.ts";
 import { getProjects } from "./projects.ts";
 import { broadcast } from "./sse.ts";
 import { createExtensionUiContext, rejectPendingForSession } from "./uiBridge.ts";
+import { askUserQuestionExtension } from "./askUserQuestion.ts";
 
 interface RuntimeEntry {
   runtime: any;
@@ -24,7 +25,12 @@ const activeRuntimes = new Map<string, RuntimeEntry>();
 
 async function buildRuntime(sessionManager: any, cwd: string, opts?: { uiContext?: any }) {
   const factory: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
-    const services = await createAgentSessionServices({ cwd });
+    const services = await createAgentSessionServices({
+      cwd,
+      // Register sylph's native, browser-rendered ask_user_question tool in
+      // every runtime (replaces the TUI-only @juicesharp version).
+      resourceLoaderOptions: { extensionFactories: [askUserQuestionExtension] },
+    });
 
     return {
       ...(await createAgentSessionFromServices({
