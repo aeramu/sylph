@@ -67,10 +67,17 @@ export default function ToolExecution(props: { tool: ToolCall }) {
                 <div class={`tool-call-section ${section.label.toLowerCase()}`}>
                   <div class="tool-call-label">{section.label}</div>
                   <Show
-                    when={props.tool.name === 'write' && section.label === 'Content'}
+                    when={
+                      (props.tool.name === 'write' && section.label === 'Content') ||
+                      (props.tool.name === 'bash' && section.label === 'Command')
+                    }
                     fallback={<pre class="tool-call-value">{section.lines.join('\n')}</pre>}
                   >
-                    <CodeView code={section.lines.join('\n')} path={toolPath()} class="tool-call-code" />
+                    <CodeView
+                      code={section.lines.join('\n')}
+                      path={props.tool.name === 'bash' ? 'command.sh' : toolPath()}
+                      class="tool-call-code"
+                    />
                   </Show>
                 </div>
               )}
@@ -86,14 +93,18 @@ export default function ToolExecution(props: { tool: ToolCall }) {
         )}
         {props.tool.output && (
           <Show
-            when={props.tool.name === 'read'}
+            when={props.tool.name === 'read' || props.tool.name === 'bash'}
             fallback={(
               <div class="tool-body">
                 {stripAnsi(props.tool.output)}
               </div>
             )}
           >
-            <CodeView code={stripAnsi(props.tool.output)} path={toolPath()} class="tool-body-code" />
+            <CodeView
+              code={stripAnsi(props.tool.output)}
+              path={props.tool.name === 'bash' ? 'output.log' : toolPath()}
+              class="tool-body-code"
+            />
           </Show>
         )}
       </Show>
