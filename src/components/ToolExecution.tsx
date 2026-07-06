@@ -1,10 +1,58 @@
 import { createSignal, createEffect, For, Show } from 'solid-js';
 import type { ToolCall } from '../types';
-import { stripAnsi } from '../lib/markdown';
+import { renderMarkdown, stripAnsi } from '../lib/markdown';
+import { escapeHtml, highlightCodeToHtml, highlightMarkdownCodeBlocks } from '../lib/codeHighlight';
 import { toolSummary, formatToolArgs, getEdits } from '../lib/toolFormat';
 import { diffLines } from '../lib/diff';
 import DiffView from './DiffView';
 import CodeView from './CodeView';
+
+function fencedMarkdown(code: string, language = ''): string {
+  const longestBacktickRun = Math.max(0, ...Array.from(code.matchAll(/`+/g), (m) => m[0].length));
+  const fence = '`'.repeat(Math.max(3, longestBacktickRun + 1));
+  return `${fence}${language}\n${code}\n${fence}`;
+}
+
+function InlineHighlightedCode(props: { code: string; language: string; class?: string }) {
+  const [html, setHtml] = createSignal<string | null>(null);
+  let seq = 0;
+
+  createEffect(() => {
+    const current = ++seq;
+    const code = props.code;
+    const language = props.language;
+    setHtml(null);
+
+    void highlightCodeToHtml(code, language).then((highlighted) => {
+      if (current === seq) setHtml(highlighted);
+    });
+  });
+
+  return (
+    <code
+      class={`inline-highlighted-code cm-highlighted ${props.class ?? ''}`}
+      innerHTML={html() ?? escapeHtml(props.code)}
+    />
+  );
+}
+
+function MarkdownSnippet(props: { code: string; language?: string; class?: string }) {
+  let contentRef: HTMLDivElement | undefined;
+
+  createEffect(() => {
+    void props.code;
+    void props.language;
+    highlightMarkdownCodeBlocks(contentRef);
+  });
+
+  return (
+    <div
+      ref={contentRef}
+      class={`message-content tool-markdown-code ${props.class ?? ''}`}
+      innerHTML={renderMarkdown(fencedMarkdown(props.code, props.language || ''))}
+    />
+  );
+}
 
 function editLineStats(args?: Record<string, any>): { added: number; deleted: number } | null {
   const edits = getEdits(args);
@@ -44,7 +92,16 @@ export default function ToolExecution(props: { tool: ToolCall }) {
         onClick={() => setExpanded(!expanded())}
       >
         <span class="tool-name">{props.tool.name}</span>
-        {summary && <span class="tool-summary">{summary}</span>}
+        {summary && (
+          <Show
+            when={props.tool.name === 'bash'}
+            fallback={<span class="tool-summary">{summary}</span>}
+          >
+            <span class="tool-summary tool-summary-code">
+              <InlineHighlightedCode code={summary} language="bash" />
+            </span>
+          </Show>
+        )}
         <Show when={lineStats()}>
           {(stats) => (
             <span class="tool-edit-stats">
@@ -67,15 +124,23 @@ export default function ToolExecution(props: { tool: ToolCall }) {
                 <div class={`tool-call-section ${section.label.toLowerCase()}`}>
                   <div class="tool-call-label">{section.label}</div>
                   <Show
-                    when={
-                      (props.tool.name === 'write' && section.label === 'Content') ||
-                      (props.tool.name === 'bash' && section.label === 'Command')
-                    }
-                    fallback={<pre class="tool-call-value">{section.lines.join('\n')}</pre>}
+                    when={props.tool.name === 'bash' && section.label === 'Command'}
+                    fallback={(
+                      <Show
+                        when={props.tool.name === 'write' && section.label === 'Content'}
+                        fallback={<pre class="tool-call-value">{section.lines.join('\n')}</pre>}
+                      >
+                        <CodeView
+                          code={section.lines.join('\n')}
+                          path={toolPath()}
+                          class="tool-call-code"
+                        />
+                      </Show>
+                    )}
                   >
-                    <CodeView
+                    <MarkdownSnippet
                       code={section.lines.join('\n')}
-                      path={props.tool.name === 'bash' ? 'command.sh' : toolPath()}
+                      language="bash"
                       class="tool-call-code"
                     />
                   </Show>
@@ -93,16 +158,27 @@ export default function ToolExecution(props: { tool: ToolCall }) {
         )}
         {props.tool.output && (
           <Show
-            when={props.tool.name === 'read' || props.tool.name === 'bash'}
+            when={props.tool.name === 'bash'}
             fallback={(
-              <div class="tool-body">
-                {stripAnsi(props.tool.output)}
-              </div>
+              <Show
+                when={props.tool.name === 'read'}
+                fallback={(
+                  <div class="tool-body">
+                    {stripAnsi(props.tool.output)}
+                  </div>
+                )}
+              >
+                <CodeView
+                  code={stripAnsi(props.tool.output)}
+                  path={toolPath()}
+                  class="tool-body-code"
+                />
+              </Show>
             )}
           >
-            <CodeView
+            <MarkdownSnippet
               code={stripAnsi(props.tool.output)}
-              path={props.tool.name === 'bash' ? 'output.log' : toolPath()}
+              language="output"
               class="tool-body-code"
             />
           </Show>

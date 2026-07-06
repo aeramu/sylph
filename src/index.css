@@ -693,6 +693,23 @@ body {
   min-width: 0;
 }
 
+.tool-summary-code {
+  display: inline-flex;
+}
+
+.inline-highlighted-code {
+  display: inline;
+  font-family: var(--font-mono);
+  font-size: inherit;
+  color: var(--text-secondary);
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  white-space: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .tool-edit-stats {
   display: inline-flex;
   align-items: center;
@@ -809,6 +826,22 @@ body {
 
 .tool-body-code {
   margin: 0.35rem 0 0.25rem 1.1rem;
+}
+
+.tool-markdown-code {
+  overflow-y: auto;
+}
+
+.tool-markdown-code.tool-call-code {
+  max-height: 240px;
+}
+
+.tool-markdown-code .code-block {
+  margin: 0;
+}
+
+.tool-markdown-code .code-block pre {
+  max-height: inherit;
 }
 
 .thinking-block {

@@ -224,6 +224,15 @@ function highlightLezerCode(code: string, parserLanguage: LRLanguage): string {
   return html;
 }
 
+export async function highlightCodeToHtml(code: string, language: string): Promise<string | null> {
+  const parserLanguage = await languageForFence(normalizeFenceLanguage(language));
+  if (!parserLanguage) return null;
+
+  return parserLanguage.kind === 'lezer'
+    ? highlightLezerCode(code, parserLanguage.language)
+    : highlightLegacyCode(code, parserLanguage.parser);
+}
+
 async function highlightCodeElement(codeEl: HTMLElement) {
   if (highlightedBlocks.has(codeEl)) return;
 
@@ -233,13 +242,9 @@ async function highlightCodeElement(codeEl: HTMLElement) {
   highlightedBlocks.add(codeEl);
 
   try {
-    const parserLanguage = await languageForFence(language);
-    if (!parserLanguage) return;
-
     const code = codeEl.textContent || '';
-    const html = parserLanguage.kind === 'lezer'
-      ? highlightLezerCode(code, parserLanguage.language)
-      : highlightLegacyCode(code, parserLanguage.parser);
+    const html = await highlightCodeToHtml(code, language);
+    if (!html) return;
 
     codeEl.innerHTML = html;
     codeEl.classList.add('cm-highlighted');
