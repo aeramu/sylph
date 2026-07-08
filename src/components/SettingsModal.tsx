@@ -347,7 +347,6 @@ export default function SettingsModal(props: { onClose: () => void }) {
                         >
                           <div class="settings-resource-card-header">
                             <span class="settings-resource-card-name">{resource.name}</span>
-                            <span class="settings-resource-card-source">{resourceKind()}</span>
                           </div>
                           <Show when={resource.description}>
                             <div class="settings-resource-card-desc">{resource.description}</div>
