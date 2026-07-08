@@ -398,10 +398,54 @@ body {
   box-shadow: 0 0 4px var(--accent-glow);
 }
 
+.chat-header {
+  position: fixed;
+  top: 0.55rem;
+  left: calc(260px + 0.75rem);
+  right: 0.75rem;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.35rem 0.55rem 0.55rem;
+  border-radius: 12px;
+  background: rgba(15, 17, 21, 0.58);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(10px);
+  pointer-events: none;
+}
+
+.chat-header-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  line-height: 1.25;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.chat-header-project {
+  flex: 0 0 auto;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0.08rem 0.4rem;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
 .messages-area {
   flex-grow: 1;
   overflow-y: auto;
-  padding-right: 1rem;
+  padding-left: 0.5rem;
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -1650,12 +1694,12 @@ body {
 }
 
 .server-status-indicator {
-  position: fixed;
-  top: 1.5rem;
-  right: 1.75rem;
-  z-index: 30;
+  position: relative;
+  flex: 0 0 auto;
+  margin-left: auto;
   color: var(--text-secondary);
   opacity: 0.8;
+  pointer-events: auto;
 }
 
 .server-status-indicator svg {
@@ -1670,7 +1714,7 @@ body {
   height: 8px;
   border-radius: 50%;
   background: #ef4444;
-  box-shadow: 0 0 0 2px var(--bg-primary);
+  box-shadow: 0 0 0 2px var(--bg-color);
 }
 
 .server-status-indicator.connected .server-status-dot {

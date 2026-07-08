@@ -24,6 +24,12 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   const [questionsRequest, setQuestionsRequest] = createSignal<QuestionsRequest | null>(null);
   const [, setStatusEntries] = createStore<Record<string, string>>({});
   const [widgets, setWidgets] = createSignal<Record<string, ExtWidget>>({});
+  const activeProject = () => projects().find((p) => p.id === props.activeProjectId);
+  const activeSessionTitle = () => {
+    const firstUserMessage = messages.find((m) => m.role === 'user' && m.content?.trim());
+    const title = firstUserMessage?.content.trim().split('\n')[0] || 'New Chat';
+    return title.length > 80 ? `${title.slice(0, 80)}…` : title;
+  };
   // Context-window usage for the active session (drives the composer's
   // context indicator). Seeded by /api/history, refreshed by SSE events.
   const [contextInfo, setContextInfo] = createSignal<ContextInfo | null>(null);
@@ -545,23 +551,31 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
           </div>
         </div>
       </Show>
-      <div
-        class={`server-status-indicator ${isConnected() ? 'connected' : 'disconnected'}`}
-        title={isConnected() ? 'Server connected' : 'Server disconnected'}
-        aria-label={isConnected() ? 'Server connected' : 'Server disconnected'}
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <rect x="3" y="4" width="18" height="7"></rect>
-          <rect x="3" y="13" width="18" height="7"></rect>
-          <line x1="7" y1="7.5" x2="7.01" y2="7.5"></line>
-          <line x1="7" y1="16.5" x2="7.01" y2="16.5"></line>
-        </svg>
-        <span class="server-status-dot" />
-      </div>
-
       <Show when={lightboxUrl()}>
         <div class="lightbox-overlay" onClick={() => setLightboxUrl(null)}>
           <img src={lightboxUrl()!} class="lightbox-image" alt="attachment" />
+        </div>
+      </Show>
+
+      <Show when={props.activeSessionId}>
+        <div class="chat-header">
+          <h1 class="chat-header-title" title={activeSessionTitle()}>{activeSessionTitle()}</h1>
+          <Show when={activeProject()} keyed>
+            {(project) => <span class="chat-header-project" title={project.path}>{project.name}</span>}
+          </Show>
+          <div
+            class={`server-status-indicator ${isConnected() ? 'connected' : 'disconnected'}`}
+            title={isConnected() ? 'Server connected' : 'Server disconnected'}
+            aria-label={isConnected() ? 'Server connected' : 'Server disconnected'}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="3" y="4" width="18" height="7"></rect>
+              <rect x="3" y="13" width="18" height="7"></rect>
+              <line x1="7" y1="7.5" x2="7.01" y2="7.5"></line>
+              <line x1="7" y1="16.5" x2="7.01" y2="16.5"></line>
+            </svg>
+            <span class="server-status-dot" />
+          </div>
         </div>
       </Show>
 
