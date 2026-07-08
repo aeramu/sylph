@@ -15,6 +15,10 @@ export interface Question {
 export interface QuestionsRequest {
   id: string;
   questions: Question[];
+  sessionId?: string;
+  // True when the dialog was rebuilt from the session file after a server
+  // restart (no live promise is waiting on it).
+  reconstructed?: boolean;
 }
 
 // Fixed-size, CSS-drawn radio/checkbox so selected and unselected states are

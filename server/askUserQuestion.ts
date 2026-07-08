@@ -59,6 +59,53 @@ function formatAnswers(params: QuestionParams, answers: QuestionAnswer[]): strin
   return "The user answered:\n" + lines.join("\n");
 }
 
+// Answers sent as a regular user prompt rather than a tool result: when a
+// question is interrupted by a server restart, the original tool call can no
+// longer be completed (pi synthesizes an error result for it), so the answers
+// go back to the model in user voice instead.
+export function formatAnswersAsUserReply(params: QuestionParams, answers: QuestionAnswer[]): string {
+  const lines = params.questions.map((q, i) => {
+    const a = answers[i] ?? { selected: [] };
+    const parts = [...(a.selected ?? [])];
+    if (a.customText) parts.push(`"${a.customText}"`);
+    const ans = parts.length ? parts.join(", ") : "(no selection)";
+    return `- ${q.header || q.question}: ${ans}`;
+  });
+  return "My answers to your questions:\n" + lines.join("\n");
+}
+
+// Find an ask_user_question tool call at the conversation tail that never got
+// its result recorded — the server died (or the runtime was lost) while the
+// dialog was open. Anything after the asking assistant message besides its
+// other tool results means the conversation moved on and there is nothing to
+// restore.
+export function findDanglingQuestion(
+  messages: any[],
+): { toolCallId: string; params: QuestionParams } | undefined {
+  const answered = new Set<string>();
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role === "toolResult") {
+      answered.add(m.toolCallId);
+      continue;
+    }
+    if (m.role === "assistant") {
+      // Errored/aborted turns are never replayed to the model, so their
+      // questions are gone for good — don't resurrect them.
+      if (m.stopReason === "error" || m.stopReason === "aborted") return undefined;
+      const calls = Array.isArray(m.content)
+        ? m.content.filter((c: any) => c.type === "toolCall")
+        : [];
+      const q = calls.find((c: any) => c.name === "ask_user_question" && !answered.has(c.id));
+      return q ? { toolCallId: q.id, params: q.arguments as QuestionParams } : undefined;
+    }
+    // Any other message (user, bashExecution, custom, ...) means the
+    // conversation moved past the question.
+    return undefined;
+  }
+  return undefined;
+}
+
 const DESCRIPTION = `Ask the user one or more structured questions during execution and get their answers. Use when the request is ambiguous and you need concrete decisions.
 
 Usage notes:

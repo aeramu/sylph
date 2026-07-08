@@ -10,6 +10,56 @@ import { getProjects, saveProjects, type Project } from "./projects.ts";
 import { addClient, removeClient } from "./sse.ts";
 import { resolveUiRequest, getPendingUiRequests } from "./uiBridge.ts";
 import { getActiveRuntime, getOrInitRuntime, getIntrospectionRuntime, touchRuntime, getContextInfo } from "./runtimes.ts";
+import { findDanglingQuestion, formatAnswersAsUserReply } from "./askUserQuestion.ts";
+
+// Questions whose reconstructed dialog the user dismissed, so reopening the
+// session doesn't re-show them forever. In-memory on purpose — it only needs
+// to outlive the dialog, not the server.
+const dismissedInterruptedQuestions = new Set<string>();
+
+// Build the dialog payload for a question that outlived its runtime (server
+// restarted while the agent was blocked on it). Same shape as the live
+// extension_ui_request broadcast, plus `reconstructed` so the client knows
+// cancelling it leaves the session idle rather than resuming a turn.
+function reconstructInterruptedQuestion(sessionId: string, session: any): Record<string, any> | undefined {
+  if (session.isStreaming) return undefined;
+  const dangling = findDanglingQuestion(session.messages || []);
+  if (!dangling || dismissedInterruptedQuestions.has(dangling.toolCallId)) return undefined;
+  return {
+    sessionId,
+    type: "extension_ui_request",
+    id: dangling.toolCallId,
+    method: "questions",
+    questions: dangling.params?.questions ?? [],
+    reconstructed: true,
+  };
+}
+
+// Answer a reconstructed question: the original tool call can't be completed
+// anymore (pi synthesizes an error result for it), so the answers are sent
+// back to the model as a regular prompt, which also restarts the turn.
+// Dismissals just stop the dialog from re-appearing.
+async function resumeInterruptedQuestion(body: any): Promise<boolean> {
+  const { sessionId, id, cancelled, answers } = body ?? {};
+  if (typeof sessionId !== "string" || typeof id !== "string") return false;
+  let runtime;
+  try {
+    runtime = await getOrInitRuntime(sessionId);
+  } catch {
+    return false;
+  }
+  if (runtime.session.isStreaming) return false;
+  const dangling = findDanglingQuestion(runtime.session.messages || []);
+  if (!dangling || dangling.toolCallId !== id) return false;
+  dismissedInterruptedQuestions.add(id);
+  if (cancelled) return true;
+  touchRuntime(sessionId);
+  const reply = formatAnswersAsUserReply(dangling.params, Array.isArray(answers) ? answers : []);
+  runtime.session.prompt(reply).catch((err: any) => {
+    console.error("Resumed question prompt error:", err);
+  });
+  return true;
+}
 
 function handleError(res: express.Response, err: any) {
   console.error(err);
@@ -121,15 +171,20 @@ export function createRouter(): express.Router {
     });
   });
 
-  router.post("/api/ui-response", (req, res) => {
+  router.post("/api/ui-response", async (req, res) => {
     const { id } = req.body;
     if (typeof id !== "string") {
       return res.status(400).json({ error: "id is required" });
     }
-    if (!resolveUiRequest(id, req.body)) {
-      return res.status(404).json({ error: "no pending request for this id" });
+    if (resolveUiRequest(id, req.body)) {
+      return res.json({ ok: true });
     }
-    res.json({ ok: true });
+    // Nothing live is waiting on this id — it may be a question dialog
+    // rebuilt after a server restart (see /api/history).
+    if (await resumeInterruptedQuestion(req.body)) {
+      return res.json({ ok: true });
+    }
+    res.status(404).json({ error: "no pending request for this id" });
   });
 
   router.get("/api/projects", (_req, res) => {
@@ -228,14 +283,23 @@ export function createRouter(): express.Router {
     }
     try {
       const runtime = await getOrInitRuntime(sessionId);
+      // Dialogs the agent is still blocked on; their SSE broadcast was a
+      // one-shot the client may have missed while on another session.
+      const pendingUiRequests = getPendingUiRequests(sessionId);
+      if (pendingUiRequests.length === 0) {
+        // A question interrupted by a server restart: the dialog's promise
+        // died with the old process, but the question spec survives in the
+        // session file as a tool call without a result. Rebuild the dialog so
+        // the user can still answer (see /api/ui-response for the resume).
+        const interrupted = reconstructInterruptedQuestion(sessionId, runtime.session);
+        if (interrupted) pendingUiRequests.push(interrupted);
+      }
       res.json({
         messages: runtime.session.messages || [],
         // Lets the client restore the working indicator when it opens a
         // session that is currently mid-turn.
         isStreaming: !!runtime.session.isStreaming,
-        // Dialogs the agent is still blocked on; their SSE broadcast was a
-        // one-shot the client may have missed while on another session.
-        pendingUiRequests: getPendingUiRequests(sessionId),
+        pendingUiRequests,
         // Seed for the composer's context-window indicator; kept fresh after
         // load by the context snapshots attached to SSE events.
         context: getContextInfo(runtime.session),
