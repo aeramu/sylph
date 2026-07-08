@@ -78,7 +78,7 @@ function ProjectItem(props: {
   const [showAll, setShowAll] = createSignal(false);
 
   const fetchSessions = async () => {
-    const res = await fetch(`/api/sessions?project_id=${props.project.id}&t=${Date.now()}`, {
+    const res = await fetch(`/api/sessions?projectId=${props.project.id}&t=${Date.now()}`, {
       cache: 'no-store',
       headers: { 'Cache-Control': 'no-cache' }
     });

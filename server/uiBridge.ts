@@ -4,7 +4,7 @@
 // ctx.ui.select() / input() / confirm() / editor(). In the embedded SDK these
 // are plain async calls, not the RPC stdin/stdout sub-protocol. We bridge them
 // to the browser by broadcasting an extension_ui_request over SSE, then
-// resolving the promise when POST /api/ui-response arrives with the same id.
+// resolving the promise when POST /api/sessions/:sessionId/ui-response arrives with the same id.
 
 import { randomUUID } from "crypto";
 import { broadcast } from "./sse.ts";
@@ -22,7 +22,7 @@ const pendingUiRequests = new Map<string, PendingUiRequest>();
 
 // Latest extension statuses per session (statusKey → text). setStatus is a
 // fire-and-forget one-shot broadcast, so a client that wasn't watching (other
-// session active, SSE disconnect) misses it; this map lets /api/history
+// session active, SSE disconnect) misses it; this map lets /api/sessions/:sessionId
 // re-seed the client — the role pi's FooterDataProvider plays in the TUI.
 const sessionStatuses = new Map<string, Map<string, string>>();
 

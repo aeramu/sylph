@@ -33,7 +33,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     return title.length > 80 ? `${title.slice(0, 80)}…` : title;
   };
   // Context-window usage for the active session (drives the composer's
-  // context indicator). Seeded by /api/history, refreshed by SSE events.
+  // context indicator). Seeded by /api/sessions/:sessionId, refreshed by SSE events.
   const [contextInfo, setContextInfo] = createSignal<ContextInfo | null>(null);
 
   let composerApi: ComposerApi | undefined;
@@ -224,7 +224,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     const seq = ++historyRequestSeq;
     historyLoading = true;
     try {
-      const res = await fetch(`/api/history?sessionId=${props.activeSessionId}`);
+      const res = await fetch(`/api/sessions/${encodeURIComponent(props.activeSessionId)}`);
       const data = await res.json();
       if (seq !== historyRequestSeq) return; // a newer request superseded this one
       setMessages(mapHistoryToMessages(data.messages || []));
@@ -419,12 +419,11 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     setUiRequest(null);
     setQuestionsRequest(null);
     try {
-      await fetch('/api/ui-response', {
+      if (!answeredSession) throw new Error('No session for UI response');
+      await fetch(`/api/sessions/${encodeURIComponent(answeredSession)}/ui-response`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // sessionId lets the server route responses to dialogs it no longer
-        // has a live promise for (reconstructed questions).
-        body: JSON.stringify({ sessionId: answeredSession, ...response }),
+        body: JSON.stringify(response),
       });
     } catch (err) {
       console.error('Failed to send UI response:', err);
@@ -478,7 +477,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
         body: JSON.stringify({
           prompt: promptText,
           sessionId: props.activeSessionId,
-          project_id: props.activeProjectId,
+          projectId: props.activeProjectId,
           modelId: selectedModel() || undefined,
           thinkingLevel: selectedThinkingLevel(),
           images: images.length ? images : undefined,
@@ -522,7 +521,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   const handleStop = async () => {
     if (!props.activeSessionId) return;
     try {
-      await fetch(`/api/chat/${props.activeSessionId}/abort`, {
+      await fetch(`/api/sessions/${encodeURIComponent(props.activeSessionId)}/abort`, {
         method: 'POST'
       });
     } catch (err) {
@@ -632,17 +631,6 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       </div>
 
       <div class="input-wrapper">
-        <Show when={Object.keys(statusEntries).length > 0}>
-          <div class="ext-status-entries">
-            <For each={Object.keys(statusEntries)}>
-              {(key) => (
-                // Statuses arrive ANSI-styled (pi extensions color them for
-                // the TUI footer); render the text, drop the escapes.
-                <span class="ext-status-entry" title={key}>{stripAnsi(statusEntries[key])}</span>
-              )}
-            </For>
-          </div>
-        </Show>
         <Show when={Object.keys(widgets()).length > 0}>
           <For each={Object.entries(widgets())}>
             {([, widget]) => (
@@ -692,6 +680,17 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
             api={(api) => { composerApi = api; }}
           />
         </div>
+        <Show when={Object.keys(statusEntries).length > 0}>
+          <div class="ext-status-entries">
+            <For each={Object.keys(statusEntries)}>
+              {(key) => (
+                // Statuses arrive ANSI-styled (pi extensions color them for
+                // the TUI footer); render the text, drop the escapes.
+                <span class="ext-status-entry" title={key}>{stripAnsi(statusEntries[key])}</span>
+              )}
+            </For>
+          </div>
+        </Show>
       </div>
     </div>
   );

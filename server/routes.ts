@@ -171,17 +171,19 @@ export function createRouter(): express.Router {
     });
   });
 
-  router.post("/api/ui-response", async (req, res) => {
+  router.post("/api/sessions/:sessionId/ui-response", async (req, res) => {
+    const { sessionId } = req.params;
     const { id } = req.body;
     if (typeof id !== "string") {
       return res.status(400).json({ error: "id is required" });
     }
-    if (resolveUiRequest(id, req.body)) {
+    const body = { ...req.body, sessionId };
+    if (resolveUiRequest(id, body)) {
       return res.json({ ok: true });
     }
     // Nothing live is waiting on this id — it may be a question dialog
-    // rebuilt after a server restart (see /api/history).
-    if (await resumeInterruptedQuestion(req.body)) {
+    // rebuilt after a server restart (see /api/sessions/:sessionId).
+    if (await resumeInterruptedQuestion(body)) {
       return res.json({ ok: true });
     }
     res.status(404).json({ error: "no pending request for this id" });
@@ -241,7 +243,7 @@ export function createRouter(): express.Router {
 
   router.get("/api/sessions", async (req, res) => {
     try {
-      const projectId = req.query.project_id as string;
+      const projectId = req.query.projectId as string;
       let targetDir = process.cwd();
 
       if (projectId) {
@@ -276,11 +278,8 @@ export function createRouter(): express.Router {
     }
   });
 
-  router.get("/api/history", async (req, res) => {
-    const sessionId = req.query.sessionId as string;
-    if (!sessionId) {
-      return res.json({ messages: [] });
-    }
+  router.get("/api/sessions/:sessionId", async (req, res) => {
+    const { sessionId } = req.params;
     try {
       const runtime = await getOrInitRuntime(sessionId);
       // Dialogs the agent is still blocked on; their SSE broadcast was a
@@ -290,7 +289,7 @@ export function createRouter(): express.Router {
         // A question interrupted by a server restart: the dialog's promise
         // died with the old process, but the question spec survives in the
         // session file as a tool call without a result. Rebuild the dialog so
-        // the user can still answer (see /api/ui-response for the resume).
+        // the user can still answer (see /api/sessions/:sessionId/ui-response for the resume).
         const interrupted = reconstructInterruptedQuestion(sessionId, runtime.session);
         if (interrupted) pendingUiRequests.push(interrupted);
       }
@@ -422,13 +421,13 @@ export function createRouter(): express.Router {
   });
 
   router.post("/api/chat", async (req, res) => {
-    const { sessionId, prompt, project_id, modelId, thinkingLevel, images } = req.body;
+    const { sessionId, prompt, projectId, modelId, thinkingLevel, images } = req.body;
     if (!prompt) {
       return res.status(400).json({ error: "prompt is required" });
     }
 
     try {
-      const runtime = await getOrInitRuntime(sessionId, project_id);
+      const runtime = await getOrInitRuntime(sessionId, projectId);
       const resolvedSessionId = runtime.session.sessionId;
       touchRuntime(resolvedSessionId);
 
@@ -471,7 +470,7 @@ export function createRouter(): express.Router {
     }
   });
 
-  router.post("/api/chat/:sessionId/abort", async (req, res) => {
+  router.post("/api/sessions/:sessionId/abort", async (req, res) => {
     const { sessionId } = req.params;
     try {
       const runtime = getActiveRuntime(sessionId);

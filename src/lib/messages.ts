@@ -18,7 +18,7 @@ export function hasRenderableContent(m: ChatMessage): boolean {
   );
 }
 
-// Map the raw session history from /api/history into renderable ChatMessages:
+// Map the raw session history from /api/sessions/:sessionId into renderable ChatMessages:
 // user/assistant turns become bubbles, and toolResult turns are folded into
 // the tool call they answer on the preceding assistant message.
 export function mapHistoryToMessages(rawMessages: any[]): ChatMessage[] {
