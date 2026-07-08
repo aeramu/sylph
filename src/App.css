@@ -1,0 +1,85 @@
+/* App shell: sidebar + chat grid, and the mobile drawer behavior. */
+
+.app-layout {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  height: 100vh;
+  width: 100%;
+  overflow: hidden;
+}
+
+/* Mobile-only chrome (hamburger + drawer scrim); hidden on desktop. */
+.sidebar-toggle {
+  display: none;
+}
+
+.sidebar-overlay {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .app-layout {
+    grid-template-columns: 1fr;
+  }
+
+  /* The sidebar becomes an off-canvas drawer, toggled by .sidebar-open on
+     the layout root (state lives in App.tsx). */
+  .app-layout .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: min(300px, 85vw);
+    z-index: 100;
+    /* Opaque: the translucent panel color lets chat content bleed through
+       when overlaying instead of sitting in its own grid column. */
+    background: #171a21;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+  }
+
+  .app-layout.sidebar-open .sidebar {
+    transform: translateX(0);
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.55);
+  }
+
+  .sidebar-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 99;
+    background: rgba(0, 0, 0, 0.5);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+  }
+
+  .app-layout.sidebar-open .sidebar-overlay {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .sidebar-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: fixed;
+    top: 0.65rem;
+    left: 0.75rem;
+    /* Above the chat header (30), below the drawer + scrim (99/100). */
+    z-index: 40;
+    width: 40px;
+    height: 40px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: rgba(15, 17, 21, 0.7);
+    backdrop-filter: blur(8px);
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+
+  .sidebar-toggle:active {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.08);
+  }
+}

@@ -2,6 +2,7 @@ import { createResource, createSignal, For, createEffect, Show, Switch, Match } 
 import type { DraftSession, SessionStatus } from '../types';
 import { sessionStatuses, setSessionStatus } from '../lib/sessionStatus';
 import AddProjectModal from './AddProjectModal';
+import './SessionSidebar.css';
 
 interface ProjectInfo {
   id: string;

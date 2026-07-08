@@ -1,0 +1,256 @@
+/* Styles for SessionSidebar (projects + sessions drawer).
+   Mobile off-canvas positioning lives in App.css, which owns the layout. */
+
+.sidebar {
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.sidebar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.25rem 1rem;
+}
+
+.sidebar-title {
+  font-weight: 600;
+  color: #8c8c8c;
+  font-size: 1rem;
+  letter-spacing: 0.02em;
+}
+
+.sidebar-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.sidebar-empty {
+  text-align: center;
+  padding: 2rem 1rem;
+  color: #5f5f5f;
+  font-size: 0.875rem;
+}
+
+.icon-button {
+  background: none;
+  border: none;
+  color: #8c8c8c;
+  cursor: pointer;
+  padding: 0.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: color 0.2s;
+}
+
+.icon-button:hover {
+  color: #d4d4d4;
+}
+
+.project-group {
+  margin-bottom: 0.5rem;
+}
+
+.project-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.2s;
+}
+
+.project-header:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.project-header-title {
+  font-weight: 600;
+  font-size: 1rem;
+  color: #d4d4d4;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  overflow: hidden;
+  padding-left: 0.25rem;
+}
+
+.project-header-icon {
+  display: flex;
+  color: #8c8c8c;
+}
+
+.project-header-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: 0.02em;
+}
+
+.project-header-actions {
+  display: flex;
+  gap: 0.5rem;
+  opacity: 0;
+  transition: opacity 0.2s;
+  padding-right: 0.5rem;
+}
+
+.project-header:hover .project-header-actions {
+  opacity: 1;
+}
+
+.project-sessions {
+  padding-left: 1.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.session-list-toggle {
+  font-size: 0.9rem;
+  color: #5f5f5f;
+  padding: 0.4rem 0.5rem;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.session-list-toggle:hover {
+  color: #a3a3a3;
+}
+
+.session-list-empty {
+  font-size: 0.875rem;
+  color: #5f5f5f;
+  padding: 0.4rem 0.5rem;
+}
+
+.session-list {
+  padding: 0.5rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.sidebar-footer {
+  padding: 0.75rem 1rem 1rem;
+  border-top: 1px solid var(--border-color);
+  margin-top: auto;
+}
+
+.sidebar-settings-button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: #a3a3a3;
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+
+.sidebar-settings-button:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+
+.session-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.4rem 0.5rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 1px solid transparent;
+}
+
+.session-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.session-item.active {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: rgba(99, 102, 241, 0.3);
+}
+
+.session-title {
+  font-size: 0.9rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #a3a3a3;
+  max-width: 80%;
+}
+
+.session-item.active .session-title {
+  color: var(--text-primary);
+}
+
+.session-meta {
+  font-size: 0.8rem;
+  color: #5f5f5f;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+/* Sidebar session status: typing dots while the agent works.
+   `bounce` keyframes are defined globally in index.css. */
+.session-typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 2px;
+}
+
+.session-typing-dot {
+  width: 4px;
+  height: 4px;
+  background-color: var(--accent);
+  border-radius: 50%;
+  animation: bounce 1.4s infinite ease-in-out both;
+}
+
+.session-typing-dot:nth-child(1) { animation-delay: -0.32s; }
+.session-typing-dot:nth-child(2) { animation-delay: -0.16s; }
+
+/* Sidebar session status: attention/error icons */
+.session-status-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  color: #a3a3a3;
+}
+
+.session-status-icon.error {
+  color: var(--danger);
+}
+
+.session-status-icon .session-status-dot {
+  position: absolute;
+  top: -2px;
+  right: -3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 4px var(--accent-glow);
+}

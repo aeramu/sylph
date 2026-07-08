@@ -3,6 +3,7 @@ import type { Attachment, CommandInfo, ContextInfo, ModelOption, ThinkingLevel, 
 import { ACCEPT_ATTR, readFile } from '../lib/attachments';
 import CustomSelect, { type CustomSelectApi } from './CustomSelect';
 import ContextIndicator from './ContextIndicator';
+import './Composer.css';
 
 // Built-in slash commands handled locally by the composer (they run a UI
 // action instead of being sent to the agent). Their `run` is filled in below.

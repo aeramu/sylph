@@ -2,6 +2,7 @@ import { createResource, createSignal, For, Show } from 'solid-js';
 import type { ResourceInfo } from '../types';
 import { renderMarkdown } from '../lib/markdown';
 import CodeView from './CodeView';
+import './SettingsModal.css';
 
 type SettingsSection = 'skills' | 'extensions';
 
@@ -78,6 +79,9 @@ function SettingsMenuIcon(props: { kind: SettingsSection }) {
 
 export default function SettingsModal(props: { onClose: () => void }) {
   const [activeSection, setActiveSection] = createSignal<SettingsSection>('skills');
+  // Mobile drill-down: the modal opens on the menu; picking a section swaps
+  // to its page (see SettingsModal.css). Ignored by the desktop layout.
+  const [mobileMenuOpen, setMobileMenuOpen] = createSignal(true);
   const [selectedSkill, setSelectedSkill] = createSignal<string | null>(null);
   const [selectedExtension, setSelectedExtension] = createSignal<string | null>(null);
   const [skills] = createResource(() => fetchResources('skills'));
@@ -97,15 +101,19 @@ export default function SettingsModal(props: { onClose: () => void }) {
 
   return (
     <div class="settings-modal-overlay" onClick={props.onClose}>
-      <div class="settings-modal" onClick={(e) => e.stopPropagation()}>
+      <div class={`settings-modal ${mobileMenuOpen() ? 'menu-view' : ''}`} onClick={(e) => e.stopPropagation()}>
         <div class="settings-modal-sidebar">
-          <div class="settings-modal-title">Settings</div>
+          <div class="settings-modal-title-row">
+            <div class="settings-modal-title">Settings</div>
+            <button onClick={props.onClose} class="settings-modal-close settings-sidebar-close">✕</button>
+          </div>
           <button
             class={`settings-menu-item ${activeSection() === 'skills' ? 'active' : ''}`}
             onClick={() => {
               setActiveSection('skills');
               setSelectedSkill(null);
               setSelectedExtension(null);
+              setMobileMenuOpen(false);
             }}
           >
             <SettingsMenuIcon kind="skills" />
@@ -117,6 +125,7 @@ export default function SettingsModal(props: { onClose: () => void }) {
               setActiveSection('extensions');
               setSelectedSkill(null);
               setSelectedExtension(null);
+              setMobileMenuOpen(false);
             }}
           >
             <SettingsMenuIcon kind="extensions" />
@@ -127,6 +136,10 @@ export default function SettingsModal(props: { onClose: () => void }) {
         <div class="settings-modal-content">
           <div class="settings-modal-header">
             <div class="settings-section-heading">
+              {/* Mobile only: one level up, back to the settings menu. */}
+              <Show when={!selectedSkill() && !selectedExtension()}>
+                <button class="settings-back-button settings-menu-back" onClick={() => setMobileMenuOpen(true)}>← Settings</button>
+              </Show>
               <Show when={activeSection() === 'skills' && selectedSkill()}>
                 <button class="settings-back-button" onClick={() => setSelectedSkill(null)}>← Skills</button>
               </Show>
