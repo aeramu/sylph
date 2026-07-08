@@ -6,7 +6,9 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        // API_PORT lets a second instance (e.g. a worktree copy) run
+        // alongside the default one without port collisions.
+        target: `http://localhost:${process.env.API_PORT || 3001}`,
         changeOrigin: true,
       }
     }

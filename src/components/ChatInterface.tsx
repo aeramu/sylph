@@ -3,6 +3,7 @@ import { createStore, produce } from 'solid-js/store';
 import type { Attachment, ChatMessage, CommandInfo, ExtWidget, ModelOption, ThinkingLevel } from '../types';
 import { THINKING_LEVELS } from '../types';
 import { applyAgentEvent } from '../lib/chatEvents';
+import { trackSessionEvent, setSessionStatus } from '../lib/sessionStatus';
 import { hasRenderableContent, mapHistoryToMessages } from '../lib/messages';
 import CustomSelect from './CustomSelect';
 import Composer, { type ComposerApi } from './Composer';
@@ -261,6 +262,9 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
         return;
       }
 
+      // Status tracking sees every session's events, before the
+      // active-session gating below drops the foreign ones.
+      trackSessionEvent(data);
       handleSessionEvent(data);
     };
   };
@@ -365,6 +369,12 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   };
 
   const handleUiRespond = async (response: any) => {
+    // The agent unblocks as soon as the response lands; flip the sidebar
+    // badge back to working without waiting for the next agent event.
+    const answeredSession = (uiRequest() as any)?.sessionId
+      || (questionsRequest() as any)?.sessionId
+      || props.activeSessionId;
+    if (answeredSession) setSessionStatus(answeredSession, 'working');
     setUiRequest(null);
     setQuestionsRequest(null);
     try {

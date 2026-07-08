@@ -1,5 +1,6 @@
-import { createResource, createSignal, For, createEffect, Show } from 'solid-js';
-import type { DraftSession } from '../types';
+import { createResource, createSignal, For, createEffect, Show, Switch, Match } from 'solid-js';
+import type { DraftSession, SessionStatus } from '../types';
+import { sessionStatuses, setSessionStatus } from '../lib/sessionStatus';
 import AddProjectModal from './AddProjectModal';
 
 interface ProjectInfo {
@@ -14,6 +15,7 @@ interface SessionInfo {
   modified: string;
   messageCount: number;
   firstMessage: string;
+  status?: SessionStatus;
 }
 
 const SESSION_PREVIEW_COUNT = 5;
@@ -80,7 +82,15 @@ function ProjectItem(props: {
       headers: { 'Cache-Control': 'no-cache' }
     });
     const data = await res.json();
-    return data.sessions as SessionInfo[];
+    const list = data.sessions as SessionInfo[];
+    // Seed live statuses the SSE stream can't tell us about (sessions that
+    // were already mid-turn or blocked on a dialog before this page loaded).
+    // Set-only: clearing is the SSE tracker's job, and the server never
+    // reports 'error' (only the client sees error events).
+    for (const s of list) {
+      if (s.status) setSessionStatus(s.id, s.status);
+    }
+    return list;
   };
 
   const [sessions, { refetch }] = createResource(fetchSessions);
@@ -175,6 +185,10 @@ function ProjectItem(props: {
               <div
                 class={`session-item ${props.activeSessionId === session.id ? 'active' : ''}`}
                 onClick={() => {
+                  // Opening an errored session acknowledges the error badge.
+                  if (sessionStatuses[session.id] === 'error') {
+                    setSessionStatus(session.id, undefined);
+                  }
                   props.onSelectProject(props.project.id);
                   props.onSelectSession(session.id);
                 }}
@@ -182,7 +196,35 @@ function ProjectItem(props: {
                 <div class="session-title">
                   {session.name || session.firstMessage || 'Empty Chat'}
                 </div>
-                <div class="session-meta">{formatRelativeTime(session.modified)}</div>
+                <div class="session-meta">
+                  <Switch fallback={formatRelativeTime(session.modified)}>
+                    <Match when={sessionStatuses[session.id] === 'working'}>
+                      <span class="session-typing" title="Working…">
+                        <span class="session-typing-dot" />
+                        <span class="session-typing-dot" />
+                        <span class="session-typing-dot" />
+                      </span>
+                    </Match>
+                    <Match when={sessionStatuses[session.id] === 'needsInput'}>
+                      <span class="session-status-icon needs-input" title="Waiting for your input">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                          <polyline points="14 2 14 8 20 8"></polyline>
+                        </svg>
+                        <span class="session-status-dot" />
+                      </span>
+                    </Match>
+                    <Match when={sessionStatuses[session.id] === 'error'}>
+                      <span class="session-status-icon error" title="Ended with an error">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <circle cx="12" cy="12" r="10"></circle>
+                          <line x1="12" y1="8" x2="12" y2="12"></line>
+                          <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                        </svg>
+                      </span>
+                    </Match>
+                  </Switch>
+                </div>
               </div>
             )}
           </For>

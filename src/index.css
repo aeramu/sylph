@@ -351,6 +351,51 @@ body {
 .session-meta {
   font-size: 0.8rem;
   color: #5f5f5f;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+/* Sidebar session status: typing dots while the agent works */
+.session-typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 2px;
+}
+
+.session-typing-dot {
+  width: 4px;
+  height: 4px;
+  background-color: var(--accent);
+  border-radius: 50%;
+  animation: bounce 1.4s infinite ease-in-out both;
+}
+
+.session-typing-dot:nth-child(1) { animation-delay: -0.32s; }
+.session-typing-dot:nth-child(2) { animation-delay: -0.16s; }
+
+/* Sidebar session status: attention/error icons */
+.session-status-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  color: #a3a3a3;
+}
+
+.session-status-icon.error {
+  color: var(--danger);
+}
+
+.session-status-icon .session-status-dot {
+  position: absolute;
+  top: -2px;
+  right: -3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 4px var(--accent-glow);
 }
 
 .messages-area {
