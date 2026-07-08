@@ -285,6 +285,60 @@ export function createRouter(): express.Router {
     }
   });
 
+  router.get("/api/resources/extensions/:name", async (req, res) => {
+    try {
+      const runtime = await getIntrospectionRuntime();
+      const session = runtime.session as any;
+      const extensions = session._resourceLoader?.getExtensions()?.extensions || [];
+      const extension = extensions.find((e: any) => extensionDisplayName(e) === req.params.name);
+
+      if (!extension) {
+        return res.status(404).json({ error: "Extension not found" });
+      }
+
+      const mapValues = (map: Map<string, any> | undefined, mapper: (name: string, value: any) => any) =>
+        Array.from(map?.entries() ?? []).map(([name, value]) => mapper(name, value));
+
+      res.json({
+        name: extensionDisplayName(extension),
+        path: extension.path,
+        resolvedPath: extension.resolvedPath,
+        sourceInfo: extension.sourceInfo,
+        tools: mapValues(extension.tools, (name, registered) => ({
+          name,
+          label: registered.definition?.label,
+          description: registered.definition?.description,
+          promptSnippet: registered.definition?.promptSnippet,
+          promptGuidelines: registered.definition?.promptGuidelines,
+          parameters: registered.definition?.parameters,
+          sourceInfo: registered.sourceInfo,
+        })),
+        commands: mapValues(extension.commands, (name, command) => ({
+          name,
+          description: command.description,
+          sourceInfo: command.sourceInfo,
+        })),
+        flags: mapValues(extension.flags, (name, flag) => ({
+          name,
+          description: flag.description,
+          type: flag.type,
+          default: flag.default,
+        })),
+        shortcuts: mapValues(extension.shortcuts, (shortcut, shortcutDef) => ({
+          shortcut,
+          description: shortcutDef.description,
+        })),
+        events: mapValues(extension.handlers, (event, handlers) => ({
+          name: event,
+          count: Array.isArray(handlers) ? handlers.length : 0,
+        })),
+        messageRenderers: Array.from(extension.messageRenderers?.keys() ?? []),
+      });
+    } catch (err) {
+      handleError(res, err);
+    }
+  });
+
   router.post("/api/chat", async (req, res) => {
     const { sessionId, prompt, project_id, modelId, thinkingLevel, images } = req.body;
     if (!prompt) {

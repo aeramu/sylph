@@ -2108,7 +2108,7 @@ body {
   color: var(--text-secondary);
 }
 
-.settings-skill-detail {
+.settings-detail {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
@@ -2202,6 +2202,120 @@ body {
 
 .settings-skill-detail-content > :last-child {
   margin-bottom: 0;
+}
+
+.settings-extension-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 0.5rem;
+}
+
+.settings-extension-summary > div {
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.settings-extension-summary strong {
+  display: block;
+  color: var(--accent);
+  font-size: 1.05rem;
+  line-height: 1.1;
+}
+
+.settings-extension-summary span {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+}
+
+.settings-detail-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.settings-detail-section h3 {
+  margin: 0.25rem 0 0;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+}
+
+.settings-capability-card {
+  padding: 0.75rem;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.settings-capability-card.compact {
+  padding: 0.65rem 0.75rem;
+}
+
+.settings-capability-title {
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 0.88rem;
+  overflow-wrap: anywhere;
+}
+
+.settings-capability-subtitle,
+.settings-capability-muted {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  margin-top: 0.15rem;
+}
+
+.settings-capability-card p {
+  margin: 0.35rem 0 0;
+  color: var(--text-secondary);
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.settings-capability-list {
+  margin: 0.45rem 0 0;
+  padding-left: 1.2rem;
+  color: var(--text-secondary);
+  font-size: 0.84rem;
+}
+
+.settings-json-details {
+  margin-top: 0.6rem;
+}
+
+.settings-json-details summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+
+.settings-json-details pre {
+  max-height: 260px;
+  overflow: auto;
+  margin: 0.5rem 0 0;
+  padding: 0.75rem;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.28);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
+.settings-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.settings-chip {
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
 }
 
 @keyframes settingsModalIn {
