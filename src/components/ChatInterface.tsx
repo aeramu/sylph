@@ -3,7 +3,7 @@ import { createStore, produce } from 'solid-js/store';
 import type { Attachment, ChatMessage, CommandInfo, ExtWidget, ModelOption, ThinkingLevel } from '../types';
 import { THINKING_LEVELS } from '../types';
 import { applyAgentEvent } from '../lib/chatEvents';
-import { trackSessionEvent, setSessionStatus } from '../lib/sessionStatus';
+import { trackSessionEvent, setSessionStatus, sessionStatuses } from '../lib/sessionStatus';
 import { hasRenderableContent, mapHistoryToMessages } from '../lib/messages';
 import CustomSelect from './CustomSelect';
 import Composer, { type ComposerApi } from './Composer';
@@ -220,6 +220,19 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       // the working indicator we'd otherwise only get from the agent_start we
       // missed.
       setIsProcessing(!!data.isStreaming);
+      // Sync the sidebar badge with the snapshot: a session opened mid-turn
+      // or blocked on a dialog gets its indicator back (e.g. after a server
+      // restart wiped the live status), and stale live badges get cleared.
+      // Error badges are left alone — only the SSE stream knows about those.
+      if (props.activeSessionId) {
+        if (data.isStreaming) {
+          setSessionStatus(props.activeSessionId, 'working');
+        } else if (data.pendingUiRequests?.length) {
+          setSessionStatus(props.activeSessionId, 'needsInput');
+        } else if (sessionStatuses[props.activeSessionId] !== 'error') {
+          setSessionStatus(props.activeSessionId, undefined);
+        }
+      }
       // Re-show a dialog the agent is still blocked on (its one-shot SSE
       // broadcast was dropped if we were on another session at the time).
       // Set-only: a request that arrived live during this fetch must not be
@@ -369,19 +382,25 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   };
 
   const handleUiRespond = async (response: any) => {
+    const request: any = uiRequest() || questionsRequest();
+    const answeredSession = request?.sessionId || props.activeSessionId;
     // The agent unblocks as soon as the response lands; flip the sidebar
-    // badge back to working without waiting for the next agent event.
-    const answeredSession = (uiRequest() as any)?.sessionId
-      || (questionsRequest() as any)?.sessionId
-      || props.activeSessionId;
-    if (answeredSession) setSessionStatus(answeredSession, 'working');
+    // badge without waiting for the next agent event. Exception: dismissing a
+    // reconstructed dialog (question that survived a server restart) resumes
+    // nothing — the session just goes idle.
+    if (answeredSession) {
+      const idle = request?.reconstructed && response?.cancelled;
+      setSessionStatus(answeredSession, idle ? undefined : 'working');
+    }
     setUiRequest(null);
     setQuestionsRequest(null);
     try {
       await fetch('/api/ui-response', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(response),
+        // sessionId lets the server route responses to dialogs it no longer
+        // has a live promise for (reconstructed questions).
+        body: JSON.stringify({ sessionId: answeredSession, ...response }),
       });
     } catch (err) {
       console.error('Failed to send UI response:', err);
