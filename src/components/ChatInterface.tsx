@@ -5,6 +5,8 @@ import { THINKING_LEVELS } from '../types';
 import { applyAgentEvent } from '../lib/chatEvents';
 import { trackSessionEvent, setSessionStatus, sessionStatuses } from '../lib/sessionStatus';
 import { hasRenderableContent, mapHistoryToMessages } from '../lib/messages';
+import { stripAnsi } from '../lib/markdown';
+import './ChatInterface.css';
 import CustomSelect from './CustomSelect';
 import Composer, { type ComposerApi } from './Composer';
 import MessageBubble from './MessageBubble';
@@ -22,7 +24,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   const [selectedModel, setSelectedModel] = createSignal('');
   const [uiRequest, setUiRequest] = createSignal<UiRequest | null>(null);
   const [questionsRequest, setQuestionsRequest] = createSignal<QuestionsRequest | null>(null);
-  const [, setStatusEntries] = createStore<Record<string, string>>({});
+  const [statusEntries, setStatusEntries] = createStore<Record<string, string>>({});
   const [widgets, setWidgets] = createSignal<Record<string, ExtWidget>>({});
   const activeProject = () => projects().find((p) => p.id === props.activeProjectId);
   const activeSessionTitle = () => {
@@ -227,6 +229,14 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       if (seq !== historyRequestSeq) return; // a newer request superseded this one
       setMessages(mapHistoryToMessages(data.messages || []));
       setContextInfo(data.context || null);
+      // Replace extension statuses with the snapshot's. Their live SSE
+      // broadcasts are one-shot: any fired while this session wasn't active
+      // (background turn, other tab) were dropped by the session gate, so the
+      // server-side map is the authority here.
+      setStatusEntries(produce((s) => {
+        for (const k of Object.keys(s)) delete s[k];
+        for (const [k, v] of Object.entries(data.statuses || {})) s[k] = v as string;
+      }));
       // The session may be mid-turn (e.g. re-opened while streaming); restore
       // the working indicator we'd otherwise only get from the agent_start we
       // missed.
@@ -622,6 +632,17 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       </div>
 
       <div class="input-wrapper">
+        <Show when={Object.keys(statusEntries).length > 0}>
+          <div class="ext-status-entries">
+            <For each={Object.keys(statusEntries)}>
+              {(key) => (
+                // Statuses arrive ANSI-styled (pi extensions color them for
+                // the TUI footer); render the text, drop the escapes.
+                <span class="ext-status-entry" title={key}>{stripAnsi(statusEntries[key])}</span>
+              )}
+            </For>
+          </div>
+        </Show>
         <Show when={Object.keys(widgets()).length > 0}>
           <For each={Object.entries(widgets())}>
             {([, widget]) => (

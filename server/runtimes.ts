@@ -15,7 +15,7 @@ import type {
 import { RUNTIME_IDLE_MS, EVICTION_INTERVAL_MS } from "./config.ts";
 import { getProjects } from "./projects.ts";
 import { broadcast } from "./sse.ts";
-import { createExtensionUiContext, rejectPendingForSession } from "./uiBridge.ts";
+import { clearSessionStatuses, createExtensionUiContext, rejectPendingForSession } from "./uiBridge.ts";
 
 interface RuntimeEntry {
   runtime: any;
@@ -201,6 +201,7 @@ export function startEvictionTimer() {
       if (now - entry.lastUsed > RUNTIME_IDLE_MS) {
         activeRuntimes.delete(id);
         rejectPendingForSession(id, "session evicted");
+        clearSessionStatuses(id);
         try {
           entry.runtime.dispose?.();
         } catch (err) {

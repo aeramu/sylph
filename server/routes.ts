@@ -8,7 +8,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { getProjects, saveProjects, type Project } from "./projects.ts";
 import { addClient, removeClient } from "./sse.ts";
-import { resolveUiRequest, getPendingUiRequests } from "./uiBridge.ts";
+import { resolveUiRequest, getPendingUiRequests, getSessionStatuses } from "./uiBridge.ts";
 import { getActiveRuntime, getOrInitRuntime, getIntrospectionRuntime, touchRuntime, getContextInfo } from "./runtimes.ts";
 import { findDanglingQuestion, formatAnswersAsUserReply } from "./askUserQuestion.ts";
 
@@ -300,6 +300,10 @@ export function createRouter(): express.Router {
         // session that is currently mid-turn.
         isStreaming: !!runtime.session.isStreaming,
         pendingUiRequests,
+        // Latest extension statuses (ctx.ui.setStatus); their live SSE
+        // broadcasts are one-shot and were dropped while this session wasn't
+        // the active one.
+        statuses: getSessionStatuses(sessionId),
         // Seed for the composer's context-window indicator; kept fresh after
         // load by the context snapshots attached to SSE events.
         context: getContextInfo(runtime.session),

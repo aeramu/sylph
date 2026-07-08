@@ -20,6 +20,24 @@ interface PendingUiRequest {
 
 const pendingUiRequests = new Map<string, PendingUiRequest>();
 
+// Latest extension statuses per session (statusKey → text). setStatus is a
+// fire-and-forget one-shot broadcast, so a client that wasn't watching (other
+// session active, SSE disconnect) misses it; this map lets /api/history
+// re-seed the client — the role pi's FooterDataProvider plays in the TUI.
+const sessionStatuses = new Map<string, Map<string, string>>();
+
+export function getSessionStatuses(sessionId: string): Record<string, string> {
+  const statuses = sessionStatuses.get(sessionId);
+  return statuses ? Object.fromEntries(statuses) : {};
+}
+
+// Runtime eviction kills the extensions that own these statuses; a future
+// runtime's extensions re-announce theirs from scratch (as in pi's TUI, where
+// statuses are wiped on rebind and rebuilt via session_start).
+export function clearSessionStatuses(sessionId: string) {
+  sessionStatuses.delete(sessionId);
+}
+
 // Unanswered dialog payloads for a session, oldest first.
 export function getPendingUiRequests(sessionId: string): Record<string, any>[] {
   const out: Record<string, any>[] = [];
@@ -108,8 +126,19 @@ export function createExtensionUiContext(sessionId: string): any {
   const notify = (message: string, type?: string) =>
     fire("notify", { message, ...(type ? { notifyType: type } : {}) });
 
-  const setStatus = (key: string, text: string | undefined) =>
+  const setStatus = (key: string, text: string | undefined) => {
+    let statuses = sessionStatuses.get(sessionId);
+    if (text === undefined) {
+      statuses?.delete(key);
+    } else {
+      if (!statuses) {
+        statuses = new Map();
+        sessionStatuses.set(sessionId, statuses);
+      }
+      statuses.set(key, text);
+    }
     fire("setStatus", { statusKey: key, ...(text !== undefined ? { statusText: text } : {}) });
+  };
 
   const setWidget = (key: string, content: any, options?: any) =>
     fire("setWidget", {
