@@ -1,7 +1,8 @@
-import { createSignal } from 'solid-js';
+import { createSignal, Show } from 'solid-js';
 import type { DraftSession } from './types';
 import ChatInterface from './components/ChatInterface';
 import SessionSidebar from './components/SessionSidebar';
+import SettingsModal from './components/SettingsModal';
 
 function App() {
   const [activeSessionId, setActiveSessionId] = createSignal<string | undefined>(undefined);
@@ -13,6 +14,7 @@ function App() {
   // Freshly created sessions, kept (and shown in the sidebar) until the
   // fetched session list includes them — see DraftSession.
   const [draftSessions, setDraftSessions] = createSignal<DraftSession[]>([]);
+  const [showSettings, setShowSettings] = createSignal(false);
 
   return (
     <div class="app-layout">
@@ -24,7 +26,11 @@ function App() {
         refreshTrigger={refreshSidebar()}
         draftSessions={draftSessions()}
         onProjectsChanged={() => setProjectRefresh(r => r + 1)}
+        onOpenSettings={() => setShowSettings(true)}
       />
+      <Show when={showSettings()}>
+        <SettingsModal onClose={() => setShowSettings(false)} />
+      </Show>
       <ChatInterface
         activeSessionId={activeSessionId()}
         activeProjectId={activeProjectId()}

@@ -1,13 +1,12 @@
 import { createSignal, createEffect, For, Show, onCleanup, onMount } from 'solid-js';
 import { createStore, produce } from 'solid-js/store';
-import type { Attachment, ChatMessage, CommandInfo, ExtWidget, ModelOption, ResourceInfo, ThinkingLevel } from '../types';
+import type { Attachment, ChatMessage, CommandInfo, ExtWidget, ModelOption, ThinkingLevel } from '../types';
 import { THINKING_LEVELS } from '../types';
 import { applyAgentEvent } from '../lib/chatEvents';
 import { hasRenderableContent, mapHistoryToMessages } from '../lib/messages';
 import CustomSelect from './CustomSelect';
 import Composer, { type ComposerApi } from './Composer';
 import MessageBubble from './MessageBubble';
-import ResourcesModal from './ResourcesModal';
 import UiRequestModal, { type UiRequest } from './UiRequestModal';
 import QuestionsModal, { type QuestionsRequest } from './QuestionsModal';
 
@@ -15,16 +14,14 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   const [messages, setMessages] = createStore<ChatMessage[]>([]);
   const [isProcessing, setIsProcessing] = createSignal(false);
   const [isConnected, setIsConnected] = createSignal(false);
-  const [showModal, setShowModal] = createSignal<'skill' | 'extension' | null>(null);
   const [lightboxUrl, setLightboxUrl] = createSignal<string | null>(null);
   const [commandsList, setCommandsList] = createSignal<CommandInfo[]>([]);
-  const [resourcesList, setResourcesList] = createSignal<ResourceInfo[]>([]);
   const [projects, setProjects] = createSignal<any[]>([]);
   const [models, setModels] = createSignal<ModelOption[]>([]);
   const [selectedModel, setSelectedModel] = createSignal('');
   const [uiRequest, setUiRequest] = createSignal<UiRequest | null>(null);
   const [questionsRequest, setQuestionsRequest] = createSignal<QuestionsRequest | null>(null);
-  const [statusEntries, setStatusEntries] = createStore<Record<string, string>>({});
+  const [, setStatusEntries] = createStore<Record<string, string>>({});
   const [widgets, setWidgets] = createSignal<Record<string, ExtWidget>>({});
 
   let composerApi: ComposerApi | undefined;
@@ -152,7 +149,6 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   onMount(() => {
     fetchModels();
     fetchCommands();
-    fetchResources();
     connectSSE();
   });
 
@@ -202,18 +198,6 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       }
     } catch (e) {
       console.error('Failed to fetch commands', e);
-    }
-  };
-
-  const fetchResources = async () => {
-    try {
-      const res = await fetch('/api/resources');
-      if (res.ok) {
-        const data = await res.json();
-        setResourcesList(data.resources || []);
-      }
-    } catch (e) {
-      console.error('Failed to fetch resources', e);
     }
   };
 
@@ -543,34 +527,19 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
           </div>
         </div>
       </Show>
-      <div class="system-status">
-        <div>{isConnected() ? '🟢 Agent Connected' : '🔴 Agent Disconnected'}</div>
-        <div class="ext-status-entries">
-          <For each={Object.entries(statusEntries)}>
-            {([key, text]) => <span class="ext-status-entry" title={key}>{text}</span>}
-          </For>
-        </div>
-        <div style="display: flex; gap: 0.5rem;">
-          <button
-            class="system-status-btn"
-            onClick={() => setShowModal('skill')}
-          >
-            🤹 Skills
-          </button>
-          <button
-            class="system-status-btn"
-            onClick={() => setShowModal('extension')}
-          >
-            🧩 Extensions
-          </button>
-        </div>
+      <div
+        class={`server-status-indicator ${isConnected() ? 'connected' : 'disconnected'}`}
+        title={isConnected() ? 'Server connected' : 'Server disconnected'}
+        aria-label={isConnected() ? 'Server connected' : 'Server disconnected'}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="4" width="18" height="7"></rect>
+          <rect x="3" y="13" width="18" height="7"></rect>
+          <line x1="7" y1="7.5" x2="7.01" y2="7.5"></line>
+          <line x1="7" y1="16.5" x2="7.01" y2="16.5"></line>
+        </svg>
+        <span class="server-status-dot" />
       </div>
-
-      <Show when={showModal()} keyed>
-        {(kind) => (
-          <ResourcesModal kind={kind} resources={resourcesList()} onClose={() => setShowModal(null)} />
-        )}
-      </Show>
 
       <Show when={lightboxUrl()}>
         <div class="lightbox-overlay" onClick={() => setLightboxUrl(null)}>

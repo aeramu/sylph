@@ -262,6 +262,29 @@ export function createRouter(): express.Router {
     }
   });
 
+  router.get("/api/resources/skills/:name", async (req, res) => {
+    try {
+      const runtime = await getIntrospectionRuntime();
+      const session = runtime.session as any;
+      const skills = session._resourceLoader?.getSkills()?.skills || [];
+      const skill = skills.find((s: any) => s.name === req.params.name);
+
+      if (!skill?.filePath) {
+        return res.status(404).json({ error: "Skill not found" });
+      }
+
+      const content = await fs.promises.readFile(skill.filePath, "utf8");
+      res.json({
+        name: skill.name,
+        description: skill.description,
+        content,
+        path: skill.filePath,
+      });
+    } catch (err) {
+      handleError(res, err);
+    }
+  });
+
   router.post("/api/chat", async (req, res) => {
     const { sessionId, prompt, project_id, modelId, thinkingLevel, images } = req.body;
     if (!prompt) {
