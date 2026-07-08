@@ -54,6 +54,28 @@ const fetchExtensionDetail = async (name: string) => {
 const stripFrontmatter = (content: string) =>
   content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '');
 
+function SettingsMenuIcon(props: { kind: SettingsSection }) {
+  return (
+    <span class={`settings-menu-icon ${props.kind}`} aria-hidden="true">
+      <Show
+        when={props.kind === 'skills'}
+        fallback={
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M8 3.75h8A4.25 4.25 0 0 1 20.25 8v8A4.25 4.25 0 0 1 16 20.25H8A4.25 4.25 0 0 1 3.75 16V8A4.25 4.25 0 0 1 8 3.75Z" />
+            <path d="M8.25 9.25h7.5M8.25 14.75h7.5M9.25 7.25v9.5M14.75 7.25v9.5" />
+          </svg>
+        }
+      >
+        <svg viewBox="0 0 24 24" fill="none">
+          <path d="M12 3.75v3.5M12 16.75v3.5M3.75 12h3.5M16.75 12h3.5" />
+          <path d="m6.55 6.55 2.47 2.47M14.98 14.98l2.47 2.47M17.45 6.55l-2.47 2.47M9.02 14.98l-2.47 2.47" />
+          <circle cx="12" cy="12" r="2.75" />
+        </svg>
+      </Show>
+    </span>
+  );
+}
+
 export default function SettingsModal(props: { onClose: () => void }) {
   const [activeSection, setActiveSection] = createSignal<SettingsSection>('skills');
   const [selectedSkill, setSelectedSkill] = createSignal<string | null>(null);
@@ -86,7 +108,7 @@ export default function SettingsModal(props: { onClose: () => void }) {
               setSelectedExtension(null);
             }}
           >
-            <span>🤹</span>
+            <SettingsMenuIcon kind="skills" />
             <span>Skills</span>
           </button>
           <button
@@ -97,7 +119,7 @@ export default function SettingsModal(props: { onClose: () => void }) {
               setSelectedExtension(null);
             }}
           >
-            <span>🧩</span>
+            <SettingsMenuIcon kind="extensions" />
             <span>Extensions</span>
           </button>
         </div>
