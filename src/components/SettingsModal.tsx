@@ -32,8 +32,8 @@ interface ExtensionDetail {
   messageRenderers: string[];
 }
 
-const fetchResources = async () => {
-  const res = await fetch('/api/resources');
+const fetchResources = async (kind: 'skills' | 'extensions') => {
+  const res = await fetch(`/api/resources/${kind}`);
   if (!res.ok) return [];
   const data = await res.json();
   return (data.resources || []) as ResourceInfo[];
@@ -58,15 +58,15 @@ export default function SettingsModal(props: { onClose: () => void }) {
   const [activeSection, setActiveSection] = createSignal<SettingsSection>('skills');
   const [selectedSkill, setSelectedSkill] = createSignal<string | null>(null);
   const [selectedExtension, setSelectedExtension] = createSignal<string | null>(null);
-  const [resources] = createResource(fetchResources);
+  const [skills] = createResource(() => fetchResources('skills'));
+  const [extensions] = createResource(() => fetchResources('extensions'));
   const [skillDetail] = createResource(selectedSkill, fetchSkillDetail);
   const [extensionDetail] = createResource(selectedExtension, fetchExtensionDetail);
 
-  const filteredResources = () => {
-    const kind = activeSection() === 'skills' ? 'skill' : 'extension';
-    return (resources() || []).filter((resource) => resource.source === kind);
-  };
+  const currentResources = () => activeSection() === 'skills' ? (skills() || []) : (extensions() || []);
+  const currentResourcesLoading = () => activeSection() === 'skills' ? skills.loading : extensions.loading;
 
+  const resourceKind = () => activeSection() === 'skills' ? 'skill' : 'extension';
   const sectionTitle = () => activeSection() === 'skills' ? 'Skills' : 'Extensions';
   const selectedTitle = () => selectedSkill() || selectedExtension() || sectionTitle();
   const emptyLabel = () => activeSection() === 'skills' ? 'skills' : 'extensions';
@@ -289,22 +289,22 @@ export default function SettingsModal(props: { onClose: () => void }) {
                 </Show>
               }
             >
-              <Show when={!resources.loading} fallback={<div class="settings-modal-empty">Loading...</div>}>
+              <Show when={!currentResourcesLoading()} fallback={<div class="settings-modal-empty">Loading...</div>}>
                 <Show
-                  when={filteredResources().length > 0}
+                  when={currentResources().length > 0}
                   fallback={<div class="settings-modal-empty">No {emptyLabel()} loaded.</div>}
                 >
                   <div class="settings-resource-list">
-                    <For each={filteredResources()}>
+                    <For each={currentResources()}>
                       {(resource) => (
                         <button
-                          class={`settings-resource-card clickable ${resource.source}`}
+                          class="settings-resource-card clickable"
                           type="button"
                           onClick={() => {
-                            if (resource.source === 'skill') {
+                            if (resourceKind() === 'skill') {
                               setSelectedSkill(resource.name);
                               setSelectedExtension(null);
-                            } else if (resource.source === 'extension') {
+                            } else {
                               setSelectedExtension(resource.name);
                               setSelectedSkill(null);
                             }
@@ -312,7 +312,7 @@ export default function SettingsModal(props: { onClose: () => void }) {
                         >
                           <div class="settings-resource-card-header">
                             <span class="settings-resource-card-name">{resource.name}</span>
-                            <span class="settings-resource-card-source">{resource.source}</span>
+                            <span class="settings-resource-card-source">{resourceKind()}</span>
                           </div>
                           <Show when={resource.description}>
                             <div class="settings-resource-card-desc">{resource.description}</div>

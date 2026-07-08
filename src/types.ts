@@ -42,7 +42,6 @@ export interface CommandInfo {
 
 export interface ResourceInfo {
   name: string;
-  source: string;
   description?: string;
 }
 

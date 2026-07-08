@@ -56,6 +56,27 @@ function extensionDisplayName(extensionOrPath: string | {
   return `${pkgName}:${basename}`;
 }
 
+function getLoadedSkills(session: any) {
+  return session._resourceLoader?.getSkills()?.skills || [];
+}
+
+function getLoadedExtensions(session: any) {
+  return session._resourceLoader?.getExtensions()?.extensions || [];
+}
+
+// Routes that only read from the shared introspection runtime: resolve it,
+// hand the session to the handler, and serialize whatever comes back.
+function introspectionRoute(handler: (session: any) => unknown): express.RequestHandler {
+  return async (_req, res) => {
+    try {
+      const runtime = await getIntrospectionRuntime();
+      res.json(handler(runtime.session as any));
+    } catch (err) {
+      handleError(res, err);
+    }
+  };
+}
+
 export function createRouter(): express.Router {
   const router = express.Router();
 
@@ -221,65 +242,44 @@ export function createRouter(): express.Router {
     }
   });
 
-  router.get("/api/commands", async (_req, res) => {
-    try {
-      const runtime = await getIntrospectionRuntime();
-      const session = runtime.session as any;
-
-      const extensionCommands = session.extensionRunner.getRegisteredCommands().map((c: any) => ({
+  router.get("/api/commands", introspectionRoute((session) => ({
+    commands: [
+      ...session.extensionRunner.getRegisteredCommands().map((c: any) => ({
         name: c.invocationName,
         description: c.description,
         source: "extension",
-      }));
-      const templates = (session.promptTemplates || []).map((t: any) => ({
+      })),
+      ...(session.promptTemplates || []).map((t: any) => ({
         name: t.name,
         description: t.description,
         source: "prompt",
-      }));
-      const skills = (session._resourceLoader?.getSkills()?.skills || []).map((s: any) => ({
+      })),
+      ...getLoadedSkills(session).map((s: any) => ({
         name: `skill:${s.name}`,
         description: s.description,
         source: "skill",
-      }));
+      })),
+    ],
+  })));
 
-      res.json({ commands: [...extensionCommands, ...templates, ...skills] });
-    } catch (err) {
-      handleError(res, err);
-    }
-  });
+  router.get("/api/resources/skills", introspectionRoute((session) => ({
+    resources: getLoadedSkills(session).map((s: any) => ({
+      name: s.name,
+      description: s.description,
+    })),
+  })));
 
-  router.get("/api/resources", async (_req, res) => {
-    try {
-      const runtime = await getIntrospectionRuntime();
-      const session = runtime.session as any;
-
-      const extensions = (session._resourceLoader?.getExtensions()?.extensions || []).map((e: any) => ({
-        name: extensionDisplayName(e),
-        source: "extension",
-      }));
-      const templates = (session.promptTemplates || []).map((t: any) => ({
-        name: t.name,
-        description: t.description,
-        source: "prompt",
-      }));
-      const skills = (session._resourceLoader?.getSkills()?.skills || []).map((s: any) => ({
-        name: s.name,
-        description: s.description,
-        source: "skill",
-      }));
-
-      res.json({ resources: [...extensions, ...templates, ...skills] });
-    } catch (err) {
-      handleError(res, err);
-    }
-  });
+  router.get("/api/resources/extensions", introspectionRoute((session) => ({
+    resources: getLoadedExtensions(session).map((e: any) => ({
+      name: extensionDisplayName(e),
+    })),
+  })));
 
   router.get("/api/resources/skills/:name", async (req, res) => {
     try {
       const runtime = await getIntrospectionRuntime();
       const session = runtime.session as any;
-      const skills = session._resourceLoader?.getSkills()?.skills || [];
-      const skill = skills.find((s: any) => s.name === req.params.name);
+      const skill = getLoadedSkills(session).find((s: any) => s.name === req.params.name);
 
       if (!skill?.filePath) {
         return res.status(404).json({ error: "Skill not found" });
@@ -301,8 +301,7 @@ export function createRouter(): express.Router {
     try {
       const runtime = await getIntrospectionRuntime();
       const session = runtime.session as any;
-      const extensions = session._resourceLoader?.getExtensions()?.extensions || [];
-      const extension = extensions.find((e: any) => extensionDisplayName(e) === req.params.name);
+      const extension = getLoadedExtensions(session).find((e: any) => extensionDisplayName(e) === req.params.name);
 
       if (!extension) {
         return res.status(404).json({ error: "Extension not found" });
