@@ -1,6 +1,6 @@
 import { createSignal, createEffect, For, Show, onCleanup, onMount } from 'solid-js';
 import { createStore, produce } from 'solid-js/store';
-import type { Attachment, ChatMessage, CommandInfo, ExtWidget, ModelOption, ThinkingLevel } from '../types';
+import type { Attachment, ChatMessage, CommandInfo, ContextInfo, ExtWidget, ModelOption, ThinkingLevel } from '../types';
 import { THINKING_LEVELS } from '../types';
 import { applyAgentEvent } from '../lib/chatEvents';
 import { trackSessionEvent, setSessionStatus } from '../lib/sessionStatus';
@@ -24,6 +24,9 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   const [questionsRequest, setQuestionsRequest] = createSignal<QuestionsRequest | null>(null);
   const [, setStatusEntries] = createStore<Record<string, string>>({});
   const [widgets, setWidgets] = createSignal<Record<string, ExtWidget>>({});
+  // Context-window usage for the active session (drives the composer's
+  // context indicator). Seeded by /api/history, refreshed by SSE events.
+  const [contextInfo, setContextInfo] = createSignal<ContextInfo | null>(null);
 
   let composerApi: ComposerApi | undefined;
 
@@ -183,6 +186,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     pendingEventBuffer = [];
     setMessages([]);
     setPinnedToBottom(true); // fresh session — follow from the bottom
+    setContextInfo(null);
     setUiRequest(null);
     setQuestionsRequest(null);
     setWidgets({});
@@ -216,6 +220,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       const data = await res.json();
       if (seq !== historyRequestSeq) return; // a newer request superseded this one
       setMessages(mapHistoryToMessages(data.messages || []));
+      setContextInfo(data.context || null);
       // The session may be mid-turn (e.g. re-opened while streaming); restore
       // the working indicator we'd otherwise only get from the agent_start we
       // missed.
@@ -270,6 +275,9 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   };
 
   const applyEvent = (event: any) => {
+    // message_end / agent_end / compaction_end events carry a fresh
+    // context-window snapshot (see server/runtimes.ts).
+    if (event.context) setContextInfo(event.context);
     applyAgentEvent(messages, setMessages, event, {
       setProcessing: setIsProcessing,
       onTurnComplete: props.onTurnComplete,
@@ -624,6 +632,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
             thinkingLevels={THINKING_LEVELS}
             selectedThinkingLevel={selectedThinkingLevel()}
             onSelectThinkingLevel={selectThinkingLevel}
+            contextInfo={contextInfo()}
             onSubmit={handleSubmit}
             onStop={handleStop}
             api={(api) => { composerApi = api; }}

@@ -9,7 +9,7 @@ import {
 import { getProjects, saveProjects, type Project } from "./projects.ts";
 import { addClient, removeClient } from "./sse.ts";
 import { resolveUiRequest, getPendingUiRequests } from "./uiBridge.ts";
-import { getActiveRuntime, getOrInitRuntime, getIntrospectionRuntime, touchRuntime } from "./runtimes.ts";
+import { getActiveRuntime, getOrInitRuntime, getIntrospectionRuntime, touchRuntime, getContextInfo } from "./runtimes.ts";
 
 function handleError(res: express.Response, err: any) {
   console.error(err);
@@ -236,6 +236,9 @@ export function createRouter(): express.Router {
         // Dialogs the agent is still blocked on; their SSE broadcast was a
         // one-shot the client may have missed while on another session.
         pendingUiRequests: getPendingUiRequests(sessionId),
+        // Seed for the composer's context-window indicator; kept fresh after
+        // load by the context snapshots attached to SSE events.
+        context: getContextInfo(runtime.session),
       });
     } catch (err) {
       handleError(res, err);

@@ -1,7 +1,8 @@
 import { createSignal, createEffect, createMemo, For, Show } from 'solid-js';
-import type { Attachment, CommandInfo, ModelOption, ThinkingLevel, ThinkingLevelOption } from '../types';
+import type { Attachment, CommandInfo, ContextInfo, ModelOption, ThinkingLevel, ThinkingLevelOption } from '../types';
 import { ACCEPT_ATTR, readFile } from '../lib/attachments';
 import CustomSelect, { type CustomSelectApi } from './CustomSelect';
+import ContextIndicator from './ContextIndicator';
 
 // Built-in slash commands handled locally by the composer (they run a UI
 // action instead of being sent to the agent). Their `run` is filled in below.
@@ -78,6 +79,7 @@ export default function Composer(props: {
   thinkingLevels: ThinkingLevelOption[];
   selectedThinkingLevel: ThinkingLevel;
   onSelectThinkingLevel: (level: ThinkingLevel) => void;
+  contextInfo?: ContextInfo | null;
   onSubmit: (text: string, attachments: Attachment[]) => void;
   onStop: () => void;
   api?: (api: ComposerApi) => void;
@@ -412,6 +414,8 @@ export default function Composer(props: {
           />
         </div>
 
+        <div class="input-toolbar-right">
+        <ContextIndicator context={props.contextInfo ?? null} />
         <Show when={props.isProcessing}>
           <button
             class="stop-button"
@@ -446,6 +450,7 @@ export default function Composer(props: {
             </Show>
           </button>
         </Show>
+        </div>
       </div>
     </div>
   );

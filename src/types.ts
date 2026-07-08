@@ -89,6 +89,26 @@ export const THINKING_LEVELS: ThinkingLevelOption[] = [
   { value: 'xhigh', label: 'XHigh' },
 ];
 
+// Context-window snapshot computed server-side (see getContextInfo in
+// server/runtimes.ts). tokens/percent are null right after compaction, before
+// the next assistant response re-establishes real usage.
+export interface ContextInfo {
+  tokens: number | null;
+  contextWindow: number;
+  percent: number | null;
+  // chars/4 estimates — the model-reported number is `tokens`.
+  systemPromptTokens: number;
+  toolTokens: number;
+  stats?: {
+    userMessages: number;
+    assistantMessages: number;
+    toolCalls: number;
+    totalMessages: number;
+    tokens: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
+    cost: number;
+  };
+}
+
 export interface ExtWidget {
   lines: string[];
   placement?: string;

@@ -63,6 +63,50 @@ async function buildRuntime(sessionManager: any, cwd: string, opts?: { uiContext
   return runtime;
 }
 
+// Snapshot of how full the session's context window is, plus enough detail
+// for the client's context popover. Token counts for the system prompt and
+// tool definitions are chars/4 estimates (pi doesn't report a per-section
+// breakdown); the authoritative numbers are tokens/contextWindow/percent,
+// which come from the last assistant message's usage.
+export function getContextInfo(session: any) {
+  try {
+    const usage = session.getContextUsage?.();
+    if (!usage) return undefined;
+
+    const estimateTokens = (text: string) => Math.ceil((text?.length || 0) / 4);
+    let systemPromptTokens = 0;
+    try { systemPromptTokens = estimateTokens(session.systemPrompt); } catch { /* no system prompt yet */ }
+    let toolTokens = 0;
+    try {
+      for (const tool of session.getAllTools?.() || []) {
+        toolTokens += estimateTokens(`${tool.name} ${tool.description || ""}`)
+          + estimateTokens(JSON.stringify(tool.parameters || {}));
+      }
+    } catch { /* tool registry unavailable */ }
+
+    const stats = session.getSessionStats?.();
+    return {
+      tokens: usage.tokens,
+      contextWindow: usage.contextWindow,
+      percent: usage.percent,
+      systemPromptTokens,
+      toolTokens,
+      stats: stats
+        ? {
+            userMessages: stats.userMessages,
+            assistantMessages: stats.assistantMessages,
+            toolCalls: stats.toolCalls,
+            totalMessages: stats.totalMessages,
+            tokens: stats.tokens,
+            cost: stats.cost,
+          }
+        : undefined,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 export function touchRuntime(sessionId: string) {
   const entry = activeRuntimes.get(sessionId);
   if (entry) entry.lastUsed = Date.now();
@@ -113,9 +157,16 @@ export async function getOrInitRuntime(sessionId?: string, projectId?: string) {
     uiContext: createExtensionUiContext(sessionManager.getSessionId()),
   });
 
-  // Broadcast events to all SSE clients with sessionId attached.
+  // Broadcast events to all SSE clients with sessionId attached. Events that
+  // land after an assistant message completes also carry a fresh context
+  // snapshot so the composer's context indicator stays live mid-turn.
   runtime.session.subscribe((event: AgentSessionEvent) => {
-    broadcast({ sessionId: sessionManager.getSessionId(), ...event });
+    const payload: any = { sessionId: sessionManager.getSessionId(), ...event };
+    if (event.type === "message_end" || event.type === "agent_end" || event.type === "compaction_end") {
+      const context = getContextInfo(runtime.session);
+      if (context) payload.context = context;
+    }
+    broadcast(payload);
   });
 
   const resolvedSessionId = sessionManager.getSessionId();
