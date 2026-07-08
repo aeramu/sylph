@@ -52,6 +52,11 @@ export interface ProjectInfo {
   path: string;
 }
 
+// Live state of a session shown in the sidebar: mid-turn, blocked on a user
+// dialog (question / permission prompt), or ended with an error. Absence
+// means idle.
+export type SessionStatus = 'working' | 'needsInput' | 'error';
+
 // A session created in this app instance that the server session list may
 // not include yet (it's still on its first turn). The sidebar shows these
 // so a fresh chat doesn't vanish when another session becomes active.

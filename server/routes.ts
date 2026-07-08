@@ -182,7 +182,19 @@ export function createRouter(): express.Router {
 
       const sessions = await SessionManager.list(targetDir);
       sessions.sort((a, b) => new Date(b.modified).getTime() - new Date(a.modified).getTime());
-      res.json({ sessions });
+      // Attach live status so a page loaded mid-turn can badge sessions whose
+      // SSE events it never saw. Errors are client-side only (they live in
+      // the event stream, not the runtime), so 'error' is never reported here.
+      res.json({
+        sessions: sessions.map((s) => {
+          const status = getPendingUiRequests(s.id).length > 0
+            ? "needsInput"
+            : getActiveRuntime(s.id)?.session?.isStreaming
+              ? "working"
+              : undefined;
+          return status ? { ...s, status } : s;
+        }),
+      });
     } catch (err) {
       handleError(res, err);
     }
