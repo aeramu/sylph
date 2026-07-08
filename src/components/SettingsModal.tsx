@@ -1,6 +1,7 @@
 import { createResource, createSignal, For, Show } from 'solid-js';
 import type { ResourceInfo } from '../types';
 import { renderMarkdown } from '../lib/markdown';
+import CodeView from './CodeView';
 
 type SettingsSection = 'skills' | 'extensions';
 
@@ -179,7 +180,11 @@ export default function SettingsModal(props: { onClose: () => void }) {
                                       <Show when={tool.parameters}>
                                         <details class="settings-json-details">
                                           <summary>Parameters</summary>
-                                          <pre>{JSON.stringify(tool.parameters, null, 2)}</pre>
+                                          <CodeView
+                                            code={JSON.stringify(tool.parameters, null, 2)}
+                                            path={`${tool.name}-parameters.json`}
+                                            class="settings-json-code"
+                                          />
                                         </details>
                                       </Show>
                                     </div>
@@ -293,7 +298,7 @@ export default function SettingsModal(props: { onClose: () => void }) {
                     <For each={filteredResources()}>
                       {(resource) => (
                         <button
-                          class="settings-resource-card clickable"
+                          class={`settings-resource-card clickable ${resource.source}`}
                           type="button"
                           onClick={() => {
                             if (resource.source === 'skill') {
