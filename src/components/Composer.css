@@ -83,11 +83,41 @@
   color: var(--text-primary);
 }
 
-.attachment-previews {
+.attachment-previews,
+.mention-previews {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
   padding: 0.6rem 0.75rem 0;
+}
+
+.mention-previews {
+  padding-bottom: 0.1rem;
+}
+
+.mention-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 320px;
+  gap: 0.05rem;
+  padding: 0.28rem 0.55rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 0 14px rgba(99, 102, 241, 0.12);
+}
+
+.mention-chip-at {
+  color: var(--accent);
+  font-weight: 800;
+  margin-right: 0.1rem;
 }
 
 .attachment-chip {
@@ -155,18 +185,55 @@
   box-shadow: 0 0 20px var(--accent-glow);
 }
 
-.input-field {
+.input-field-shell {
+  position: relative;
   flex-grow: 1;
+  min-height: 56px;
+}
+
+.input-field,
+.input-highlight-layer {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 56px;
+  max-height: 200px;
+  padding: 1rem 1.5rem;
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  line-height: normal;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.input-highlight-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  color: var(--text-primary);
+  border: 1px solid transparent;
+}
+
+.input-mention-highlight {
+  color: var(--accent);
+  background: rgba(99, 102, 241, 0.16);
+  border-radius: 5px;
+  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.18);
+}
+
+.input-field {
+  position: relative;
+  display: block;
   background: transparent;
   border: none;
   color: var(--text-primary);
-  font-family: var(--font-sans);
-  font-size: 1rem;
-  padding: 1rem 1.5rem;
+  caret-color: var(--text-primary);
   resize: none;
-  max-height: 200px;
-  min-height: 56px;
   outline: none;
+}
+
+.input-field.has-highlight-layer {
+  color: transparent;
 }
 
 .input-field::placeholder {
@@ -331,6 +398,12 @@
   text-overflow: ellipsis;
 }
 
+.autocomplete-empty {
+  padding: 0.75rem 1rem;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
 @media (max-width: 768px) {
   /* The toolbar holds attach + model + thinking + context + send: let the
      selectors shrink and ellipsize instead of pushing the send button off
@@ -352,7 +425,8 @@
     white-space: nowrap;
   }
 
-  .input-field {
+  .input-field,
+  .input-highlight-layer {
     padding: 0.85rem 1rem;
     min-height: 48px;
   }

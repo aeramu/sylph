@@ -483,8 +483,8 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     });
     setPinnedToBottom(true); // user just sent — follow the reply
 
-    // Images go through the SDK's images option; text files are inlined into
-    // the prompt so the model receives their contents.
+    // Images go through the SDK's images option; text files and @mentions are
+    // inlined into the prompt so the model receives their contents.
     const images = pendingAttachments
       .filter(a => a.kind === 'image' && a.data)
       .map(a => ({ type: 'image' as const, data: a.data!, mimeType: a.mimeType }));
@@ -740,6 +740,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
             isProcessing={isProcessing()}
             disabled={!!uiRequest() || !!questionsRequest()}
             commands={commandsList()}
+            projectId={props.activeProjectId}
             models={models()}
             selectedModel={selectedModel()}
             onSelectModel={selectModel}

@@ -1,5 +1,5 @@
-import { createSignal, createEffect, createMemo, For, Show } from 'solid-js';
-import type { Attachment, CommandInfo, ContextInfo, ModelOption, ThinkingLevel, ThinkingLevelOption } from '../types';
+import { createSignal, createEffect, createMemo, For, Show, onCleanup } from 'solid-js';
+import type { Attachment, CommandInfo, ContextInfo, FileMentionInfo, ModelOption, ThinkingLevel, ThinkingLevelOption } from '../types';
 import { ACCEPT_ATTR, readFile } from '../lib/attachments';
 import CustomSelect, { type CustomSelectApi } from './CustomSelect';
 import ContextIndicator from './ContextIndicator';
@@ -17,6 +17,40 @@ interface BuiltinCommand extends CommandInfo { builtin: true; run: () => void }
 // Uses a small DP to find the highest-scoring alignment rather than a greedy
 // first-occurrence walk — greedy would match the "r" ending "router" and miss
 // the much stronger contiguous "rel" at the "-reload" boundary.
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function highlightMentions(text: string): string {
+  if (!text) return '';
+  const pattern = /@\{[^}\n]+\}|(^|\s)@[^\s{}]+/g;
+  let out = '';
+  let last = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(text))) {
+    const raw = match[0];
+    const leading = match[1] || '';
+    const mention = leading ? raw.slice(leading.length) : raw;
+    const mentionStart = match.index + leading.length;
+
+    out += escapeHtml(text.slice(last, mentionStart));
+    out += `<span class="input-mention-highlight">${escapeHtml(mention)}</span>`;
+    last = mentionStart + mention.length;
+  }
+
+  out += escapeHtml(text.slice(last));
+  // Preserve final blank lines in the mirror layer so caret/scroll alignment
+  // doesn't collapse when the textarea ends with a newline.
+  if (text.endsWith('\n')) out += ' ';
+  return out;
+}
+
 function fuzzyScore(query: string, target: string): number | null {
   const n = query.length;
   const m = target.length;
@@ -74,6 +108,7 @@ export default function Composer(props: {
   isProcessing: boolean;
   disabled: boolean;
   commands: CommandInfo[];
+  projectId?: string;
   models: ModelOption[];
   selectedModel: string;
   onSelectModel: (id: string) => void;
@@ -89,11 +124,18 @@ export default function Composer(props: {
   const [attachments, setAttachments] = createSignal<Attachment[]>([]);
   const [isDragOver, setIsDragOver] = createSignal(false);
   const [selectedIndex, setSelectedIndex] = createSignal(0);
+  const [caretPos, setCaretPos] = createSignal<number | null>(null);
+  const [activeMention, setActiveMention] = createSignal<{ query: string; start: number; end: number } | null>(null);
+  const [mentionResults, setMentionResults] = createSignal<FileMentionInfo[]>([]);
+  const [isMentionLoading, setIsMentionLoading] = createSignal(false);
   let fileInputRef: HTMLInputElement | undefined;
   let textareaRef: HTMLTextAreaElement | undefined;
+  let highlightRef: HTMLDivElement | undefined;
   let commandListRef: HTMLDivElement | undefined;
   let modelSelectApi: CustomSelectApi | undefined;
   let dragCounter = 0;
+  let skipNextMentionSync = false;
+  let suppressNextMentionFetch = false;
 
   const builtinCommands: BuiltinCommand[] = [
     {
@@ -181,7 +223,69 @@ export default function Composer(props: {
     if (dragCounter === 0) setIsDragOver(false);
   };
 
+  const updateActiveMention = (text = input(), rawPos = textareaRef?.selectionStart ?? caretPos() ?? text.length) => {
+    const pos = Math.min(rawPos, text.length);
+    const before = text.slice(0, pos);
+    const match = before.match(/(^|\s)@([^\s{}]*)$/);
+    if (!match) {
+      setActiveMention((prev) => prev === null ? prev : null);
+      return;
+    }
+
+    const next = { query: match[2], start: pos - match[2].length - 1, end: pos };
+    // Arrow-key navigation fires keyup/caret sync even though the mention did
+    // not change. Returning the existing object prevents Solid from treating it
+    // as a new mention, which would re-query /api/fs/files and reset selection.
+    setActiveMention((prev) => (
+      prev && prev.query === next.query && prev.start === next.start && prev.end === next.end
+        ? prev
+        : next
+    ));
+  };
+
+  createEffect(() => {
+    const mention = activeMention();
+    const projectId = props.projectId;
+    if (!mention || !projectId) {
+      setMentionResults([]);
+      setIsMentionLoading(false);
+      return;
+    }
+    if (suppressNextMentionFetch) {
+      suppressNextMentionFetch = false;
+      return;
+    }
+
+    let cancelled = false;
+    setIsMentionLoading(true);
+    const timer = window.setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/fs/files?projectId=${encodeURIComponent(projectId)}&q=${encodeURIComponent(mention.query)}`);
+        const data = await res.json();
+        if (!cancelled) setMentionResults(res.ok ? (data.files || []) : []);
+      } catch {
+        if (!cancelled) setMentionResults([]);
+      } finally {
+        if (!cancelled) setIsMentionLoading(false);
+      }
+    }, 120);
+
+    onCleanup(() => {
+      cancelled = true;
+      clearTimeout(timer);
+    });
+  });
+
+  const filteredMentions = createMemo(() => activeMention() ? mentionResults() : null);
+
+  const mentionEmptyText = () => {
+    if (!props.projectId) return 'Select a project to mention files';
+    if (isMentionLoading()) return 'Searching files…';
+    return 'No matching files';
+  };
+
   const filteredCommands = createMemo(() => {
+    if (activeMention()) return null;
     const text = input();
     const match = text.match(/^\/([^\s]*)$/);
     if (!match) return null;
@@ -209,9 +313,17 @@ export default function Composer(props: {
     return cmds ? [...cmds].reverse() : [];
   });
 
+  const reversedMentions = createMemo(() => {
+    const files = filteredMentions();
+    return files ? [...files].reverse() : [];
+  });
+
+  const highlightedInput = createMemo(() => highlightMentions(input()));
+
   createEffect(() => {
     // Reset selected index when filtered list changes
     filteredCommands();
+    filteredMentions();
     setSelectedIndex(0);
   });
 
@@ -221,6 +333,7 @@ export default function Composer(props: {
     // navigation can move the selection out of the current scroll window.
     selectedIndex();
     filteredCommands();
+    filteredMentions();
     const list = commandListRef;
     if (!list) return;
     const el = list.querySelector('.autocomplete-item.selected') as HTMLElement | null;
@@ -233,6 +346,17 @@ export default function Composer(props: {
       list.scrollTop += elRect.bottom - listRect.bottom;
     }
   });
+
+  const syncCaret = () => {
+    if (!textareaRef) return;
+    const pos = textareaRef.selectionStart ?? textareaRef.value.length;
+    setCaretPos(pos);
+    if (skipNextMentionSync) {
+      skipNextMentionSync = false;
+      return;
+    }
+    updateActiveMention(textareaRef.value, pos);
+  };
 
   const applyCommand = (cmd: CommandInfo) => {
     // Built-in commands run a local UI action and clear the input rather than
@@ -248,6 +372,48 @@ export default function Composer(props: {
     const replaced = text.replace(/^\/\S*/, `/${cmd.name} `);
     setInput(replaced);
     setSelectedIndex(0);
+    requestAnimationFrame(() => {
+      if (!textareaRef) return;
+      textareaRef.value = replaced;
+      textareaRef.focus();
+      textareaRef.setSelectionRange(replaced.length, replaced.length);
+      syncCaret();
+    });
+  };
+
+  const formatMention = (path: string) => {
+    // Keep common paths readable in the textarea: @src/App.tsx.
+    // Fall back to braced mentions only when the path needs an explicit
+    // boundary, e.g. spaces: @{docs/my note.md}.
+    return /[\s{}]/.test(path) ? `@{${path}}` : `@${path}`;
+  };
+
+  const applyMention = (file: FileMentionInfo, options: { trailingSpace: boolean; keepOpen: boolean }) => {
+    const mention = activeMention();
+    if (!mention || !textareaRef) return;
+    const text = input();
+    const inserted = `${formatMention(file.path)}${options.trailingSpace ? ' ' : ''}`;
+    const replaced = text.slice(0, mention.start) + inserted + text.slice(mention.end);
+    const nextPos = mention.start + inserted.length;
+    textareaRef.value = replaced;
+    setInput(replaced);
+    if (options.keepOpen) {
+      // Tab behaves like autocomplete: fill the text but keep the current
+      // dropdown/results/selection alive. The keyup after Tab would otherwise
+      // re-detect the completed mention, re-query, and reset navigation.
+      skipNextMentionSync = true;
+      suppressNextMentionFetch = true;
+      setActiveMention({ query: file.path, start: mention.start, end: nextPos });
+    } else {
+      setSelectedIndex(0);
+      setMentionResults([]);
+      setActiveMention(null);
+    }
+    requestAnimationFrame(() => {
+      textareaRef?.focus();
+      textareaRef?.setSelectionRange(nextPos, nextPos);
+      setCaretPos(nextPos);
+    });
   };
 
   const handleSubmit = (e?: Event) => {
@@ -265,11 +431,45 @@ export default function Composer(props: {
     const pending = attachments();
     setInput('');
     setAttachments([]);
+    setActiveMention(null);
+    setMentionResults([]);
+    setSelectedIndex(0);
     props.onSubmit(text, pending);
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
+    const mentions = filteredMentions();
     const commands = filteredCommands();
+
+    if (mentions) {
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedIndex((prev) => mentions.length ? (prev + 1) % mentions.length : 0);
+        return;
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedIndex((prev) => mentions.length ? (prev - 1 + mentions.length) % mentions.length : 0);
+        return;
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (mentions.length) {
+          applyMention(mentions[selectedIndex()], { trailingSpace: true, keepOpen: false });
+        }
+        return;
+      } else if (e.key === 'Tab') {
+        e.preventDefault();
+        if (mentions.length) {
+          applyMention(mentions[selectedIndex()], { trailingSpace: false, keepOpen: true });
+        }
+        return;
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        setActiveMention(null);
+        setMentionResults([]);
+        setSelectedIndex(0);
+        return;
+      }
+    }
 
     if (commands) {
       // In a drop-up, ArrowUp moves visually UP (away from input) -> higher index
@@ -330,6 +530,34 @@ export default function Composer(props: {
           </For>
         </div>
       </Show>
+      <Show when={filteredMentions()}>
+        <div class="autocomplete-popup">
+          <div class="autocomplete-header">
+            Mentions {!props.projectId ? '• No project selected' : isMentionLoading() ? '• Searching…' : ''}
+          </div>
+          <div class="autocomplete-list" ref={commandListRef}>
+            <Show when={reversedMentions().length > 0} fallback={<div class="autocomplete-empty">{mentionEmptyText()}</div>}>
+              <For each={reversedMentions()}>
+                {(file, index) => {
+                  const originalIndex = () => reversedMentions().length - 1 - index();
+                  return (
+                    <div
+                      class={`autocomplete-item ${originalIndex() === selectedIndex() ? 'selected' : ''}`}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => applyMention(file, { trailingSpace: true, keepOpen: false })}
+                    >
+                      <div class="autocomplete-item-title">
+                        <span class="autocomplete-item-name">{file.kind === 'directory' ? '📁' : '📄'} {file.path}</span>
+                        <span class="autocomplete-item-source">{file.kind}</span>
+                      </div>
+                    </div>
+                  );
+                }}
+              </For>
+            </Show>
+          </div>
+        </div>
+      </Show>
       <Show when={filteredCommands()}>
         <div class="autocomplete-popup">
           <div class="autocomplete-header">
@@ -360,17 +588,36 @@ export default function Composer(props: {
           </div>
         </div>
       </Show>
-      <textarea
-        ref={textareaRef}
-        class="input-field"
-        placeholder="Ask anything, @ to mention, / for actions"
-        value={input()}
-        onInput={(e) => setInput(e.currentTarget.value)}
-        onKeyDown={handleKeyDown}
-        onPaste={handlePaste}
-        rows={1}
-        disabled={!props.isConnected || props.disabled}
-      />
+      <div class="input-field-shell">
+        <div
+          ref={highlightRef}
+          class="input-highlight-layer"
+          aria-hidden="true"
+          innerHTML={highlightedInput()}
+        />
+        <textarea
+          ref={textareaRef}
+          class={`input-field ${input() ? 'has-highlight-layer' : ''}`}
+          placeholder="Ask anything, @ to mention, / for actions"
+          value={input()}
+          onInput={(e) => {
+            const text = e.currentTarget.value;
+            const pos = e.currentTarget.selectionStart ?? text.length;
+            setInput(text);
+            setCaretPos(pos);
+            updateActiveMention(text, pos);
+            if (highlightRef) highlightRef.scrollTop = e.currentTarget.scrollTop;
+          }}
+          onScroll={(e) => { if (highlightRef) highlightRef.scrollTop = e.currentTarget.scrollTop; }}
+          onKeyDown={handleKeyDown}
+          onKeyUp={syncCaret}
+          onClick={syncCaret}
+          onSelect={syncCaret}
+          onPaste={handlePaste}
+          rows={1}
+          disabled={!props.isConnected || props.disabled}
+        />
+      </div>
       <div class="input-toolbar">
         <div class="input-toolbar-left">
           <input

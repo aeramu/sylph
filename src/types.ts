@@ -40,6 +40,12 @@ export interface CommandInfo {
   description?: string;
 }
 
+export interface FileMentionInfo {
+  name: string;
+  path: string;
+  kind: 'file' | 'directory';
+}
+
 export interface ResourceInfo {
   name: string;
   description?: string;
