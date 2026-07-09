@@ -1,5 +1,6 @@
 import { createSignal, Index, Show } from 'solid-js';
 import type { DiffSummary, FileDiff } from '../lib/sessionDiff';
+import { diffMode, setDiffMode } from '../lib/diffMode';
 import DiffStats from './DiffStats';
 import DiffView from './DiffView';
 import './ChangesTab.css';
@@ -64,6 +65,22 @@ export default function ChangesTab(props: {
       >
         <div class="changes-summary">
           <DiffStats files={props.diff.files.length} added={props.diff.added} deleted={props.diff.deleted} />
+          <div class="diff-mode-toggle" role="group" aria-label="Diff layout">
+            <button
+              class={`diff-mode-btn ${diffMode() === 'split' ? 'active' : ''}`}
+              onClick={() => setDiffMode('split')}
+              title="Side-by-side diff"
+            >
+              Split
+            </button>
+            <button
+              class={`diff-mode-btn ${diffMode() === 'unified' ? 'active' : ''}`}
+              onClick={() => setDiffMode('unified')}
+              title="Unified diff"
+            >
+              Unified
+            </button>
+          </div>
         </div>
         <div class="changes-files">
           {/* Index (not For): the diff summaries are recomputed objects on
