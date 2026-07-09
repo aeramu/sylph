@@ -252,6 +252,7 @@ export default function SessionSidebar(props: {
   draftSessions: DraftSession[]
   onProjectsChanged?: () => void,
   onOpenSettings: () => void,
+  onToggleSidebar: () => void,
 }) {
   const [projects, { refetch }] = createResource(fetchProjects);
   const [showAddProject, setShowAddProject] = createSignal(false);
@@ -273,8 +274,18 @@ export default function SessionSidebar(props: {
   return (
     <div class="sidebar">
       <div class="sidebar-header">
-        <div class="sidebar-title">Projects</div>
-        <div class="sidebar-actions">
+        <button class="icon-button sidebar-toggle-inside" onClick={props.onToggleSidebar} title="Hide sidebar" aria-label="Hide sidebar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="3" y1="6" x2="21" y2="6"></line>
+            <line x1="3" y1="12" x2="21" y2="12"></line>
+            <line x1="3" y1="18" x2="21" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+
+      <section class="sidebar-section">
+        <div class="sidebar-section-header">
+          <div class="sidebar-title">Projects</div>
           <button class="icon-button" onClick={() => setShowAddProject(true)} title="Add Project">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
@@ -283,9 +294,8 @@ export default function SessionSidebar(props: {
             </svg>
           </button>
         </div>
-      </div>
 
-      <div class="session-list">
+        <div class="session-list">
         <For each={projects()}>
           {(proj) => (
             <ProjectItem
@@ -305,12 +315,13 @@ export default function SessionSidebar(props: {
           )}
         </For>
 
-        <Show when={projects() && projects()!.length === 0}>
-          <div class="sidebar-empty">
-            No projects added yet. <br /><br /> Click the folder icon to add one.
-          </div>
-        </Show>
-      </div>
+          <Show when={projects() && projects()!.length === 0}>
+            <div class="sidebar-empty">
+              No projects added yet. <br /><br /> Click the folder icon to add one.
+            </div>
+          </Show>
+        </div>
+      </section>
 
       <div class="sidebar-footer">
         <button class="sidebar-settings-button" onClick={props.onOpenSettings}>

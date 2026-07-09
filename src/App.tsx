@@ -16,17 +16,26 @@ function App() {
   // fetched session list includes them — see DraftSession.
   const [draftSessions, setDraftSessions] = createSignal<DraftSession[]>([]);
   const [showSettings, setShowSettings] = createSignal(false);
-  // Mobile only: the sidebar renders as an off-canvas drawer (see App.css);
-  // picking a session closes it so the chat is immediately visible.
+  // Mobile: sidebarOpen controls the off-canvas drawer.
+  // Desktop: sidebarCollapsed removes the sidebar column from the layout.
   const [sidebarOpen, setSidebarOpen] = createSignal(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
+
+  const toggleSidebar = () => {
+    if (window.matchMedia('(max-width: 768px)').matches) {
+      setSidebarOpen(o => !o);
+      return;
+    }
+    setSidebarCollapsed(c => !c);
+  };
 
   return (
-    <div class={`app-layout ${sidebarOpen() ? 'sidebar-open' : ''}`}>
+    <div class={`app-layout ${sidebarOpen() ? 'sidebar-open' : ''} ${sidebarCollapsed() ? 'sidebar-collapsed' : ''}`}>
       <button
-        class="sidebar-toggle"
-        onClick={() => setSidebarOpen(o => !o)}
-        title="Toggle sidebar"
-        aria-label="Toggle sidebar"
+        class="sidebar-toggle sidebar-toggle-external"
+        onClick={toggleSidebar}
+        title="Open sidebar"
+        aria-label="Open sidebar"
       >
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="3" y1="6" x2="21" y2="6"></line>
@@ -50,6 +59,7 @@ function App() {
           setShowSettings(true);
           setSidebarOpen(false);
         }}
+        onToggleSidebar={toggleSidebar}
       />
       <Show when={showSettings()}>
         <SettingsModal onClose={() => setShowSettings(false)} />

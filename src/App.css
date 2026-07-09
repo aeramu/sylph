@@ -8,13 +8,48 @@
   overflow: hidden;
 }
 
-/* Mobile-only chrome (hamburger + drawer scrim); hidden on desktop. */
+/* External sidebar toggle: only appears when the sidebar is closed/collapsed.
+   The open-state toggle lives inside SessionSidebar's header. */
 .sidebar-toggle {
   display: none;
+  align-items: center;
+  justify-content: center;
+  position: fixed;
+  top: 0.65rem;
+  left: 0.75rem;
+  z-index: 40;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: rgba(15, 17, 21, 0.7);
+  backdrop-filter: blur(8px);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.sidebar-toggle:hover,
+.sidebar-toggle:active {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .sidebar-overlay {
   display: none;
+}
+
+@media (min-width: 769px) {
+  .app-layout.sidebar-collapsed {
+    grid-template-columns: 1fr;
+  }
+
+  .app-layout.sidebar-collapsed .sidebar {
+    display: none;
+  }
+
+  .app-layout.sidebar-collapsed .sidebar-toggle-external {
+    display: flex;
+  }
 }
 
 @media (max-width: 768px) {
@@ -59,27 +94,13 @@
     pointer-events: auto;
   }
 
-  .sidebar-toggle {
+  .sidebar-toggle-external {
     display: flex;
-    align-items: center;
-    justify-content: center;
-    position: fixed;
-    top: 0.65rem;
-    left: 0.75rem;
     /* Above the chat header (30), below the drawer + scrim (99/100). */
     z-index: 40;
-    width: 40px;
-    height: 40px;
-    border: 1px solid var(--border-color);
-    border-radius: 10px;
-    background: rgba(15, 17, 21, 0.7);
-    backdrop-filter: blur(8px);
-    color: var(--text-secondary);
-    cursor: pointer;
   }
 
-  .sidebar-toggle:active {
-    color: var(--text-primary);
-    background: rgba(255, 255, 255, 0.08);
+  .app-layout.sidebar-open .sidebar-toggle-external {
+    display: none;
   }
 }
