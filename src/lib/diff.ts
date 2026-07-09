@@ -4,6 +4,23 @@ export type DiffRow = { old?: string; new?: string; type: 'same' | 'add' | 'del'
 export function diffLines(oldText: string, newText: string): DiffRow[] {
   const a = oldText.split('\n');
   const b = newText.split('\n');
+
+  // Trim the common prefix/suffix before running LCS: whole-file diffs
+  // (write-as-update in sessionDiff) are mostly unchanged lines, and without
+  // trimming any file beyond ~450 lines would trip the O(m*n) guard below
+  // and degrade to all-del/all-add.
+  let start = 0;
+  while (start < a.length && start < b.length && a[start] === b[start]) start++;
+  let endA = a.length, endB = b.length;
+  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) { endA--; endB--; }
+
+  const rows: DiffRow[] = a.slice(0, start).map((line): DiffRow => ({ old: line, new: line, type: 'same' }));
+  rows.push(...diffLinesCore(a.slice(start, endA), b.slice(start, endB)));
+  for (let i = endA; i < a.length; i++) rows.push({ old: a[i], new: a[i], type: 'same' });
+  return rows;
+}
+
+function diffLinesCore(a: string[], b: string[]): DiffRow[] {
   const m = a.length, n = b.length;
 
   // Guard against pathological O(m*n) blowups on huge edits.

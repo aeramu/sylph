@@ -1,4 +1,4 @@
-import type { ChatMessage } from '../types';
+import type { ChatMessage, ToolCall } from '../types';
 import { getEdits } from './toolFormat';
 import { diffLines } from './diff';
 
@@ -59,15 +59,35 @@ function blockFromTexts(oldText: string, newText: string): DiffBlock {
   return { oldText, newText, added, deleted };
 }
 
+// The full file content from a read tool call, or null if the read can't
+// serve as a baseline: partial (offset/limit) or truncated. pi's read returns
+// raw file content and appends a bracketed notice only when it didn't cover
+// the whole file (see pi-coding-agent's core/tools/read.ts).
+function fullReadContent(tool: ToolCall): string | null {
+  if (tool.args?.offset !== undefined || tool.args?.limit !== undefined) return null;
+  const out = tool.output;
+  if (out === undefined) return null;
+  if (/\n\n\[Showing lines \d+-\d+ of \d+[^\]]*\]$/.test(out)) return null;
+  if (/^\[Line \d+ is /.test(out)) return null;
+  if (out.startsWith('Read image file [')) return null;
+  return out;
+}
+
 // Reconstruct what this session changed on disk from its edit/write tool
 // calls (only successful ones — failed or interrupted calls didn't change
 // anything). Scoping is per-session by construction: other sessions' edits
-// never appear in this session's messages. A write over an existing file
-// counts all its lines as added — the previous content isn't recorded.
+// never appear in this session's messages.
+//
+// Agents also use write to *update* files, so the walk keeps a last-known
+// content per path (seeded by full reads, replayed through edits and writes);
+// a write over a known baseline diffs old vs new content instead of counting
+// every line as added. Without a baseline (never read in-session, or changed
+// behind our back by bash) a write still shows as all-added.
 export function computeSessionDiffs(messages: ChatMessage[]): SessionDiffs {
   const turnOf: number[] = [];
   const session = emptyDiffSummary();
   const turns = new Map<number, DiffSummary>();
+  const lastKnown = new Map<string, string>();
   let turn = 0;
 
   for (const m of messages) {
@@ -80,14 +100,43 @@ export function computeSessionDiffs(messages: ChatMessage[]): SessionDiffs {
       const path = String(tool.args?.path ?? '');
       if (!path) continue;
 
+      if (tool.name === 'read') {
+        const content = fullReadContent(tool);
+        if (content !== null) lastKnown.set(path, content);
+        continue;
+      }
+
       let blocks: DiffBlock[];
       if (tool.name === 'edit') {
-        blocks = getEdits(tool.args).map((e) => blockFromTexts(e.oldText, e.newText));
+        const edits = getEdits(tool.args);
+        blocks = edits.map((e) => blockFromTexts(e.oldText, e.newText));
+        // Replay the edits onto the baseline (pi's edit replaces one unique
+        // occurrence). A miss means the baseline is stale — drop it rather
+        // than diff future writes against wrong content.
+        const known = lastKnown.get(path);
+        if (known !== undefined) {
+          let updated: string | undefined = known;
+          for (const e of edits) {
+            if (updated !== undefined && updated.includes(e.oldText)) {
+              updated = updated.replace(e.oldText, e.newText);
+            } else {
+              updated = undefined;
+            }
+          }
+          if (updated !== undefined) lastKnown.set(path, updated);
+          else lastKnown.delete(path);
+        }
       } else if (tool.name === 'write') {
-        blocks = [blockFromTexts('', String(tool.args?.content ?? ''))];
+        const content = String(tool.args?.content ?? '');
+        const known = lastKnown.get(path);
+        blocks = [blockFromTexts(known ?? '', content)];
+        lastKnown.set(path, content);
       } else {
         continue;
       }
+      // A write that re-emits identical content (or a no-op edit) isn't a
+      // change; keeping it would add a +0 -0 file entry.
+      blocks = blocks.filter((b) => b.oldText !== b.newText);
       if (blocks.length === 0) continue;
 
       let turnSummary = turns.get(turn);
