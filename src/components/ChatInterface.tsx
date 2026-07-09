@@ -552,6 +552,9 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           prompt: promptText,
+          // The typed message only — mentions live here, not in the appended
+          // file attachments the server must not scan.
+          mentionText: userMessage,
           sessionId: props.activeSessionId,
           projectId: props.activeProjectId,
           modelId: selectedModel() || undefined,
