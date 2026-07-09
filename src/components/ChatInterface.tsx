@@ -1,10 +1,11 @@
-import { createSignal, createEffect, For, Show, onCleanup, onMount } from 'solid-js';
+import { createSignal, createEffect, createMemo, For, Show, onCleanup, onMount } from 'solid-js';
 import { createStore, produce } from 'solid-js/store';
 import type { Attachment, ChatMessage, CommandInfo, ContextInfo, ExtWidget, ModelOption, ThinkingLevel } from '../types';
 import { THINKING_LEVELS } from '../types';
 import { applyAgentEvent } from '../lib/chatEvents';
 import { trackSessionEvent, setSessionStatus, sessionStatuses } from '../lib/sessionStatus';
 import { hasRenderableContent, mapHistoryToMessages } from '../lib/messages';
+import { computeSessionDiffs, emptyDiffSummary } from '../lib/sessionDiff';
 import { stripAnsi } from '../lib/markdown';
 import './ChatInterface.css';
 import CustomSelect from './CustomSelect';
@@ -12,6 +13,9 @@ import Composer, { type ComposerApi } from './Composer';
 import MessageBubble from './MessageBubble';
 import UiRequestModal, { type UiRequest } from './UiRequestModal';
 import QuestionsModal, { type QuestionsRequest } from './QuestionsModal';
+import RightPanel from './RightPanel';
+import ChangesTab from './ChangesTab';
+import DiffStats from './DiffStats';
 
 export default function ChatInterface(props: { activeSessionId?: string, activeProjectId?: string, onSelectProject?: (id: string) => void, onSessionCreated: (id: string, projectId?: string, firstMessage?: string) => void, onTurnComplete?: () => void, projectRefreshTrigger?: number }) {
   const [messages, setMessages] = createStore<ChatMessage[]>([]);
@@ -35,6 +39,36 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   // Context-window usage for the active session (drives the composer's
   // context indicator). Seeded by /api/sessions/:sessionId, refreshed by SSE events.
   const [contextInfo, setContextInfo] = createSignal<ContextInfo | null>(null);
+
+  // Right side panel (tabbed; the Changes tab shows session/turn file diffs).
+  const [panelOpen, setPanelOpen] = createSignal(false);
+  const [panelTab, setPanelTab] = createSignal('changes');
+  // null = whole session; a number filters the Changes tab to that turn.
+  const [diffTurn, setDiffTurn] = createSignal<number | null>(null);
+
+  // File diffs reconstructed from this session's edit/write tool calls,
+  // per turn and for the whole session. Recomputes as tool calls stream in.
+  const diffs = createMemo(() => computeSessionDiffs(messages));
+
+  const openChangesPanel = (turn?: number) => {
+    setDiffTurn(turn ?? null);
+    setPanelTab('changes');
+    setPanelOpen(true);
+  };
+
+  // Stats for the "X files changed" chip rendered after message i, if that
+  // message closes a turn that changed files. The last message only counts
+  // once the turn has actually finished streaming.
+  const turnChipFor = (i: number) => {
+    const d = diffs();
+    const turn = d.turnOf[i];
+    if (!turn || messages[i].role === 'user') return null;
+    const turnEnds = i === messages.length - 1 ? !isProcessing() : d.turnOf[i + 1] !== turn;
+    if (!turnEnds) return null;
+    const summary = d.turns.get(turn);
+    if (!summary || summary.files.length === 0) return null;
+    return { turn, files: summary.files.length, added: summary.added, deleted: summary.deleted };
+  };
 
   let composerApi: ComposerApi | undefined;
 
@@ -197,6 +231,8 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     setContextInfo(null);
     setUiRequest(null);
     setQuestionsRequest(null);
+    setPanelOpen(false);
+    setDiffTurn(null);
     setWidgets({});
     setStatusEntries(produce((s) => { for (const k of Object.keys(s)) delete s[k]; }));
     fetchHistory();
@@ -563,6 +599,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   };
 
   return (
+    <div class={`chat-layout ${panelOpen() ? 'panel-open' : ''}`}>
     <div
       class={`chat-container ${messages.length === 0 ? 'empty-mode' : ''} ${isChatDragOver() ? 'chat-drag-over' : ''}`}
       onDragEnter={handleChatDragEnter}
@@ -609,10 +646,25 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
 
       <div class="messages-area" ref={messagesAreaRef} onScroll={handleScroll}>
         <For each={messages}>
-          {(msg) => (
-            <Show when={hasRenderableContent(msg)}>
-              <MessageBubble msg={msg} onImageClick={setLightboxUrl} />
-            </Show>
+          {(msg, i) => (
+            <>
+              <Show when={hasRenderableContent(msg)}>
+                <MessageBubble msg={msg} onImageClick={setLightboxUrl} />
+              </Show>
+              <Show when={turnChipFor(i())} keyed>
+                {(chip) => (
+                  <div class="turn-diff-row">
+                    <button
+                      class="diff-stats-chip"
+                      onClick={() => openChangesPanel(chip.turn)}
+                      title={`Show file changes from turn ${chip.turn}`}
+                    >
+                      <DiffStats files={chip.files} added={chip.added} deleted={chip.deleted} />
+                    </button>
+                  </div>
+                )}
+              </Show>
+            </>
           )}
         </For>
 
@@ -663,6 +715,26 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
               />
             </div>
           )}
+          <Show when={props.activeSessionId}>
+            <div class="composer-session-bar">
+              <Show when={activeProject()} keyed>
+                {(project) => <span class="composer-session-project" title={project.path}>{project.name}</span>}
+              </Show>
+              <Show when={diffs().session.files.length > 0}>
+                <button
+                  class="diff-stats-chip session"
+                  onClick={() => openChangesPanel()}
+                  title="Show all file changes from this session"
+                >
+                  <DiffStats
+                    files={diffs().session.files.length}
+                    added={diffs().session.added}
+                    deleted={diffs().session.deleted}
+                  />
+                </button>
+              </Show>
+            </div>
+          </Show>
           <Composer
             isConnected={isConnected()}
             isProcessing={isProcessing()}
@@ -692,6 +764,24 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
           </div>
         </Show>
       </div>
+    </div>
+
+    <Show when={panelOpen()}>
+      <RightPanel
+        tabs={[{ id: 'changes', label: 'Changes' }]}
+        activeTab={panelTab()}
+        onSelectTab={setPanelTab}
+        onClose={() => setPanelOpen(false)}
+      >
+        <Show when={panelTab() === 'changes'}>
+          <ChangesTab
+            diff={diffTurn() != null ? (diffs().turns.get(diffTurn()!) ?? emptyDiffSummary()) : diffs().session}
+            turnFilter={diffTurn()}
+            onClearFilter={() => setDiffTurn(null)}
+          />
+        </Show>
+      </RightPanel>
+    </Show>
     </div>
   );
 }

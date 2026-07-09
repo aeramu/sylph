@@ -1,0 +1,121 @@
+/* Styles for ChangesTab: the session/turn diff list in the right panel. */
+
+.changes-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.75rem;
+}
+
+/* Scope pill shown when the diff is filtered to a single turn. */
+.changes-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  align-self: flex-start;
+  padding: 0.2rem 0.35rem 0.2rem 0.65rem;
+  border-radius: 999px;
+  background: var(--accent-glow);
+  color: var(--accent);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.changes-filter-clear {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.15rem;
+  border-radius: 999px;
+  opacity: 0.75;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.changes-filter-clear:hover {
+  opacity: 1;
+  background: rgba(99, 102, 241, 0.2);
+}
+
+.changes-summary {
+  padding: 0 0.1rem;
+}
+
+.changes-files {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.changes-file {
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.changes-file-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.5rem 0.6rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.changes-file-header:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.changes-file-chevron {
+  flex-shrink: 0;
+  opacity: 0.6;
+  transform: rotate(-90deg);
+  transition: transform 0.15s ease;
+}
+
+.changes-file-chevron.expanded {
+  transform: rotate(0deg);
+}
+
+.changes-file-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
+.changes-file-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 0.73rem;
+}
+
+.changes-file-blocks {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.5rem;
+}
+
+.changes-empty {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  padding: 0.4rem 0.1rem;
+}

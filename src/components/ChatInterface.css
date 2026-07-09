@@ -1,6 +1,91 @@
 /* ChatInterface-owned styles. Most chat styles still live in src/index.css
    and migrate here incrementally as they're touched. */
 
+/* Chat + right panel row inside the app grid's chat column. */
+.chat-layout {
+  display: flex;
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.chat-layout .chat-container {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* The floating chat header is fixed to the viewport; pull its right edge in
+   so it doesn't run under the open panel (desktop only — on mobile the panel
+   overlays instead of taking layout space). */
+.chat-layout.panel-open .chat-header {
+  right: calc(var(--right-panel-width) + 0.75rem);
+}
+
+/* Session bar above the composer: project label + whole-session diff stats. */
+.composer-session-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.5rem;
+  padding: 0.3rem 0.4rem 0.3rem 0.7rem;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-color);
+  min-height: 2rem;
+}
+
+.composer-session-project {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.diff-stats-chip {
+  display: inline-flex;
+  align-items: center;
+  background: none;
+  border: none;
+  font: inherit;
+  cursor: pointer;
+  padding: 0.2rem 0.5rem;
+  border-radius: 7px;
+  transition: background 0.15s;
+}
+
+.diff-stats-chip:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.composer-session-bar .diff-stats-chip {
+  margin-left: auto;
+}
+
+/* Per-turn chip rendered in the message stream after a turn that changed files. */
+.turn-diff-row {
+  display: flex;
+}
+
+.turn-diff-row .diff-stats-chip {
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  padding: 0.25rem 0.7rem;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.turn-diff-row .diff-stats-chip:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+@media (max-width: 768px) {
+  .chat-layout.panel-open .chat-header {
+    right: 0.75rem;
+  }
+}
+
 /* Extension status entries (ctx.ui.setStatus) — web counterpart of pi's TUI
    footer statuses. Shown as a strip below the composer. */
 .ext-status-entries {

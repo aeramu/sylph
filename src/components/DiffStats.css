@@ -1,0 +1,23 @@
+/* Styles for DiffStats: the "X files changed +a -d" label. */
+
+.diff-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.diff-stats-files {
+  color: var(--text-secondary);
+}
+
+.diff-stats-added {
+  color: var(--success);
+  font-family: var(--font-mono);
+}
+
+.diff-stats-deleted {
+  color: var(--danger);
+  font-family: var(--font-mono);
+}
