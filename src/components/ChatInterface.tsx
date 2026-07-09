@@ -43,6 +43,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   // Right side panel (tabbed; the Changes tab shows session/turn file diffs).
   const [panelOpen, setPanelOpen] = createSignal(false);
   const [panelTab, setPanelTab] = createSignal('changes');
+  const [panelWidth, setPanelWidth] = createSignal(420);
   // null = whole session; a number filters the Changes tab to that turn.
   const [diffTurn, setDiffTurn] = createSignal<number | null>(null);
 
@@ -54,6 +55,41 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     setDiffTurn(turn ?? null);
     setPanelTab('changes');
     setPanelOpen(true);
+  };
+
+  const togglePanel = () => {
+    setPanelOpen(open => !open);
+  };
+
+  const openPanelTab = (tab: string) => {
+    setPanelTab(tab);
+    setPanelOpen(true);
+  };
+
+  const startPanelResize = (event: PointerEvent) => {
+    if (window.matchMedia('(max-width: 768px)').matches) return;
+
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = panelWidth();
+    const minWidth = 320;
+    const maxWidth = Math.min(720, Math.floor(window.innerWidth * 0.55));
+
+    document.body.classList.add('resizing-right-panel');
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const nextWidth = Math.min(maxWidth, Math.max(minWidth, startWidth + startX - moveEvent.clientX));
+      setPanelWidth(nextWidth);
+    };
+
+    const handlePointerUp = () => {
+      document.body.classList.remove('resizing-right-panel');
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
   };
 
   // Stats for the "X files changed" chip rendered after message i, if that
@@ -599,7 +635,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   };
 
   return (
-    <div class={`chat-layout ${panelOpen() ? 'panel-open' : ''}`}>
+    <div class={`chat-layout ${panelOpen() ? 'panel-open' : ''}`} style={`--right-panel-width: ${panelWidth()}px`}>
     <div
       class={`chat-container ${messages.length === 0 ? 'empty-mode' : ''} ${isChatDragOver() ? 'chat-drag-over' : ''}`}
       onDragEnter={handleChatDragEnter}
@@ -628,19 +664,49 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
           <Show when={activeProject()} keyed>
             {(project) => <span class="chat-header-project" title={project.path}>{project.name}</span>}
           </Show>
-          <div
-            class={`server-status-indicator ${isConnected() ? 'connected' : 'disconnected'}`}
-            title={isConnected() ? 'Server connected' : 'Server disconnected'}
-            aria-label={isConnected() ? 'Server connected' : 'Server disconnected'}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <rect x="3" y="4" width="18" height="7"></rect>
-              <rect x="3" y="13" width="18" height="7"></rect>
-              <line x1="7" y1="7.5" x2="7.01" y2="7.5"></line>
-              <line x1="7" y1="16.5" x2="7.01" y2="16.5"></line>
-            </svg>
-            <span class="server-status-dot" />
-          </div>
+          <Show when={!panelOpen()}>
+            <div class="chat-header-panel-tabs" aria-label="Right sidebar tabs">
+              <button
+                class="chat-header-panel-tab"
+                onClick={() => openPanelTab('server')}
+                title="Open server status"
+                aria-label="Open server status"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <rect x="3" y="4" width="18" height="7"></rect>
+                  <rect x="3" y="13" width="18" height="7"></rect>
+                  <line x1="7" y1="7.5" x2="7.01" y2="7.5"></line>
+                  <line x1="7" y1="16.5" x2="7.01" y2="16.5"></line>
+                </svg>
+                <span class={`chat-header-panel-tab-dot ${isConnected() ? 'connected' : 'disconnected'}`} />
+              </button>
+              <button
+                class="chat-header-panel-tab"
+                onClick={() => openPanelTab('changes')}
+                title="Open changes"
+                aria-label="Open changes"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                  <polyline points="14 2 14 8 20 8"></polyline>
+                  <line x1="8" y1="13" x2="14" y2="13"></line>
+                  <line x1="11" y1="10" x2="11" y2="16"></line>
+                  <line x1="8" y1="18" x2="14" y2="18"></line>
+                </svg>
+              </button>
+              <button
+                class="chat-header-panel-tab"
+                onClick={togglePanel}
+                title="Open right sidebar"
+                aria-label="Open right sidebar"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <rect x="3" y="4" width="18" height="16" rx="2"></rect>
+                  <line x1="15" y1="4" x2="15" y2="20"></line>
+                </svg>
+              </button>
+            </div>
+          </Show>
         </div>
       </Show>
 
@@ -768,11 +834,17 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     </div>
 
     <Show when={panelOpen()}>
+      <div
+        class="right-panel-resize-handle"
+        onPointerDown={startPanelResize}
+        title="Resize right sidebar"
+        aria-label="Resize right sidebar"
+      />
       <RightPanel
-        tabs={[{ id: 'changes', label: 'Changes' }]}
+        tabs={[{ id: 'server', label: 'Server' }, { id: 'changes', label: 'Changes' }]}
         activeTab={panelTab()}
         onSelectTab={setPanelTab}
-        onClose={() => setPanelOpen(false)}
+        onClose={togglePanel}
       >
         <Show when={panelTab() === 'changes'}>
           <ChangesTab
@@ -780,6 +852,31 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
             turnFilter={diffTurn()}
             onClearFilter={() => setDiffTurn(null)}
           />
+        </Show>
+        <Show when={panelTab() === 'server'}>
+          <div class="server-status-panel">
+            <div class="server-status-panel-card">
+              <div
+                class={`server-status-indicator ${isConnected() ? 'connected' : 'disconnected'}`}
+                title={isConnected() ? 'Server connected' : 'Server disconnected'}
+                aria-label={isConnected() ? 'Server connected' : 'Server disconnected'}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <rect x="3" y="4" width="18" height="7"></rect>
+                  <rect x="3" y="13" width="18" height="7"></rect>
+                  <line x1="7" y1="7.5" x2="7.01" y2="7.5"></line>
+                  <line x1="7" y1="16.5" x2="7.01" y2="16.5"></line>
+                </svg>
+                <span class="server-status-dot" />
+              </div>
+              <div>
+                <div class="server-status-panel-title">Server</div>
+                <div class={`server-status-panel-value ${isConnected() ? 'connected' : 'disconnected'}`}>
+                  {isConnected() ? 'Connected' : 'Disconnected'}
+                </div>
+              </div>
+            </div>
+          </div>
         </Show>
       </RightPanel>
     </Show>

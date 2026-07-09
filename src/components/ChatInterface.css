@@ -15,10 +15,58 @@
 }
 
 /* The floating chat header is fixed to the viewport; pull its right edge in
-   so it doesn't run under the open panel (desktop only — on mobile the panel
-   overlays instead of taking layout space). */
+   when the right panel is open. */
 .chat-layout.panel-open .chat-header {
   right: calc(var(--right-panel-width) + 0.75rem);
+}
+
+.chat-header-panel-tabs {
+  flex: 0 0 auto;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  pointer-events: auto;
+}
+
+.chat-header-panel-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+
+.chat-header-panel-tab:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--border-color);
+}
+
+.chat-header-panel-tab-dot {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--danger);
+  box-shadow: 0 0 0 2px rgba(15, 17, 21, 0.9);
+}
+
+.chat-header-panel-tab-dot.connected {
+  background: var(--success);
+}
+
+.chat-header-panel-tab-dot.disconnected {
+  background: var(--danger);
 }
 
 /* Session bar above the composer: project label + whole-session diff stats. */

@@ -1605,8 +1605,7 @@ body {
     text-align: left;
   }
 
-  .chat-header-project,
-  .server-status-indicator {
+  .chat-header-project {
     display: none;
   }
 
