@@ -2,12 +2,14 @@
    Mobile off-canvas positioning lives in App.css, which owns the layout. */
 
 .sidebar {
+  min-width: 0;
   background: var(--bg-panel);
   border-right: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
   height: 100%;
-  overflow-y: auto;
+  overflow: hidden auto;
+  transition: border-color 0.25s ease;
 }
 
 .sidebar-header {

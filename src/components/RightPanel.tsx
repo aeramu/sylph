@@ -42,10 +42,14 @@ export default function RightPanel(props: {
   activeTab: string;
   onSelectTab: (id: string) => void;
   onClose: () => void;
+  class?: string;
   children: JSX.Element;
 }) {
   return (
-    <aside class="right-panel">
+    <aside
+      class={`right-panel ${props.class ?? ''}`}
+      aria-hidden={props.class?.includes('panel-open') ? 'false' : 'true'}
+    >
       <div class="right-panel-header">
         <div class="right-panel-tabs" role="tablist">
           <For each={props.tabs}>

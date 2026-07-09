@@ -7,6 +7,7 @@
   height: 100vh;
   width: 100%;
   overflow: hidden;
+  transition: grid-template-columns 0.25s ease;
 }
 
 /* External sidebar toggle: only appears when the sidebar is closed/collapsed.
@@ -48,6 +49,11 @@ body.resizing-sidebar {
   user-select: none;
 }
 
+body.resizing-sidebar .app-layout,
+body.resizing-sidebar .sidebar {
+  transition: none;
+}
+
 @media (min-width: 769px) {
   .sidebar-resize-handle {
     display: block;
@@ -77,10 +83,15 @@ body.resizing-sidebar {
   }
 
   .app-layout.sidebar-collapsed {
-    grid-template-columns: 1fr;
+    grid-template-columns: 0px 1fr;
   }
 
-  .app-layout.sidebar-collapsed .sidebar,
+  .app-layout.sidebar-collapsed .sidebar {
+    overflow: hidden;
+    pointer-events: none;
+    border-right-color: transparent;
+  }
+
   .app-layout.sidebar-collapsed .sidebar-resize-handle {
     display: none;
   }

@@ -1,15 +1,26 @@
 /* Styles for RightPanel: the tabbed right-hand side panel. */
 
+.right-panel-overlay {
+  display: none;
+}
+
 .right-panel {
-  flex: 0 0 var(--right-panel-width);
-  width: var(--right-panel-width);
-  height: 100%;
+  flex: 0 0 0;
+  width: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   min-width: 0;
-  border-left: 1px solid var(--border-color);
+  border-left: 1px solid transparent;
   background: rgba(20, 23, 29, 0.6);
   backdrop-filter: blur(10px);
+  transition: width 0.25s ease, flex-basis 0.25s ease, border-color 0.25s ease;
+}
+
+.right-panel.panel-open {
+  flex: 0 0 var(--right-panel-width);
+  width: var(--right-panel-width);
+  border-left-color: var(--border-color);
 }
 
 .right-panel-header {
@@ -86,6 +97,10 @@ body.resizing-right-panel {
   user-select: none;
 }
 
+body.resizing-right-panel .right-panel {
+  transition: none;
+}
+
 .right-panel-close {
   background: none;
   border: none;
@@ -155,14 +170,41 @@ body.resizing-right-panel {
     display: none;
   }
 
+  .right-panel-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 109;
+    background: rgba(0, 0, 0, 0.5);
+    animation: rightPanelOverlayIn 0.25s ease;
+  }
+
+  @keyframes rightPanelOverlayIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
   .right-panel {
     position: fixed;
     top: 0;
     right: 0;
     bottom: 0;
-    width: min(420px, 92vw);
+    flex: none;
+    width: 380px;
+    max-width: calc(100vw - 1rem);
     z-index: 110;
     background: #14171d;
     box-shadow: 0 0 40px rgba(0, 0, 0, 0.55);
+    transform: translateX(100%);
+    border-left-color: transparent;
+    transition: transform 0.25s ease;
+  }
+
+  .right-panel-body {
+    overflow-x: hidden;
+  }
+
+  .right-panel.panel-open {
+    transform: translateX(0);
   }
 }

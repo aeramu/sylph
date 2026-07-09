@@ -51,6 +51,10 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   // per turn and for the whole session. Recomputes as tool calls stream in.
   const diffs = createMemo(() => computeSessionDiffs(messages));
 
+  const closePanel = () => {
+    setPanelOpen(false);
+  };
+
   const openChangesPanel = (turn?: number) => {
     setDiffTurn(turn ?? null);
     setPanelTab('changes');
@@ -835,51 +839,56 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
 
     <Show when={panelOpen()}>
       <div
+        class="right-panel-overlay"
+        onClick={closePanel}
+      />
+      <div
         class="right-panel-resize-handle"
         onPointerDown={startPanelResize}
         title="Resize right sidebar"
         aria-label="Resize right sidebar"
       />
-      <RightPanel
-        tabs={[{ id: 'server', label: 'Server' }, { id: 'changes', label: 'Changes' }]}
-        activeTab={panelTab()}
-        onSelectTab={setPanelTab}
-        onClose={togglePanel}
-      >
-        <Show when={panelTab() === 'changes'}>
-          <ChangesTab
-            diff={diffTurn() != null ? (diffs().turns.get(diffTurn()!) ?? emptyDiffSummary()) : diffs().session}
-            turnFilter={diffTurn()}
-            onClearFilter={() => setDiffTurn(null)}
-          />
-        </Show>
-        <Show when={panelTab() === 'server'}>
-          <div class="server-status-panel">
-            <div class="server-status-panel-card">
-              <div
-                class={`server-status-indicator ${isConnected() ? 'connected' : 'disconnected'}`}
-                title={isConnected() ? 'Server connected' : 'Server disconnected'}
-                aria-label={isConnected() ? 'Server connected' : 'Server disconnected'}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <rect x="3" y="4" width="18" height="7"></rect>
-                  <rect x="3" y="13" width="18" height="7"></rect>
-                  <line x1="7" y1="7.5" x2="7.01" y2="7.5"></line>
-                  <line x1="7" y1="16.5" x2="7.01" y2="16.5"></line>
-                </svg>
-                <span class="server-status-dot" />
-              </div>
-              <div>
-                <div class="server-status-panel-title">Server</div>
-                <div class={`server-status-panel-value ${isConnected() ? 'connected' : 'disconnected'}`}>
-                  {isConnected() ? 'Connected' : 'Disconnected'}
-                </div>
+    </Show>
+    <RightPanel
+      class={panelOpen() ? 'panel-open' : ''}
+      tabs={[{ id: 'server', label: 'Server' }, { id: 'changes', label: 'Changes' }]}
+      activeTab={panelTab()}
+      onSelectTab={setPanelTab}
+      onClose={closePanel}
+    >
+      <Show when={panelTab() === 'changes'}>
+        <ChangesTab
+          diff={diffTurn() != null ? (diffs().turns.get(diffTurn()!) ?? emptyDiffSummary()) : diffs().session}
+          turnFilter={diffTurn()}
+          onClearFilter={() => setDiffTurn(null)}
+        />
+      </Show>
+      <Show when={panelTab() === 'server'}>
+        <div class="server-status-panel">
+          <div class="server-status-panel-card">
+            <div
+              class={`server-status-indicator ${isConnected() ? 'connected' : 'disconnected'}`}
+              title={isConnected() ? 'Server connected' : 'Server disconnected'}
+              aria-label={isConnected() ? 'Server connected' : 'Server disconnected'}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="4" width="18" height="7"></rect>
+                <rect x="3" y="13" width="18" height="7"></rect>
+                <line x1="7" y1="7.5" x2="7.01" y2="7.5"></line>
+                <line x1="7" y1="16.5" x2="7.01" y2="16.5"></line>
+              </svg>
+              <span class="server-status-dot" />
+            </div>
+            <div>
+              <div class="server-status-panel-title">Server</div>
+              <div class={`server-status-panel-value ${isConnected() ? 'connected' : 'disconnected'}`}>
+                {isConnected() ? 'Connected' : 'Disconnected'}
               </div>
             </div>
           </div>
-        </Show>
-      </RightPanel>
-    </Show>
+        </div>
+      </Show>
+    </RightPanel>
     </div>
   );
 }
