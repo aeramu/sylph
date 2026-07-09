@@ -1,7 +1,8 @@
 import { createSignal, createEffect, For, Show } from 'solid-js';
 import type { ToolCall } from '../types';
 import { renderMarkdown, stripAnsi } from '../lib/markdown';
-import { escapeHtml, highlightCodeToHtml, highlightMarkdownCodeBlocks } from '../lib/codeHighlight';
+import { highlightCodeToHtml, highlightMarkdownCodeBlocks } from '../lib/codeHighlight';
+import { escapeHtml } from '../lib/html';
 import { toolSummary, formatToolArgs, getEdits } from '../lib/toolFormat';
 import { diffLines } from '../lib/diff';
 import DiffView from './DiffView';

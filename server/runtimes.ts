@@ -19,7 +19,10 @@ import { broadcast } from "./sse.ts";
 import { clearSessionStatuses, createExtensionUiContext, rejectPendingForSession } from "./uiBridge.ts";
 
 interface RuntimeEntry {
-  runtime: any;
+  // Registered synchronously at the start of a build so concurrent callers for
+  // the same session share one runtime; `runtime` is filled in once it settles.
+  promise: Promise<any>;
+  runtime?: any;
   lastUsed: number;
 }
 
@@ -119,12 +122,12 @@ export function getActiveRuntime(sessionId: string) {
   return activeRuntimes.get(sessionId)?.runtime;
 }
 
-export async function getOrInitRuntime(sessionId?: string, projectId?: string) {
-  if (sessionId && activeRuntimes.has(sessionId)) {
-    touchRuntime(sessionId);
-    return activeRuntimes.get(sessionId)!.runtime;
-  }
-
+// Build a runtime and wire up its SSE broadcast. Does not touch activeRuntimes;
+// registration (and dedup) is the caller's responsibility.
+async function buildSessionRuntime(
+  sessionId: string | undefined,
+  projectId: string | undefined,
+): Promise<{ runtime: any; resolvedSessionId: string }> {
   const projects = getProjects();
   let sessionManager: any;
   let targetCwd = process.cwd();
@@ -172,9 +175,47 @@ export async function getOrInitRuntime(sessionId?: string, projectId?: string) {
     broadcast(payload);
   });
 
-  const resolvedSessionId = sessionManager.getSessionId();
-  activeRuntimes.set(resolvedSessionId, { runtime, lastUsed: Date.now() });
-  return runtime;
+  return { runtime, resolvedSessionId: sessionManager.getSessionId() };
+}
+
+export function getOrInitRuntime(sessionId?: string, projectId?: string): Promise<any> {
+  // Known session: dedupe concurrent builds. Registering the in-flight promise
+  // synchronously (before the first await) means a second request for the same
+  // session shares this build instead of spinning up its own runtime — two
+  // runtimes would both subscribe and double every SSE event to the browser.
+  if (sessionId) {
+    const existing = activeRuntimes.get(sessionId);
+    if (existing) {
+      existing.lastUsed = Date.now();
+      return existing.promise;
+    }
+    const entry: RuntimeEntry = { lastUsed: Date.now() } as RuntimeEntry;
+    entry.promise = buildSessionRuntime(sessionId, projectId)
+      .then(({ runtime }) => {
+        entry.runtime = runtime;
+        return runtime;
+      })
+      .catch((err) => {
+        // Failed build: drop the entry so a later request can retry.
+        if (activeRuntimes.get(sessionId) === entry) activeRuntimes.delete(sessionId);
+        throw err;
+      });
+    activeRuntimes.set(sessionId, entry);
+    return entry.promise;
+  }
+
+  // New session: the id only exists once SessionManager.create runs, so there
+  // is no shared key for concurrent callers to race on — each request that
+  // omits a sessionId is asking for its own new session. Register under the
+  // resolved id after building.
+  return buildSessionRuntime(undefined, projectId).then(({ runtime, resolvedSessionId }) => {
+    activeRuntimes.set(resolvedSessionId, {
+      promise: Promise.resolve(runtime),
+      runtime,
+      lastUsed: Date.now(),
+    });
+    return runtime;
+  });
 }
 
 // A single cached runtime used only to introspect commands/skills/extensions,
@@ -200,6 +241,7 @@ export function startEvictionTimer() {
   setInterval(() => {
     const now = Date.now();
     for (const [id, entry] of activeRuntimes) {
+      if (!entry.runtime) continue; // still building; leave it be
       if (entry.runtime.session?.isStreaming) continue;
       if (now - entry.lastUsed > RUNTIME_IDLE_MS) {
         activeRuntimes.delete(id);

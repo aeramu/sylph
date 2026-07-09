@@ -1,6 +1,7 @@
 import { marked, Renderer } from 'marked';
 import DOMPurify from 'dompurify';
-import { escapeHtml, normalizeFenceLanguage } from './codeHighlight';
+import { normalizeFenceLanguage } from './codeHighlight';
+import { escapeHtml } from './html';
 
 // Strip ANSI terminal escape sequences (colors, cursor moves, etc.). Models
 // sometimes emit reasoning/output that quotes colorized terminal text; the

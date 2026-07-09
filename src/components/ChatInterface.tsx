@@ -16,6 +16,7 @@ import QuestionsModal, { type QuestionsRequest } from './QuestionsModal';
 import RightPanel from './RightPanel';
 import ChangesTab from './ChangesTab';
 import DiffStats from './DiffStats';
+import { startPointerResize } from '../lib/resize';
 
 export default function ChatInterface(props: { activeSessionId?: string, activeProjectId?: string, onSelectProject?: (id: string) => void, onSessionCreated: (id: string, projectId?: string, firstMessage?: string) => void, onTurnComplete?: () => void, projectRefreshTrigger?: number }) {
   const [messages, setMessages] = createStore<ChatMessage[]>([]);
@@ -72,28 +73,15 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
 
   const startPanelResize = (event: PointerEvent) => {
     if (window.matchMedia('(max-width: 768px)').matches) return;
-
-    event.preventDefault();
-    const startX = event.clientX;
-    const startWidth = panelWidth();
-    const minWidth = 320;
-    const maxWidth = Math.min(720, Math.floor(window.innerWidth * 0.55));
-
-    document.body.classList.add('resizing-right-panel');
-
-    const handlePointerMove = (moveEvent: PointerEvent) => {
-      const nextWidth = Math.min(maxWidth, Math.max(minWidth, startWidth + startX - moveEvent.clientX));
-      setPanelWidth(nextWidth);
-    };
-
-    const handlePointerUp = () => {
-      document.body.classList.remove('resizing-right-panel');
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
-    };
-
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', handlePointerUp);
+    startPointerResize({
+      event,
+      startWidth: panelWidth(),
+      min: 320,
+      max: Math.min(720, Math.floor(window.innerWidth * 0.55)),
+      direction: -1,
+      bodyClass: 'resizing-right-panel',
+      onWidth: setPanelWidth,
+    });
   };
 
   // Stats for the "X files changed" chip rendered after message i, if that

@@ -22,6 +22,11 @@ export function getProjects(): Project[] {
   }
 }
 
+export function getProjectById(projectId: unknown): Project | undefined {
+  if (typeof projectId !== "string") return undefined;
+  return getProjects().find((p) => p.id === projectId);
+}
+
 export function saveProjects(projects: Project[]) {
   fs.writeFileSync(PROJECTS_FILE, JSON.stringify(projects, null, 2));
 }

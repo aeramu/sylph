@@ -1,16 +1,8 @@
 import { StringStream, type LRLanguage, type StreamParser } from '@codemirror/language';
 import { highlightCode, classHighlighter } from '@lezer/highlight';
+import { escapeHtml } from './html';
 
 const highlightedBlocks = new WeakSet<HTMLElement>();
-
-export function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
 
 export function normalizeFenceLanguage(info = ''): string {
   return info.trim().split(/\s+/)[0]?.toLowerCase().replace(/^language-/, '') || '';

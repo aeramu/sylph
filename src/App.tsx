@@ -3,6 +3,7 @@ import type { DraftSession } from './types';
 import ChatInterface from './components/ChatInterface';
 import SessionSidebar from './components/SessionSidebar';
 import SettingsModal from './components/SettingsModal';
+import { startPointerResize } from './lib/resize';
 import './App.css';
 
 function App() {
@@ -32,28 +33,15 @@ function App() {
 
   const startSidebarResize = (event: PointerEvent) => {
     if (window.matchMedia('(max-width: 768px)').matches) return;
-
-    event.preventDefault();
-    const startX = event.clientX;
-    const startWidth = sidebarWidth();
-    const minWidth = 220;
-    const maxWidth = 460;
-
-    document.body.classList.add('resizing-sidebar');
-
-    const handlePointerMove = (moveEvent: PointerEvent) => {
-      const nextWidth = Math.min(maxWidth, Math.max(minWidth, startWidth + moveEvent.clientX - startX));
-      setSidebarWidth(nextWidth);
-    };
-
-    const handlePointerUp = () => {
-      document.body.classList.remove('resizing-sidebar');
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
-    };
-
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', handlePointerUp);
+    startPointerResize({
+      event,
+      startWidth: sidebarWidth(),
+      min: 220,
+      max: 460,
+      direction: 1,
+      bodyClass: 'resizing-sidebar',
+      onWidth: setSidebarWidth,
+    });
   };
 
   return (

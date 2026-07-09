@@ -3,320 +3,20 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { randomUUID } from "crypto";
-import {
-  getAgentDir,
-  SessionManager,
-} from "@earendil-works/pi-coding-agent";
-import { getProjects, saveProjects, type Project } from "./projects.ts";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { getProjects, saveProjects, getProjectById, type Project } from "./projects.ts";
 import { addClient, removeClient } from "./sse.ts";
 import { resolveUiRequest, getPendingUiRequests, getSessionStatuses } from "./uiBridge.ts";
 import { getActiveRuntime, getOrInitRuntime, getIntrospectionRuntime, touchRuntime, getContextInfo } from "./runtimes.ts";
 import { authStorage, modelRegistry, refreshAuthState } from "./auth.ts";
-import { findDanglingQuestion, formatAnswersAsUserReply } from "./askUserQuestion.ts";
-
-// Questions whose reconstructed dialog the user dismissed, so reopening the
-// session doesn't re-show them forever. In-memory on purpose — it only needs
-// to outlive the dialog, not the server.
-const dismissedInterruptedQuestions = new Set<string>();
-
-type OAuthFlowStep =
-  | { type: "auth_url"; url: string; instructions?: string; progress: string[] }
-  | { type: "device_code"; userCode: string; verificationUri: string; intervalSeconds?: number; expiresInSeconds?: number; progress: string[] }
-  | { type: "prompt"; message: string; placeholder?: string; allowEmpty?: boolean; progress: string[] }
-  | { type: "manual_code"; message: string; progress: string[] }
-  | { type: "select"; message: string; options: Array<{ id: string; label: string }>; progress: string[] }
-  | { type: "waiting"; message: string; progress: string[] };
-
-type OAuthFlow = {
-  id: string;
-  provider: string;
-  status: "pending" | "success" | "error" | "cancelled";
-  step?: OAuthFlowStep;
-  // Kept outside `step`: providers call onAuth and then immediately await
-  // onManualCodeInput (racing a callback server against manual paste), so the
-  // auth_url step is replaced within the same tick and polling clients would
-  // never see the URL.
-  authUrl?: string;
-  authInstructions?: string;
-  error?: string;
-  progress: string[];
-  abortController: AbortController;
-  resolveInput?: (value: string | undefined) => void;
-  rejectInput?: (error: Error) => void;
-};
-
-const oauthFlows = new Map<string, OAuthFlow>();
-const OAUTH_FLOW_TTL_MS = 10 * 60 * 1000;
-// Abandoned pending flows (client closed the tab mid-login) would otherwise
-// keep authStorage.login() hanging on input forever; time them out.
-const OAUTH_FLOW_PENDING_TIMEOUT_MS = 15 * 60 * 1000;
-
-function serializeOAuthFlow(flow: OAuthFlow) {
-  return {
-    id: flow.id,
-    provider: flow.provider,
-    status: flow.status,
-    step: flow.step,
-    authUrl: flow.authUrl,
-    authInstructions: flow.authInstructions,
-    error: flow.error,
-    progress: flow.progress,
-  };
-}
-
-function cleanupOAuthFlowLater(id: string) {
-  setTimeout(() => oauthFlows.delete(id), OAUTH_FLOW_TTL_MS).unref();
-}
-
-function expireOAuthFlowIfAbandoned(flow: OAuthFlow) {
-  if (flow.status !== "pending") return;
-  flow.status = "error";
-  flow.error = "Login timed out";
-  flow.abortController.abort();
-  flow.rejectInput?.(new Error("Login timed out"));
-  cleanupOAuthFlowLater(flow.id);
-}
-
-function setOAuthStep(flow: OAuthFlow, step: Record<string, unknown>) {
-  flow.step = { ...step, progress: [...flow.progress] } as OAuthFlowStep;
-}
-
-function appendOAuthProgress(flow: OAuthFlow, message: string) {
-  flow.progress.push(message);
-  if (flow.progress.length > 20) flow.progress.shift();
-  if (!flow.step) setOAuthStep(flow, { type: "waiting", message });
-  else flow.step = { ...flow.step, progress: [...flow.progress] };
-}
-
-function createOAuthInputPromise(flow: OAuthFlow) {
-  return new Promise<string | undefined>((resolve, reject) => {
-    flow.resolveInput = resolve;
-    flow.rejectInput = reject;
-  }).finally(() => {
-    flow.resolveInput = undefined;
-    flow.rejectInput = undefined;
-  });
-}
-
-// Build the dialog payload for a question that outlived its runtime (server
-// restarted while the agent was blocked on it). Same shape as the live
-// extension_ui_request broadcast, plus `reconstructed` so the client knows
-// cancelling it leaves the session idle rather than resuming a turn.
-function reconstructInterruptedQuestion(sessionId: string, session: any): Record<string, any> | undefined {
-  if (session.isStreaming) return undefined;
-  const dangling = findDanglingQuestion(session.messages || []);
-  if (!dangling || dismissedInterruptedQuestions.has(dangling.toolCallId)) return undefined;
-  return {
-    sessionId,
-    type: "extension_ui_request",
-    id: dangling.toolCallId,
-    method: "questions",
-    questions: dangling.params?.questions ?? [],
-    reconstructed: true,
-  };
-}
-
-// Answer a reconstructed question: the original tool call can't be completed
-// anymore (pi synthesizes an error result for it), so the answers are sent
-// back to the model as a regular prompt, which also restarts the turn.
-// Dismissals just stop the dialog from re-appearing.
-async function resumeInterruptedQuestion(body: any): Promise<boolean> {
-  const { sessionId, id, cancelled, answers } = body ?? {};
-  if (typeof sessionId !== "string" || typeof id !== "string") return false;
-  let runtime;
-  try {
-    runtime = await getOrInitRuntime(sessionId);
-  } catch {
-    return false;
-  }
-  if (runtime.session.isStreaming) return false;
-  const dangling = findDanglingQuestion(runtime.session.messages || []);
-  if (!dangling || dangling.toolCallId !== id) return false;
-  dismissedInterruptedQuestions.add(id);
-  if (cancelled) return true;
-  touchRuntime(sessionId);
-  const reply = formatAnswersAsUserReply(dangling.params, Array.isArray(answers) ? answers : []);
-  runtime.session.prompt(reply).catch((err: any) => {
-    console.error("Resumed question prompt error:", err);
-  });
-  return true;
-}
+import { reconstructInterruptedQuestion, resumeInterruptedQuestion } from "./interruptedQuestions.ts";
+import { walkProject, resolveMentionsInPrompt, fuzzyPathScore, MENTION_MAX_RESULTS, type MentionEntry } from "./mentions.ts";
+import { readModelsJson, writeModelsJson } from "./modelsConfig.ts";
+import { startOAuthLogin, getSerializedOAuthFlow, respondToOAuthFlow, cancelOAuthFlow } from "./oauthFlows.ts";
 
 function handleError(res: express.Response, err: any) {
   console.error(err);
   res.status(500).json({ error: err?.message || "Internal error" });
-}
-
-const MENTION_IGNORED_DIRS = new Set([".git", "node_modules", "dist", "build", ".next", ".vite", "coverage"]);
-const MENTION_TEXT_EXTENSIONS = new Set([
-  ".txt", ".md", ".markdown", ".json", ".js", ".jsx", ".ts", ".tsx",
-  ".py", ".rb", ".go", ".rs", ".java", ".c", ".cpp", ".h", ".hpp",
-  ".css", ".html", ".xml", ".yml", ".yaml", ".toml", ".ini", ".cfg",
-  ".sh", ".bash", ".zsh", ".sql", ".csv", ".log", ".env", ".vue", ".svelte",
-]);
-const MENTION_MAX_RESULTS = 50;
-const MENTION_MAX_SCAN_ENTRIES = 5000;
-const MENTION_MAX_FILE_BYTES = 512 * 1024;
-const MENTION_MAX_TOTAL_BYTES = 2 * 1024 * 1024;
-
-function getProjectById(projectId: unknown): Project | undefined {
-  if (typeof projectId !== "string") return undefined;
-  return getProjects().find((p) => p.id === projectId);
-}
-
-function resolveInsideProject(project: Project, relPath: string): string | undefined {
-  const root = path.resolve(project.path);
-  const abs = path.resolve(root, relPath || ".");
-  if (abs !== root && !abs.startsWith(root + path.sep)) return undefined;
-  return abs;
-}
-
-function isProbablyTextFile(filePath: string): boolean {
-  return MENTION_TEXT_EXTENSIONS.has(path.extname(filePath).toLowerCase());
-}
-
-function fuzzyPathScore(query: string, target: string): number | null {
-  const q = query.trim().toLowerCase();
-  const t = target.toLowerCase();
-  if (!q) return 0;
-  if (t.includes(q)) return 1000 - t.indexOf(q) - t.length * 0.01;
-  let qi = 0;
-  let score = 0;
-  for (let ti = 0; ti < t.length && qi < q.length; ti++) {
-    if (t[ti] !== q[qi]) continue;
-    score += 1;
-    if (ti === 0 || "/-_ .".includes(t[ti - 1])) score += 3;
-    qi++;
-  }
-  return qi === q.length ? score - t.length * 0.01 : null;
-}
-
-async function walkProject(project: Project): Promise<Array<{ name: string; path: string; kind: "file" | "directory" }>> {
-  const root = path.resolve(project.path);
-  const out: Array<{ name: string; path: string; kind: "file" | "directory" }> = [];
-  const queue = [root];
-  while (queue.length && out.length < MENTION_MAX_SCAN_ENTRIES) {
-    const dir = queue.shift()!;
-    let entries: fs.Dirent[];
-    try {
-      entries = await fs.promises.readdir(dir, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    entries.sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name));
-    for (const entry of entries) {
-      if (entry.name.startsWith(".") && entry.name !== ".env") continue;
-      if (entry.isDirectory() && MENTION_IGNORED_DIRS.has(entry.name)) continue;
-      const abs = path.join(dir, entry.name);
-      const rel = path.relative(root, abs).split(path.sep).join("/");
-      if (entry.isDirectory()) {
-        out.push({ name: entry.name, path: rel, kind: "directory" });
-        queue.push(abs);
-      } else if (entry.isFile()) {
-        out.push({ name: entry.name, path: rel, kind: "file" });
-      }
-      if (out.length >= MENTION_MAX_SCAN_ENTRIES) break;
-    }
-  }
-  return out;
-}
-
-function extractMentionPaths(text: string): string[] {
-  const found = new Set<string>();
-  const braced = /@\{([^}\n]+)\}/g;
-  let match: RegExpExecArray | null;
-  while ((match = braced.exec(text))) found.add(match[1].trim());
-
-  const bare = /(^|\s)@([^\s{}]+)/g;
-  while ((match = bare.exec(text))) found.add(match[2].trim());
-  return [...found].filter(Boolean);
-}
-
-async function resolveMentionsInPrompt(project: Project | undefined, text: string): Promise<string> {
-  if (!project || !/(^|\s)@(?:\{|[^\s{])/.test(text)) return text;
-  const paths = extractMentionPaths(text);
-  if (!paths.length) return text;
-
-  const budget = { remaining: MENTION_MAX_TOTAL_BYTES };
-  const blocks: string[] = [];
-  for (const relPath of paths) {
-    const block = await buildMentionBlock(project, relPath, budget);
-    if (block) blocks.push(block);
-  }
-
-  return blocks.length ? `${text}\n\n${blocks.join("\n\n")}` : text;
-}
-
-async function buildMentionBlock(project: Project, relPath: string, budget: { remaining: number }): Promise<string | null> {
-  const abs = resolveInsideProject(project, relPath);
-  if (!abs) return null;
-  let stat: fs.Stats;
-  try { stat = await fs.promises.stat(abs); } catch { return null; }
-
-  if (stat.isFile()) {
-    if (!isProbablyTextFile(abs) || stat.size > MENTION_MAX_FILE_BYTES || stat.size > budget.remaining) return null;
-    const text = await fs.promises.readFile(abs, "utf8");
-    budget.remaining -= Buffer.byteLength(text, "utf8");
-    return `<file name="${relPath}">\n${text}\n</file>`;
-  }
-
-  if (!stat.isDirectory()) return null;
-  const root = path.resolve(project.path);
-  const files: string[] = [];
-  const dirs = [abs];
-  while (dirs.length && files.length < 80 && budget.remaining > 0) {
-    const dir = dirs.shift()!;
-    let entries: fs.Dirent[];
-    try { entries = await fs.promises.readdir(dir, { withFileTypes: true }); } catch { continue; }
-    entries.sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name));
-    for (const entry of entries) {
-      if (entry.name.startsWith(".") && entry.name !== ".env") continue;
-      if (entry.isDirectory() && MENTION_IGNORED_DIRS.has(entry.name)) continue;
-      const child = path.join(dir, entry.name);
-      if (entry.isDirectory()) dirs.push(child);
-      else if (entry.isFile() && isProbablyTextFile(child)) files.push(child);
-    }
-  }
-
-  const parts: string[] = [`<folder name="${relPath}">`];
-  parts.push("<tree>");
-  for (const file of files) parts.push(path.relative(root, file).split(path.sep).join("/"));
-  parts.push("</tree>");
-  for (const file of files) {
-    let s: fs.Stats;
-    try { s = await fs.promises.stat(file); } catch { continue; }
-    if (s.size > MENTION_MAX_FILE_BYTES || s.size > budget.remaining) continue;
-    const text = await fs.promises.readFile(file, "utf8");
-    budget.remaining -= Buffer.byteLength(text, "utf8");
-    parts.push(`<file name="${path.relative(root, file).split(path.sep).join("/")}">\n${text}\n</file>`);
-  }
-  parts.push("</folder>");
-  return parts.join("\n");
-}
-
-// Mirror of pi's stripJsonComments (not exported from the package): strip `//`
-// line comments and trailing commas while leaving string literals untouched,
-// so we accept exactly the same models.json files pi does.
-function stripJsonComments(input: string) {
-  return input
-    .replace(/"(?:\\.|[^"\\])*"|\/\/[^\n]*/g, (m) => (m[0] === '"' ? m : ""))
-    .replace(/"(?:\\.|[^"\\])*"|,(\s*[}\]])/g, (m, tail) => tail ?? (m[0] === '"' ? m : ""));
-}
-
-function readModelsJson(): any {
-  const modelsPath = path.join(getAgentDir(), "models.json");
-  if (!fs.existsSync(modelsPath)) return { providers: {} };
-  const text = fs.readFileSync(modelsPath, "utf8");
-  const parsed = JSON.parse(stripJsonComments(text));
-  if (!parsed.providers || typeof parsed.providers !== "object") parsed.providers = {};
-  return parsed;
-}
-
-function writeModelsJson(config: any) {
-  const modelsPath = path.join(getAgentDir(), "models.json");
-  fs.mkdirSync(path.dirname(modelsPath), { recursive: true, mode: 0o700 });
-  fs.writeFileSync(modelsPath, JSON.stringify(config, null, 2) + "\n", { encoding: "utf8", mode: 0o600 });
-  try { fs.chmodSync(modelsPath, 0o600); } catch { /* ignore chmod failures */ }
 }
 
 function extensionDisplayName(extensionOrPath: string | {
@@ -510,128 +210,39 @@ export function createRouter(): express.Router {
   });
 
   router.post("/api/auth/:provider/oauth/start", async (req, res) => {
-    const { provider } = req.params;
     try {
-      refreshAuthState();
-      const runtime = await getIntrospectionRuntime();
-      runtime.session.modelRegistry.refresh?.();
-      const oauthProvider = authStorage.getOAuthProviders().find((p: any) => p.id === provider);
-      if (!oauthProvider) {
-        return res.status(400).json({ error: `Provider ${provider} does not support OAuth` });
-      }
-
-      const id = randomUUID();
-      const flow: OAuthFlow = {
-        id,
-        provider,
-        status: "pending",
-        progress: [],
-        abortController: new AbortController(),
-      };
-      setOAuthStep(flow, { type: "waiting", message: "Starting OAuth login..." });
-      oauthFlows.set(id, flow);
-      setTimeout(() => expireOAuthFlowIfAbandoned(flow), OAUTH_FLOW_PENDING_TIMEOUT_MS).unref();
-
-      authStorage.login(provider as any, {
-        signal: flow.abortController.signal,
-        onAuth(info) {
-          flow.authUrl = info.url;
-          flow.authInstructions = info.instructions;
-          setOAuthStep(flow, { type: "auth_url", url: info.url, instructions: info.instructions });
-        },
-        onDeviceCode(info) {
-          setOAuthStep(flow, {
-            type: "device_code",
-            userCode: info.userCode,
-            verificationUri: info.verificationUri,
-            intervalSeconds: info.intervalSeconds,
-            expiresInSeconds: info.expiresInSeconds,
-          });
-        },
-        onProgress(message) {
-          appendOAuthProgress(flow, message);
-        },
-        async onManualCodeInput() {
-          setOAuthStep(flow, { type: "manual_code", message: "Paste the authorization code or callback URL:" });
-          const value = await createOAuthInputPromise(flow);
-          if (value === undefined) throw new Error("Login cancelled");
-          return value;
-        },
-        async onPrompt(prompt) {
-          setOAuthStep(flow, {
-            type: "prompt",
-            message: prompt.message,
-            placeholder: prompt.placeholder,
-            allowEmpty: prompt.allowEmpty,
-          });
-          const value = await createOAuthInputPromise(flow);
-          if (value === undefined) throw new Error("Login cancelled");
-          return value;
-        },
-        async onSelect(prompt) {
-          setOAuthStep(flow, {
-            type: "select",
-            message: prompt.message,
-            options: prompt.options,
-          });
-          return await createOAuthInputPromise(flow);
-        },
-      }).then(() => {
-        flow.status = "success";
-        flow.step = undefined;
-        refreshAuthState();
-        cleanupOAuthFlowLater(id);
-      }).catch((err: any) => {
-        // Cancelled and timed-out flows already recorded their terminal state.
-        if (flow.status !== "pending") return;
-        flow.status = "error";
-        flow.error = err?.message || String(err);
-        cleanupOAuthFlowLater(id);
-      });
-
-      res.json({ id });
+      const result = await startOAuthLogin(req.params.provider);
+      if (!result.ok) return res.status(400).json({ error: result.error });
+      res.json({ id: result.id });
     } catch (err) {
       handleError(res, err);
     }
   });
 
   router.get("/api/auth/oauth/flows/:id", (req, res) => {
-    const flow = oauthFlows.get(req.params.id);
+    const flow = getSerializedOAuthFlow(req.params.id);
     if (!flow) return res.status(404).json({ error: "OAuth flow not found" });
-    res.json(serializeOAuthFlow(flow));
+    res.json(flow);
   });
 
   router.post("/api/auth/oauth/flows/:id/respond", (req, res) => {
-    const flow = oauthFlows.get(req.params.id);
-    if (!flow) return res.status(404).json({ error: "OAuth flow not found" });
-    if (flow.status !== "pending") return res.status(400).json({ error: `OAuth flow is ${flow.status}` });
-
-    const { value, cancelled } = req.body ?? {};
-    if (cancelled) {
-      flow.status = "cancelled";
-      flow.abortController.abort();
-      flow.rejectInput?.(new Error("Login cancelled"));
-      cleanupOAuthFlowLater(flow.id);
-      return res.json({ ok: true });
+    const result = respondToOAuthFlow(req.params.id, req.body ?? {});
+    switch (result.status) {
+      case "not_found":
+        return res.status(404).json({ error: "OAuth flow not found" });
+      case "not_pending":
+        return res.status(400).json({ error: `OAuth flow is ${result.flowStatus}` });
+      case "not_waiting":
+        return res.status(409).json({ error: "OAuth flow is not waiting for input" });
+      case "ok":
+        return res.json({ ok: true });
     }
-
-    // Without a pending input (double submit, stale client) accepting the value
-    // would silently drop it and stomp whatever step the login flow set next.
-    if (!flow.resolveInput) {
-      return res.status(409).json({ error: "OAuth flow is not waiting for input" });
-    }
-    flow.resolveInput(typeof value === "string" ? value : undefined);
-    flow.step = { type: "waiting", message: "Continuing OAuth login...", progress: [...flow.progress] };
-    res.json({ ok: true });
   });
 
   router.post("/api/auth/oauth/flows/:id/cancel", (req, res) => {
-    const flow = oauthFlows.get(req.params.id);
-    if (!flow) return res.status(404).json({ error: "OAuth flow not found" });
-    flow.status = "cancelled";
-    flow.abortController.abort();
-    flow.rejectInput?.(new Error("Login cancelled"));
-    cleanupOAuthFlowLater(flow.id);
+    if (!cancelOAuthFlow(req.params.id)) {
+      return res.status(404).json({ error: "OAuth flow not found" });
+    }
     res.json({ ok: true });
   });
 
@@ -723,7 +334,7 @@ export function createRouter(): express.Router {
       const entries = await walkProject(project);
       const scored = entries
         .map((entry) => ({ entry, score: fuzzyPathScore(query, entry.path) }))
-        .filter((x): x is { entry: { name: string; path: string; kind: "file" | "directory" }; score: number } => x.score !== null)
+        .filter((x): x is { entry: MentionEntry; score: number } => x.score !== null)
         .sort((a, b) => {
           if (a.entry.kind !== b.entry.kind) return a.entry.kind === "directory" ? -1 : 1;
           return b.score - a.score || a.entry.path.localeCompare(b.entry.path);
