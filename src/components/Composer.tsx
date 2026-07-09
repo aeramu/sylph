@@ -21,7 +21,14 @@ function highlightMentions(text: string): string {
   while ((match = pattern.exec(text))) {
     const raw = match[0];
     const leading = match[1] || '';
-    const mention = leading ? raw.slice(leading.length) : raw;
+    let mention = leading ? raw.slice(leading.length) : raw;
+    // A bare mention that ends a sentence ("@src/app.ts.") shouldn't highlight
+    // the trailing punctuation — the server strips it before resolving, so the
+    // highlight would otherwise overpromise what actually gets sent.
+    if (!mention.startsWith('@{')) {
+      const stripped = mention.replace(/[.,;:!?)\]}'"]+$/, '');
+      if (stripped.length > 1) mention = stripped;
+    }
     const mentionStart = match.index + leading.length;
 
     out += escapeHtml(text.slice(last, mentionStart));
@@ -67,6 +74,9 @@ export default function Composer(props: {
   const [selectedIndex, setSelectedIndex] = createSignal(0);
   const [caretPos, setCaretPos] = createSignal<number | null>(null);
   const [activeMention, setActiveMention] = createSignal<{ query: string; start: number; end: number } | null>(null);
+  // Input value the command popup was Escape-dismissed at; cleared as soon as
+  // the text changes so the popup reappears on further typing.
+  const [dismissedCommand, setDismissedCommand] = createSignal<string | null>(null);
   const [mentionResults, setMentionResults] = createSignal<FileMentionInfo[]>([]);
   const [isMentionLoading, setIsMentionLoading] = createSignal(false);
   let fileInputRef: HTMLInputElement | undefined;
@@ -228,6 +238,7 @@ export default function Composer(props: {
   const filteredCommands = createMemo(() => {
     if (activeMention()) return null;
     const text = input();
+    if (dismissedCommand() === text) return null;
     const match = text.match(/^\/([^\s]*)$/);
     if (!match) return null;
 
@@ -383,32 +394,34 @@ export default function Composer(props: {
     const commands = filteredCommands();
 
     if (mentions) {
-      if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setSelectedIndex((prev) => mentions.length ? (prev + 1) % mentions.length : 0);
-        return;
-      } else if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setSelectedIndex((prev) => mentions.length ? (prev - 1 + mentions.length) % mentions.length : 0);
-        return;
-      } else if (e.key === 'Enter') {
-        e.preventDefault();
-        if (mentions.length) {
-          applyMention(mentions[selectedIndex()], { trailingSpace: true, keepOpen: false });
-        }
-        return;
-      } else if (e.key === 'Tab') {
-        e.preventDefault();
-        if (mentions.length) {
-          applyMention(mentions[selectedIndex()], { trailingSpace: false, keepOpen: true });
-        }
-        return;
-      } else if (e.key === 'Escape') {
+      if (e.key === 'Escape') {
         e.preventDefault();
         setActiveMention(null);
         setMentionResults([]);
         setSelectedIndex(0);
         return;
+      }
+      // Only intercept navigation/commit keys when there's something to pick.
+      // With no results (still loading, or a mention like "@name" with no file
+      // match) Enter must fall through to submit instead of being swallowed.
+      if (mentions.length) {
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          setSelectedIndex((prev) => (prev + 1) % mentions.length);
+          return;
+        } else if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          setSelectedIndex((prev) => (prev - 1 + mentions.length) % mentions.length);
+          return;
+        } else if (e.key === 'Enter') {
+          e.preventDefault();
+          applyMention(mentions[selectedIndex()], { trailingSpace: true, keepOpen: false });
+          return;
+        } else if (e.key === 'Tab') {
+          e.preventDefault();
+          applyMention(mentions[selectedIndex()], { trailingSpace: false, keepOpen: true });
+          return;
+        }
       }
     }
 
@@ -429,8 +442,11 @@ export default function Composer(props: {
         applyCommand(commands[selectedIndex()]);
         return;
       } else if (e.key === 'Escape') {
+        // Close the popup but keep what the user typed, mirroring the mention
+        // popup's Escape (which just closes without clearing the field).
         e.preventDefault();
-        setInput('');
+        setDismissedCommand(input());
+        setSelectedIndex(0);
       }
     }
 

@@ -550,7 +550,7 @@ export function createRouter(): express.Router {
   });
 
   router.post("/api/chat", async (req, res) => {
-    const { sessionId, prompt, projectId, modelId, thinkingLevel, images } = req.body;
+    const { sessionId, prompt, mentionText, projectId, modelId, thinkingLevel, images } = req.body;
     if (!prompt) {
       return res.status(400).json({ error: "prompt is required" });
     }
@@ -582,7 +582,10 @@ export function createRouter(): express.Router {
       const projects = getProjects();
       const resolvedProject = projects.find(p => p.path === runtime.session.cwd);
       const mentionProject = getProjectById(projectId) || resolvedProject;
-      const promptText = await resolveMentionsInPrompt(mentionProject, prompt);
+      // Scan only the user-typed text for @mentions when the client provides it,
+      // so mentions inside inlined file attachments aren't resolved as well.
+      const mentionSource = typeof mentionText === "string" ? mentionText : prompt;
+      const promptText = await resolveMentionsInPrompt(mentionProject, prompt, mentionSource);
 
       const promptOptions = Array.isArray(images) && images.length > 0 ? { images } : undefined;
 

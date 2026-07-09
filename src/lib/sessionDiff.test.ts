@@ -9,16 +9,15 @@ const tool = (name: string, args: Record<string, any>, over: Partial<ToolCall> =
   ({ id: `t${idSeq++}`, name, status: 'success', args, ...over });
 
 describe('computeSessionDiffs', () => {
-  it('counts a write with no baseline as (almost) all-added', () => {
+  it('counts a write with no baseline as all-added', () => {
     const d = computeSessionDiffs([
       user(),
       assistant([tool('write', { path: 'a.txt', content: 'x\ny\nz' })]),
     ]);
     expect(d.session.files).toHaveLength(1);
-    // Known quirk: with no baseline the new content is diffed against '', and
-    // ''.split('\n') is [''] — one empty line — so a brand-new file reports a
-    // phantom -1. Locked in here so refactors don't change it silently.
-    expect(d.session.files[0]).toMatchObject({ path: 'a.txt', added: 3, deleted: 1 });
+    // A brand-new file (no in-session baseline) is all additions, with no
+    // phantom deletion from the empty-string baseline.
+    expect(d.session.files[0]).toMatchObject({ path: 'a.txt', added: 3, deleted: 0 });
   });
 
   it('diffs a write against an in-session read baseline instead of counting all-added', () => {
@@ -40,9 +39,8 @@ describe('computeSessionDiffs', () => {
         tool('write', { path: 'a.txt', content: 'x\nnew\nz' }),
       ]),
     ]);
-    // No usable baseline -> whole new content counts as added (plus the
-    // phantom -1 from the empty-string baseline, as above).
-    expect(d.session.files[0]).toMatchObject({ added: 3, deleted: 1 });
+    // No usable baseline -> whole new content counts as added.
+    expect(d.session.files[0]).toMatchObject({ added: 3, deleted: 0 });
   });
 
   it('counts edits from oldText/newText', () => {

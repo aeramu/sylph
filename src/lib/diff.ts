@@ -2,8 +2,10 @@ export type DiffRow = { old?: string; new?: string; type: 'same' | 'add' | 'del'
 
 // Line-level LCS diff producing aligned rows for a side-by-side view.
 export function diffLines(oldText: string, newText: string): DiffRow[] {
-  const a = oldText.split('\n');
-  const b = newText.split('\n');
+  // Empty text is zero lines, not one empty line — a write with no prior
+  // content should count as all-added, without a phantom deleted line.
+  const a = oldText === '' ? [] : oldText.split('\n');
+  const b = newText === '' ? [] : newText.split('\n');
 
   // Trim the common prefix/suffix before running LCS: whole-file diffs
   // (write-as-update in sessionDiff) are mostly unchanged lines, and without
