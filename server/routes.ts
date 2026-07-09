@@ -4,18 +4,99 @@ import path from "path";
 import os from "os";
 import { randomUUID } from "crypto";
 import {
+  getAgentDir,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { getProjects, saveProjects, type Project } from "./projects.ts";
 import { addClient, removeClient } from "./sse.ts";
 import { resolveUiRequest, getPendingUiRequests, getSessionStatuses } from "./uiBridge.ts";
 import { getActiveRuntime, getOrInitRuntime, getIntrospectionRuntime, touchRuntime, getContextInfo } from "./runtimes.ts";
+import { authStorage, modelRegistry, refreshAuthState } from "./auth.ts";
 import { findDanglingQuestion, formatAnswersAsUserReply } from "./askUserQuestion.ts";
 
 // Questions whose reconstructed dialog the user dismissed, so reopening the
 // session doesn't re-show them forever. In-memory on purpose — it only needs
 // to outlive the dialog, not the server.
 const dismissedInterruptedQuestions = new Set<string>();
+
+type OAuthFlowStep =
+  | { type: "auth_url"; url: string; instructions?: string; progress: string[] }
+  | { type: "device_code"; userCode: string; verificationUri: string; intervalSeconds?: number; expiresInSeconds?: number; progress: string[] }
+  | { type: "prompt"; message: string; placeholder?: string; allowEmpty?: boolean; progress: string[] }
+  | { type: "manual_code"; message: string; progress: string[] }
+  | { type: "select"; message: string; options: Array<{ id: string; label: string }>; progress: string[] }
+  | { type: "waiting"; message: string; progress: string[] };
+
+type OAuthFlow = {
+  id: string;
+  provider: string;
+  status: "pending" | "success" | "error" | "cancelled";
+  step?: OAuthFlowStep;
+  // Kept outside `step`: providers call onAuth and then immediately await
+  // onManualCodeInput (racing a callback server against manual paste), so the
+  // auth_url step is replaced within the same tick and polling clients would
+  // never see the URL.
+  authUrl?: string;
+  authInstructions?: string;
+  error?: string;
+  progress: string[];
+  abortController: AbortController;
+  resolveInput?: (value: string | undefined) => void;
+  rejectInput?: (error: Error) => void;
+};
+
+const oauthFlows = new Map<string, OAuthFlow>();
+const OAUTH_FLOW_TTL_MS = 10 * 60 * 1000;
+// Abandoned pending flows (client closed the tab mid-login) would otherwise
+// keep authStorage.login() hanging on input forever; time them out.
+const OAUTH_FLOW_PENDING_TIMEOUT_MS = 15 * 60 * 1000;
+
+function serializeOAuthFlow(flow: OAuthFlow) {
+  return {
+    id: flow.id,
+    provider: flow.provider,
+    status: flow.status,
+    step: flow.step,
+    authUrl: flow.authUrl,
+    authInstructions: flow.authInstructions,
+    error: flow.error,
+    progress: flow.progress,
+  };
+}
+
+function cleanupOAuthFlowLater(id: string) {
+  setTimeout(() => oauthFlows.delete(id), OAUTH_FLOW_TTL_MS).unref();
+}
+
+function expireOAuthFlowIfAbandoned(flow: OAuthFlow) {
+  if (flow.status !== "pending") return;
+  flow.status = "error";
+  flow.error = "Login timed out";
+  flow.abortController.abort();
+  flow.rejectInput?.(new Error("Login timed out"));
+  cleanupOAuthFlowLater(flow.id);
+}
+
+function setOAuthStep(flow: OAuthFlow, step: Record<string, unknown>) {
+  flow.step = { ...step, progress: [...flow.progress] } as OAuthFlowStep;
+}
+
+function appendOAuthProgress(flow: OAuthFlow, message: string) {
+  flow.progress.push(message);
+  if (flow.progress.length > 20) flow.progress.shift();
+  if (!flow.step) setOAuthStep(flow, { type: "waiting", message });
+  else flow.step = { ...flow.step, progress: [...flow.progress] };
+}
+
+function createOAuthInputPromise(flow: OAuthFlow) {
+  return new Promise<string | undefined>((resolve, reject) => {
+    flow.resolveInput = resolve;
+    flow.rejectInput = reject;
+  }).finally(() => {
+    flow.resolveInput = undefined;
+    flow.rejectInput = undefined;
+  });
+}
 
 // Build the dialog payload for a question that outlived its runtime (server
 // restarted while the agent was blocked on it). Same shape as the live
@@ -64,6 +145,31 @@ async function resumeInterruptedQuestion(body: any): Promise<boolean> {
 function handleError(res: express.Response, err: any) {
   console.error(err);
   res.status(500).json({ error: err?.message || "Internal error" });
+}
+
+// Mirror of pi's stripJsonComments (not exported from the package): strip `//`
+// line comments and trailing commas while leaving string literals untouched,
+// so we accept exactly the same models.json files pi does.
+function stripJsonComments(input: string) {
+  return input
+    .replace(/"(?:\\.|[^"\\])*"|\/\/[^\n]*/g, (m) => (m[0] === '"' ? m : ""))
+    .replace(/"(?:\\.|[^"\\])*"|,(\s*[}\]])/g, (m, tail) => tail ?? (m[0] === '"' ? m : ""));
+}
+
+function readModelsJson(): any {
+  const modelsPath = path.join(getAgentDir(), "models.json");
+  if (!fs.existsSync(modelsPath)) return { providers: {} };
+  const text = fs.readFileSync(modelsPath, "utf8");
+  const parsed = JSON.parse(stripJsonComments(text));
+  if (!parsed.providers || typeof parsed.providers !== "object") parsed.providers = {};
+  return parsed;
+}
+
+function writeModelsJson(config: any) {
+  const modelsPath = path.join(getAgentDir(), "models.json");
+  fs.mkdirSync(path.dirname(modelsPath), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(modelsPath, JSON.stringify(config, null, 2) + "\n", { encoding: "utf8", mode: 0o600 });
+  try { fs.chmodSync(modelsPath, 0o600); } catch { /* ignore chmod failures */ }
 }
 
 function extensionDisplayName(extensionOrPath: string | {
@@ -147,6 +253,247 @@ export function createRouter(): express.Router {
           label: m.id,
         })),
       });
+    } catch (err) {
+      handleError(res, err);
+    }
+  });
+
+  router.get("/api/auth/providers", async (_req, res) => {
+    try {
+      refreshAuthState();
+      const runtime = await getIntrospectionRuntime();
+      const registry = runtime.session.modelRegistry;
+      registry.refresh?.();
+
+      const models = registry.getAll();
+      const providerIds = Array.from(new Set<string>(models.map((m: any) => String(m.provider)))).sort((a, b) => a.localeCompare(b));
+      const oauthIds = new Set(authStorage.getOAuthProviders().map((p: any) => p.id));
+      const storedProviders = new Set(authStorage.list());
+
+      res.json({
+        providers: providerIds.map((id) => {
+          const status = registry.getProviderAuthStatus(id);
+          const credential = authStorage.get(id);
+          return {
+            id,
+            name: registry.getProviderDisplayName(id),
+            authType: oauthIds.has(id) ? "oauth" : "api_key",
+            configured: !!status.configured,
+            source: status.source,
+            label: status.label,
+            stored: storedProviders.has(id),
+            storedType: credential?.type,
+          };
+        }),
+      });
+    } catch (err) {
+      handleError(res, err);
+    }
+  });
+
+  router.post("/api/auth/:provider/api-key", async (req, res) => {
+    const { provider } = req.params;
+    const { apiKey } = req.body ?? {};
+    if (typeof apiKey !== "string" || apiKey.trim().length === 0) {
+      return res.status(400).json({ error: "apiKey is required" });
+    }
+
+    try {
+      authStorage.set(provider, { type: "api_key", key: apiKey.trim() });
+      refreshAuthState();
+      res.json({ ok: true });
+    } catch (err) {
+      handleError(res, err);
+    }
+  });
+
+  router.post("/api/auth/providers", async (req, res) => {
+    const { providerId, name, baseUrl, modelId, modelName, apiKey } = req.body ?? {};
+    const provider = typeof providerId === "string" ? providerId.trim() : "";
+    const endpoint = typeof baseUrl === "string" ? baseUrl.trim() : "";
+    const model = typeof modelId === "string" ? modelId.trim() : "";
+    const displayName = typeof name === "string" && name.trim() ? name.trim() : provider;
+    const modelDisplayName = typeof modelName === "string" && modelName.trim() ? modelName.trim() : model;
+
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(provider)) {
+      return res.status(400).json({ error: "providerId must start with a letter/number and contain only letters, numbers, dots, underscores, or dashes" });
+    }
+    if (!endpoint) return res.status(400).json({ error: "baseUrl is required" });
+    if (!model) return res.status(400).json({ error: "modelId is required" });
+
+    try {
+      const config = readModelsJson();
+      if (config.providers[provider]) {
+        return res.status(409).json({ error: `Provider ${provider} already exists in models.json` });
+      }
+      // A models.json provider entry also overrides built-in models of the same
+      // provider (baseUrl/apiKey), so block ids like "openai" or "anthropic"
+      // that already exist in the registry.
+      if (modelRegistry.getAll().some((m) => m.provider === provider)) {
+        return res.status(409).json({ error: `Provider ${provider} already exists; pick a different id` });
+      }
+
+      config.providers[provider] = {
+        name: displayName,
+        baseUrl: endpoint,
+        api: "openai-completions",
+        apiKey: `$${provider.toUpperCase().replace(/[^A-Z0-9]/g, "_")}_API_KEY`,
+        models: [
+          {
+            id: model,
+            name: modelDisplayName,
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 128000,
+            maxTokens: 4096,
+          },
+        ],
+      };
+
+      writeModelsJson(config);
+      if (typeof apiKey === "string" && apiKey.trim()) {
+        authStorage.set(provider, { type: "api_key", key: apiKey.trim() });
+      }
+      refreshAuthState();
+      res.json({ ok: true, provider });
+    } catch (err) {
+      handleError(res, err);
+    }
+  });
+
+  router.post("/api/auth/:provider/oauth/start", async (req, res) => {
+    const { provider } = req.params;
+    try {
+      refreshAuthState();
+      const runtime = await getIntrospectionRuntime();
+      runtime.session.modelRegistry.refresh?.();
+      const oauthProvider = authStorage.getOAuthProviders().find((p: any) => p.id === provider);
+      if (!oauthProvider) {
+        return res.status(400).json({ error: `Provider ${provider} does not support OAuth` });
+      }
+
+      const id = randomUUID();
+      const flow: OAuthFlow = {
+        id,
+        provider,
+        status: "pending",
+        progress: [],
+        abortController: new AbortController(),
+      };
+      setOAuthStep(flow, { type: "waiting", message: "Starting OAuth login..." });
+      oauthFlows.set(id, flow);
+      setTimeout(() => expireOAuthFlowIfAbandoned(flow), OAUTH_FLOW_PENDING_TIMEOUT_MS).unref();
+
+      authStorage.login(provider as any, {
+        signal: flow.abortController.signal,
+        onAuth(info) {
+          flow.authUrl = info.url;
+          flow.authInstructions = info.instructions;
+          setOAuthStep(flow, { type: "auth_url", url: info.url, instructions: info.instructions });
+        },
+        onDeviceCode(info) {
+          setOAuthStep(flow, {
+            type: "device_code",
+            userCode: info.userCode,
+            verificationUri: info.verificationUri,
+            intervalSeconds: info.intervalSeconds,
+            expiresInSeconds: info.expiresInSeconds,
+          });
+        },
+        onProgress(message) {
+          appendOAuthProgress(flow, message);
+        },
+        async onManualCodeInput() {
+          setOAuthStep(flow, { type: "manual_code", message: "Paste the authorization code or callback URL:" });
+          const value = await createOAuthInputPromise(flow);
+          if (value === undefined) throw new Error("Login cancelled");
+          return value;
+        },
+        async onPrompt(prompt) {
+          setOAuthStep(flow, {
+            type: "prompt",
+            message: prompt.message,
+            placeholder: prompt.placeholder,
+            allowEmpty: prompt.allowEmpty,
+          });
+          const value = await createOAuthInputPromise(flow);
+          if (value === undefined) throw new Error("Login cancelled");
+          return value;
+        },
+        async onSelect(prompt) {
+          setOAuthStep(flow, {
+            type: "select",
+            message: prompt.message,
+            options: prompt.options,
+          });
+          return await createOAuthInputPromise(flow);
+        },
+      }).then(() => {
+        flow.status = "success";
+        flow.step = undefined;
+        refreshAuthState();
+        cleanupOAuthFlowLater(id);
+      }).catch((err: any) => {
+        // Cancelled and timed-out flows already recorded their terminal state.
+        if (flow.status !== "pending") return;
+        flow.status = "error";
+        flow.error = err?.message || String(err);
+        cleanupOAuthFlowLater(id);
+      });
+
+      res.json({ id });
+    } catch (err) {
+      handleError(res, err);
+    }
+  });
+
+  router.get("/api/auth/oauth/flows/:id", (req, res) => {
+    const flow = oauthFlows.get(req.params.id);
+    if (!flow) return res.status(404).json({ error: "OAuth flow not found" });
+    res.json(serializeOAuthFlow(flow));
+  });
+
+  router.post("/api/auth/oauth/flows/:id/respond", (req, res) => {
+    const flow = oauthFlows.get(req.params.id);
+    if (!flow) return res.status(404).json({ error: "OAuth flow not found" });
+    if (flow.status !== "pending") return res.status(400).json({ error: `OAuth flow is ${flow.status}` });
+
+    const { value, cancelled } = req.body ?? {};
+    if (cancelled) {
+      flow.status = "cancelled";
+      flow.abortController.abort();
+      flow.rejectInput?.(new Error("Login cancelled"));
+      cleanupOAuthFlowLater(flow.id);
+      return res.json({ ok: true });
+    }
+
+    // Without a pending input (double submit, stale client) accepting the value
+    // would silently drop it and stomp whatever step the login flow set next.
+    if (!flow.resolveInput) {
+      return res.status(409).json({ error: "OAuth flow is not waiting for input" });
+    }
+    flow.resolveInput(typeof value === "string" ? value : undefined);
+    flow.step = { type: "waiting", message: "Continuing OAuth login...", progress: [...flow.progress] };
+    res.json({ ok: true });
+  });
+
+  router.post("/api/auth/oauth/flows/:id/cancel", (req, res) => {
+    const flow = oauthFlows.get(req.params.id);
+    if (!flow) return res.status(404).json({ error: "OAuth flow not found" });
+    flow.status = "cancelled";
+    flow.abortController.abort();
+    flow.rejectInput?.(new Error("Login cancelled"));
+    cleanupOAuthFlowLater(flow.id);
+    res.json({ ok: true });
+  });
+
+  router.post("/api/auth/:provider/logout", async (req, res) => {
+    const { provider } = req.params;
+    try {
+      authStorage.logout(provider);
+      refreshAuthState();
+      res.json({ ok: true });
     } catch (err) {
       handleError(res, err);
     }

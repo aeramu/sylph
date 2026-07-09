@@ -13,6 +13,7 @@ import type {
   AgentSessionEvent
 } from "@earendil-works/pi-coding-agent";
 import { RUNTIME_IDLE_MS, EVICTION_INTERVAL_MS } from "./config.ts";
+import { authStorage, modelRegistry } from "./auth.ts";
 import { getProjects } from "./projects.ts";
 import { broadcast } from "./sse.ts";
 import { clearSessionStatuses, createExtensionUiContext, rejectPendingForSession } from "./uiBridge.ts";
@@ -31,6 +32,8 @@ async function buildRuntime(sessionManager: any, cwd: string, opts?: { uiContext
   const factory: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
     const services = await createAgentSessionServices({
       cwd,
+      authStorage,
+      modelRegistry,
       // Register sylph's native, browser-rendered ask_user_question tool in
       // every runtime (replaces the TUI-only @juicesharp version). Use a real
       // extension path instead of an inline factory so /api/resources can show
