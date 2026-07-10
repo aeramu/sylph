@@ -51,6 +51,8 @@ export default defineConfig({
     ],
   },
   server: {
+    host: '0.0.0.0',
+    allowedHosts: true,
     proxy: {
       '/api': {
         // API_PORT lets a second instance (e.g. a worktree copy) run

@@ -1,7 +1,7 @@
 import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
-import { HOST, PORT, ALLOWED_HOSTS } from "./config.ts";
+import { HOST, PORT } from "./config.ts";
 import { createRouter } from "./routes.ts";
 import { startEvictionTimer } from "./runtimes.ts";
 
@@ -12,14 +12,7 @@ const distDir = path.resolve(__dirname, "../dist");
 const app = express();
 app.use(express.json({ limit: '25mb' }));
 
-// Reject requests whose Host header isn't local (defends against DNS rebinding).
-app.use((req, res, next) => {
-  const host = (req.headers.host || "").replace(/:\d+$/, "");
-  if (!ALLOWED_HOSTS.has(host)) {
-    return res.status(403).json({ error: "Forbidden" });
-  }
-  next();
-});
+app.use((_req, _res, next) => next());
 
 app.use(createRouter());
 
