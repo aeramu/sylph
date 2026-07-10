@@ -461,6 +461,16 @@ export default function Composer(props: {
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Tab' && e.shiftKey) {
+      e.preventDefault();
+      const levels = props.thinkingLevels;
+      if (levels.length > 1) {
+        const nextIndex = (selectedThinkingIndex() + 1) % levels.length;
+        selectThinkingIndex(nextIndex);
+      }
+      return;
+    }
+
     const mentions = filteredMentions();
     const commands = filteredCommands();
 
