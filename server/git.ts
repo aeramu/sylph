@@ -136,6 +136,37 @@ async function untrackedPatch(context: GitContext, repoPath: string) {
   ].filter(Boolean).join("\n");
 }
 
+function parseBatchDiff(output: string, context: GitContext) {
+  const patches = new Map<string, string>();
+  if (!output) return patches;
+  const separator = output.indexOf("\0\0diff --git ");
+  if (separator < 0) return patches;
+
+  // --patch-with-raw -z emits machine-readable raw records first, then patch
+  // bodies in the same order. --no-renames guarantees one path per record.
+  const rawFields = output.slice(0, separator).split("\0").filter(Boolean);
+  const repoPaths: string[] = [];
+  for (let index = 0; index + 1 < rawFields.length; index += 2) {
+    repoPaths.push(rawFields[index + 1]);
+  }
+  const patchText = output.slice(separator + 2);
+  const starts = Array.from(patchText.matchAll(/^diff --git /gm), (match) => match.index);
+  starts.forEach((start, index) => {
+    const repoPath = repoPaths[index];
+    const filePath = repoPath == null ? null : toProjectPath(context, repoPath);
+    if (filePath) patches.set(filePath, patchText.slice(start, starts[index + 1] ?? patchText.length).trimEnd());
+  });
+  return patches;
+}
+
+async function batchDiff(context: GitContext, cached: boolean) {
+  return parseBatchDiff(await runGit(context.root, [
+    "-c", "core.quotepath=false", "diff", ...(cached ? ["--cached"] : []),
+    "--no-ext-diff", "--no-color", "--no-renames", "--patch-with-raw", "-z",
+    "--", projectPathspec(context),
+  ]), context);
+}
+
 export async function getGitStatus(project: Project) {
   const context = await getContext(project);
   const statusOutput = await runGit(context.root, [
@@ -143,25 +174,15 @@ export async function getGitStatus(project: Project) {
     "--", projectPathspec(context),
   ]);
   const files = parsePorcelainZ(statusOutput, context);
+  const [unstaged, staged] = await Promise.all([batchDiff(context, false), batchDiff(context, true)]);
 
   await Promise.all(Array.from(files.values()).map(async (file) => {
-    const repoPath = toRepoPath(context, file.path);
     if (file.isUntracked) {
-      file.unstagedPatch = await untrackedPatch(context, repoPath);
+      file.unstagedPatch = await untrackedPatch(context, toRepoPath(context, file.path));
       return;
     }
-    const operations: Promise<void>[] = [];
-    if (file.workingTree !== " ") {
-      operations.push(runGit(context.root, [
-        "-c", "core.quotepath=false", "diff", "--no-ext-diff", "--no-color", "--no-renames", "--patch", "--", repoPath,
-      ]).then((patch) => { file.unstagedPatch = patch.trimEnd(); }));
-    }
-    if (file.index !== " ") {
-      operations.push(runGit(context.root, [
-        "-c", "core.quotepath=false", "diff", "--cached", "--no-ext-diff", "--no-color", "--no-renames", "--patch", "--", repoPath,
-      ]).then((patch) => { file.stagedPatch = patch.trimEnd(); }));
-    }
-    await Promise.all(operations);
+    file.unstagedPatch = unstaged.get(file.path) ?? "";
+    file.stagedPatch = staged.get(file.path) ?? "";
   }));
 
   return { files: Array.from(files.values()).sort((a, b) => a.path.localeCompare(b.path)) };

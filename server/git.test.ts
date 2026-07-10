@@ -86,6 +86,22 @@ describe("Git tab backend", () => {
     expect(git(root, "diff", "--cached", "--name-only", "-z").split("\0").filter(Boolean).sort()).toEqual([...names].sort());
   });
 
+  it("collects batched patches for tracked unusual filenames", async () => {
+    const { root, project } = repository();
+    const names = ["a -> b", "é.txt"];
+    for (const name of names) write(root, name, "before\n");
+    git(root, "add", ".");
+    git(root, "commit", "-qm", "initial");
+    for (const name of names) write(root, name, "after\n");
+
+    const status = await getGitStatus(project);
+    for (const name of names) {
+      const file = status.files.find((entry) => entry.path === name);
+      expect(file?.unstagedPatch).toContain("-before");
+      expect(file?.unstagedPatch).toContain("+after");
+    }
+  });
+
   it("does not synthesize lossy patches for binary files or symlinks", async () => {
     const { root, project } = repository();
     write(root, "blob.bin", Buffer.from([0, 255, 1, 128]));
