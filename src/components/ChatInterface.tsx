@@ -22,7 +22,14 @@ import { startPointerResize } from '../lib/resize';
 
 export default function ChatInterface(props: { activeSessionId?: string, activeProjectId?: string, onSelectProject?: (id: string) => void, onSessionCreated: (id: string, projectId?: string, firstMessage?: string) => void, onTurnComplete?: () => void, projectRefreshTrigger?: number }) {
   const [messages, setMessages] = createStore<ChatMessage[]>([]);
-  const [isProcessing, setIsProcessing] = createSignal(false);
+  // Only needed during the brief new-chat window before /api/chat returns a
+  // session id. Existing sessions derive processing from sessionStatuses.
+  const [newSessionProcessing, setNewSessionProcessing] = createSignal(false);
+  const isProcessing = () => {
+    if (!props.activeSessionId) return newSessionProcessing();
+    const status = sessionStatuses[props.activeSessionId];
+    return status === 'working' || status === 'needsInput';
+  };
   const [isConnected, setIsConnected] = createSignal(false);
   const [lightboxUrl, setLightboxUrl] = createSignal<string | null>(null);
   const [commandsList, setCommandsList] = createSignal<CommandInfo[]>([]);
@@ -277,6 +284,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   createEffect(() => {
     const id = props.activeSessionId; // track
     if (id && pendingSessionId === id) {
+      setNewSessionProcessing(false);
       // We just committed a session we created; it's already streaming, so
       // replay buffered events instead of wiping and reloading history. Only
       // this session's events: while /api/chat was in flight, other sessions
@@ -293,6 +301,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     pendingSessionId = null;
     awaitingSessionCommit = false;
     pendingEventBuffer = [];
+    setNewSessionProcessing(false);
     setMessages([]);
     setPinnedToBottom(true); // fresh session — follow from the bottom
     setContextInfo(null);
@@ -340,10 +349,6 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
         for (const k of Object.keys(s)) delete s[k];
         for (const [k, v] of Object.entries(data.statuses || {})) s[k] = v as string;
       }));
-      // The session may be mid-turn (e.g. re-opened while streaming); restore
-      // the working indicator we'd otherwise only get from the agent_start we
-      // missed.
-      setIsProcessing(!!data.isStreaming);
       // Sync the sidebar badge with the snapshot: a session opened mid-turn
       // or blocked on a dialog gets its indicator back (e.g. after a server
       // restart wiped the live status), and stale live badges get cleared.
@@ -411,7 +416,9 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     // context-window snapshot (see server/runtimes.ts).
     if (event.context) setContextInfo(event.context);
     applyAgentEvent(messages, setMessages, event, {
-      setProcessing: setIsProcessing,
+      setProcessing: (processing) => {
+        if (!props.activeSessionId) setNewSessionProcessing(processing);
+      },
       onTurnComplete: props.onTurnComplete,
       onSuccessfulFileMutation: () => setGitRefreshTrigger((value) => value + 1),
     });
@@ -566,11 +573,15 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     // For a brand-new chat the session id only arrives with the /api/chat
     // response; buffer this session's SSE events until then.
     const isNewSession = !props.activeSessionId;
-    if (isNewSession) awaitingSessionCommit = true;
+    if (isNewSession) {
+      awaitingSessionCommit = true;
+      setNewSessionProcessing(true);
+    }
     const stopBuffering = () => {
       if (isNewSession) {
         awaitingSessionCommit = false;
         pendingEventBuffer = [];
+        setNewSessionProcessing(false);
       }
     };
 
