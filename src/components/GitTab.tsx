@@ -1,5 +1,6 @@
 import { createEffect, createMemo, createSignal, on, Show } from 'solid-js';
 import type { GitFile } from '../lib/gitPatch';
+import { getGitCommitDraft, setGitCommitDraft } from '../lib/gitCommitDraft';
 import GitCommitBox from './GitCommitBox';
 import GitSourceSection from './GitSourceSection';
 import GitToolbar from './GitToolbar';
@@ -11,7 +12,7 @@ export default function GitTab(props: { projectId?: string; refreshTrigger?: num
   const [loaded, setLoaded] = createSignal(false);
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal('');
-  const [message, setMessage] = createSignal('');
+  const [message, setMessage] = createSignal(getGitCommitDraft(props.projectId));
   const [expanded, setExpanded] = createSignal<Record<string, boolean>>({});
   const [collapsed, setCollapsed] = createSignal({ staged: false, unstaged: false });
   const stagedFiles = createMemo(() => files().filter((file) => file.index !== ' ' && file.index !== '?'));
@@ -84,13 +85,19 @@ export default function GitTab(props: { projectId?: string; refreshTrigger?: num
     }
   };
 
+  const updateMessage = (value: string) => {
+    setMessage(value);
+    setGitCommitDraft(props.projectId, value);
+  };
+
   const commit = async () => {
-    if (await post('commit', { message: message() })) setMessage('');
+    if (await post('commit', { message: message() })) updateMessage('');
   };
 
   createEffect(() => {
     const projectId = props.projectId;
     setExpanded({});
+    setMessage(getGitCommitDraft(projectId));
     setFiles([]);
     setLoaded(false);
     void refresh(projectId);
@@ -111,7 +118,7 @@ export default function GitTab(props: { projectId?: string; refreshTrigger?: num
           message={message()}
           stagedCount={stagedFiles().length}
           busy={busy()}
-          onMessage={setMessage}
+          onMessage={updateMessage}
           onCommit={() => void commit()}
         />
         <Show when={loaded()} fallback={<div class="git-empty">Loading git status...</div>}>
