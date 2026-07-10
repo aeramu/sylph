@@ -12,6 +12,193 @@
   gap: 0.5rem;
 }
 
+.git-branch-section,
+.git-history-section {
+  border-top: 1px solid var(--border-color);
+}
+
+.git-branch-section {
+  border-bottom: 1px solid var(--border-color);
+}
+
+.git-branch-header {
+  display: flex;
+  align-items: center;
+  min-height: 2rem;
+  padding: 0 0.35rem 0 0.2rem;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.git-tab .git-branch-toggle {
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  align-items: center;
+  gap: 0.4rem;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  padding: 0.35rem 0.25rem;
+  color: var(--text-primary);
+  text-align: left;
+  font-size: 0.76rem;
+  font-weight: 650;
+}
+
+.git-tab button.git-branch-toggle:hover:not(:disabled) {
+  background: transparent;
+}
+
+.git-branch-toggle > span:first-of-type {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-sync-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.15rem;
+  margin-left: 0.1rem;
+  margin-right: auto;
+}
+
+.git-tab .git-sync-button {
+  display: inline-flex;
+  min-width: 2.25rem;
+  height: 1.6rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.035);
+  padding: 0.15rem 0.35rem;
+  color: var(--text-secondary);
+}
+
+.git-tab .git-sync-button span {
+  color: inherit;
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  line-height: 1;
+}
+
+.git-tab .git-sync-button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border-color));
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.git-tab .git-sync-button:disabled {
+  background: transparent;
+  opacity: 0.38;
+}
+
+.git-divergence-group + .git-divergence-group {
+  border-top: 1px solid var(--border-color);
+}
+
+.git-tab .git-divergence-title {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.35rem;
+  border: 0;
+  border-radius: 0;
+  padding: 0.35rem 0.45rem 0.35rem 0.75rem;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.018);
+  text-align: left;
+  font-size: 0.69rem;
+  font-weight: 600;
+}
+
+.git-tab .git-divergence-title:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.git-divergence-title .git-source-count {
+  margin-left: 0.1rem;
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+
+.git-divergence-group .git-commit-list {
+  max-height: 10rem;
+}
+
+.git-tab .git-history-toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.35rem;
+  border: 0;
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.035);
+  padding: 0.4rem 0.45rem;
+  text-align: left;
+  font-size: 0.74rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+}
+
+.git-commit-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 17rem;
+  overflow-y: auto;
+}
+
+.git-commit-row {
+  display: grid;
+  grid-template-columns: 3.5rem minmax(0, 1fr);
+  align-items: start;
+  gap: 0.55rem;
+  min-height: 2.45rem;
+  padding: 0.4rem 0.75rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.035);
+}
+
+.git-divergence-group .git-commit-row {
+  padding-left: 1.25rem;
+}
+
+.git-commit-row code {
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  line-height: 1.15rem;
+}
+
+.git-commit-details {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.git-commit-subject {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-commit-meta {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 0.66rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-commit-box {
+  display: flex;
+  gap: 0.5rem;
+}
+
 .git-toolbar {
   align-items: center;
   justify-content: space-between;
@@ -197,7 +384,7 @@
 }
 
 .git-source-count {
-  margin-left: auto;
+  margin-left: 0.1rem;
   min-width: 1.25rem;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.09);

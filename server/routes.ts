@@ -14,7 +14,7 @@ import { reconstructInterruptedQuestion, resumeInterruptedQuestion } from "./int
 import { walkProject, resolveMentionsInPrompt, fuzzyPathScore, MENTION_MAX_RESULTS, type MentionEntry } from "./mentions.ts";
 import { readModelsJson, writeModelsJson } from "./modelsConfig.ts";
 import { startOAuthLogin, getSerializedOAuthFlow, respondToOAuthFlow, cancelOAuthFlow } from "./oauthFlows.ts";
-import { applyToIndex, commit, getGitStatus, stageAll, stageFile, unstageAll, unstageFile } from "./git.ts";
+import { applyToIndex, commit, getGitDivergence, getGitLog, getGitStatus, pull, push, stageAll, stageFile, unstageAll, unstageFile } from "./git.ts";
 
 function handleError(res: express.Response, err: any) {
   console.error(err);
@@ -559,6 +559,51 @@ export function createRouter(): express.Router {
 
     try {
       res.json(await getGitStatus(project));
+    } catch (err) {
+      handleError(res, err);
+    }
+  });
+
+  router.get("/api/projects/:id/git/log", async (req, res) => {
+    const project = getProjectById(req.params.id);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+    const requestedLimit = Number(req.query.limit ?? 30);
+
+    try {
+      res.json({ commits: await getGitLog(project, Number.isFinite(requestedLimit) ? requestedLimit : 30) });
+    } catch (err) {
+      handleError(res, err);
+    }
+  });
+
+  router.get("/api/projects/:id/git/divergence", async (req, res) => {
+    const project = getProjectById(req.params.id);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+    const requestedLimit = Number(req.query.limit ?? 30);
+    try {
+      res.json(await getGitDivergence(project, Number.isFinite(requestedLimit) ? requestedLimit : 30));
+    } catch (err) {
+      handleError(res, err);
+    }
+  });
+
+  router.post("/api/projects/:id/git/pull", async (req, res) => {
+    const project = getProjectById(req.params.id);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+    try {
+      await pull(project);
+      res.json({ success: true });
+    } catch (err) {
+      handleError(res, err);
+    }
+  });
+
+  router.post("/api/projects/:id/git/push", async (req, res) => {
+    const project = getProjectById(req.params.id);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+    try {
+      await push(project);
+      res.json({ success: true });
     } catch (err) {
       handleError(res, err);
     }

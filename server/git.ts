@@ -12,6 +12,22 @@ export interface GitFileStatus {
   isUntracked: boolean;
 }
 
+export interface GitRepositoryInfo {
+  branch: string;
+  detached: boolean;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+}
+
+export interface GitCommitInfo {
+  hash: string;
+  shortHash: string;
+  author: string;
+  authoredAt: string;
+  subject: string;
+}
+
 type GitContext = {
   root: string;
   projectRoot: string;
@@ -167,6 +183,23 @@ async function batchDiff(context: GitContext, cached: boolean) {
   ]), context);
 }
 
+async function getRepositoryInfo(context: GitContext): Promise<GitRepositoryInfo> {
+  const symbolicBranch = await runGit(context.root, ["symbolic-ref", "--quiet", "--short", "HEAD"])
+    .then((value) => value.trim(), () => null);
+  const branch = symbolicBranch
+    ?? await runGit(context.root, ["rev-parse", "--short", "HEAD"]).then((value) => value.trim(), () => "HEAD");
+  const upstream = await runGit(context.root, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"])
+    .then((value) => value.trim(), () => null);
+  let ahead = 0;
+  let behind = 0;
+  if (upstream) {
+    const counts = (await runGit(context.root, ["rev-list", "--left-right", "--count", `HEAD...${upstream}`])).trim().split(/\s+/);
+    ahead = Number(counts[0]) || 0;
+    behind = Number(counts[1]) || 0;
+  }
+  return { branch, detached: symbolicBranch == null, upstream, ahead, behind };
+}
+
 export async function getGitStatus(project: Project) {
   const context = await getContext(project);
   const statusOutput = await runGit(context.root, [
@@ -174,7 +207,11 @@ export async function getGitStatus(project: Project) {
     "--", projectPathspec(context),
   ]);
   const files = parsePorcelainZ(statusOutput, context);
-  const [unstaged, staged] = await Promise.all([batchDiff(context, false), batchDiff(context, true)]);
+  const [unstaged, staged, repository] = await Promise.all([
+    batchDiff(context, false),
+    batchDiff(context, true),
+    getRepositoryInfo(context),
+  ]);
 
   await Promise.all(Array.from(files.values()).map(async (file) => {
     if (file.isUntracked) {
@@ -185,7 +222,51 @@ export async function getGitStatus(project: Project) {
     file.stagedPatch = staged.get(file.path) ?? "";
   }));
 
-  return { files: Array.from(files.values()).sort((a, b) => a.path.localeCompare(b.path)) };
+  return { files: Array.from(files.values()).sort((a, b) => a.path.localeCompare(b.path)), repository };
+}
+
+function parseGitLog(output: string): GitCommitInfo[] {
+  return output.split("\x1e").map((record) => record.replace(/^\n/, "")).filter(Boolean).map((record) => {
+    const [hash, shortHash, author, authoredAt, subject] = record.split("\x1f");
+    return { hash, shortHash, author, authoredAt, subject };
+  });
+}
+
+async function gitLogRange(context: GitContext, revision: string, limit: number) {
+  const output = await runGit(context.root, [
+    "log", `-${limit}`, revision, "--date=iso-strict", "--pretty=format:%H%x1f%h%x1f%an%x1f%aI%x1f%s%x1e",
+  ]).catch((error) => {
+    if (/does not have any commits yet|unknown revision|bad default revision|ambiguous argument/i.test(error.message)) return "";
+    throw error;
+  });
+  return parseGitLog(output);
+}
+
+export async function getGitLog(project: Project, limit = 30): Promise<GitCommitInfo[]> {
+  const context = await getContext(project);
+  return gitLogRange(context, "HEAD", Math.max(1, Math.min(100, Math.floor(limit))));
+}
+
+export async function getGitDivergence(project: Project, limit = 30) {
+  const context = await getContext(project);
+  const repository = await getRepositoryInfo(context);
+  if (!repository.upstream) return { upstream: null, unpushed: [], unpulled: [] };
+  const boundedLimit = Math.max(1, Math.min(100, Math.floor(limit)));
+  const [unpushed, unpulled] = await Promise.all([
+    gitLogRange(context, `${repository.upstream}..HEAD`, boundedLimit),
+    gitLogRange(context, `HEAD..${repository.upstream}`, boundedLimit),
+  ]);
+  return { upstream: repository.upstream, unpushed, unpulled };
+}
+
+export async function pull(project: Project) {
+  const context = await getContext(project);
+  await runGit(context.root, ["pull", "--ff-only"]);
+}
+
+export async function push(project: Project) {
+  const context = await getContext(project);
+  await runGit(context.root, ["push"]);
 }
 
 export async function stageFile(project: Project, filePath: string) {

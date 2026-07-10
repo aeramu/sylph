@@ -3,7 +3,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { spawnSync } from "child_process";
-import { applyToIndex, commit, getGitStatus, stageAll, stageFile, unstageAll, unstageFile } from "./git.ts";
+import { applyToIndex, commit, getGitDivergence, getGitLog, getGitStatus, pull, push, stageAll, stageFile, unstageAll, unstageFile } from "./git.ts";
 import type { Project } from "./projects.ts";
 
 const directories: string[] = [];
@@ -128,6 +128,44 @@ describe("Git tab backend", () => {
       .toEqual(["sub/one.txt", "sub/two.txt"]);
     await unstageAll(project);
     expect(git(root, "diff", "--cached", "--name-only")).toBe("");
+  });
+
+  it("lists commits and synchronizes with an upstream using fast-forward pull and push", async () => {
+    const { root, project } = repository();
+    write(root, "file.txt", "one\n");
+    git(root, "add", ".");
+    git(root, "commit", "-qm", "initial subject");
+    const remote = fs.mkdtempSync(path.join(os.tmpdir(), "sylph-git-remote-"));
+    directories.push(remote);
+    git(remote, "init", "--bare", "-q");
+    git(root, "remote", "add", "origin", remote);
+    git(root, "push", "-qu", "origin", "HEAD");
+
+    const log = await getGitLog(project);
+    expect(log[0]).toMatchObject({ subject: "initial subject", author: "Test User" });
+    expect((await getGitStatus(project)).repository).toMatchObject({ upstream: expect.any(String), ahead: 0, behind: 0 });
+
+    write(root, "file.txt", "two\n");
+    git(root, "add", ".");
+    git(root, "commit", "-qm", "second");
+    expect((await getGitDivergence(project)).unpushed.map((entry) => entry.subject)).toEqual(["second"]);
+    await push(project);
+    expect((await getGitStatus(project)).repository.ahead).toBe(0);
+
+    const clone = fs.mkdtempSync(path.join(os.tmpdir(), "sylph-git-clone-"));
+    directories.push(clone);
+    git(clone, "clone", "-q", remote, ".");
+    git(clone, "config", "user.email", "other@example.com");
+    git(clone, "config", "user.name", "Other User");
+    write(clone, "remote.txt", "remote\n");
+    git(clone, "add", ".");
+    git(clone, "commit", "-qm", "remote commit");
+    git(clone, "push", "-q");
+    git(root, "fetch", "-q");
+    expect((await getGitStatus(project)).repository.behind).toBe(1);
+    expect((await getGitDivergence(project)).unpulled.map((entry) => entry.subject)).toEqual(["remote commit"]);
+    await pull(project);
+    expect(fs.readFileSync(path.join(root, "remote.txt"), "utf-8")).toBe("remote\n");
   });
 
   it("applies a patch only when it matches the requested file", async () => {

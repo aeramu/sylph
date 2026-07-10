@@ -1,20 +1,24 @@
 import { createEffect, createMemo, createSignal, on, Show } from 'solid-js';
-import type { GitFile } from '../lib/gitPatch';
+import type { GitCommit, GitDivergence, GitFile, GitRepositoryInfo } from '../lib/gitPatch';
 import { getGitCommitDraft, setGitCommitDraft } from '../lib/gitCommitDraft';
 import GitCommitBox from './GitCommitBox';
+import { GitBranchSection, GitCommitHistory } from './GitRepositorySection';
 import GitSourceSection from './GitSourceSection';
 import GitToolbar from './GitToolbar';
 import './GitTab.css';
 
 export default function GitTab(props: { projectId?: string; refreshTrigger?: number }) {
   const [files, setFiles] = createSignal<GitFile[]>([]);
+  const [repository, setRepository] = createSignal<GitRepositoryInfo>();
+  const [commits, setCommits] = createSignal<GitCommit[]>([]);
+  const [divergence, setDivergence] = createSignal<GitDivergence>({ upstream: null, unpushed: [], unpulled: [] });
   const [loading, setLoading] = createSignal(false);
   const [loaded, setLoaded] = createSignal(false);
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal('');
   const [message, setMessage] = createSignal(getGitCommitDraft(props.projectId));
   const [expanded, setExpanded] = createSignal<Record<string, boolean>>({});
-  const [collapsed, setCollapsed] = createSignal({ staged: false, unstaged: false });
+  const [collapsed, setCollapsed] = createSignal({ branch: true, history: true, staged: false, unstaged: false });
   const stagedFiles = createMemo(() => files().filter((file) => file.index !== ' ' && file.index !== '?'));
   const unstagedFiles = createMemo(() => files().filter((file) => file.workingTree !== ' '));
   let refreshGeneration = 0;
@@ -31,11 +35,20 @@ export default function GitTab(props: { projectId?: string; refreshTrigger?: num
     setLoading(true);
     setError('');
     try {
-      const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/git/status`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to load git status');
+      const [statusRes, logRes, divergenceRes] = await Promise.all([
+        fetch(`/api/projects/${encodeURIComponent(projectId)}/git/status`),
+        fetch(`/api/projects/${encodeURIComponent(projectId)}/git/log?limit=30`),
+        fetch(`/api/projects/${encodeURIComponent(projectId)}/git/divergence?limit=30`),
+      ]);
+      const [data, logData, divergenceData] = await Promise.all([statusRes.json(), logRes.json(), divergenceRes.json()]);
+      if (!statusRes.ok) throw new Error(data.error || 'Failed to load git status');
+      if (!logRes.ok) throw new Error(logData.error || 'Failed to load commit history');
+      if (!divergenceRes.ok) throw new Error(divergenceData.error || 'Failed to load branch divergence');
       if (generation !== refreshGeneration || props.projectId !== projectId) return false;
       const nextFiles: GitFile[] = data.files || [];
+      setRepository(data.repository);
+      setCommits(logData.commits || []);
+      setDivergence(divergenceData);
       setFiles((previous) => {
         const previousByPath = new Map(previous.map((file) => [file.path, file]));
         return nextFiles.map((file) => {
@@ -99,6 +112,9 @@ export default function GitTab(props: { projectId?: string; refreshTrigger?: num
     setExpanded({});
     setMessage(getGitCommitDraft(projectId));
     setFiles([]);
+    setRepository(undefined);
+    setCommits([]);
+    setDivergence({ upstream: null, unpushed: [], unpulled: [] });
     setLoaded(false);
     void refresh(projectId);
   });
@@ -114,6 +130,15 @@ export default function GitTab(props: { projectId?: string; refreshTrigger?: num
       <Show when={props.projectId} fallback={<div class="git-empty">Select a project to use git.</div>}>
         <GitToolbar fileCount={files().length} loading={loading()} busy={busy()} onRefresh={() => void refresh()} />
         <Show when={error()}><div class="git-error">{error()}</div></Show>
+        <GitBranchSection
+          repository={repository()}
+          divergence={divergence()}
+          collapsed={collapsed().branch}
+          busy={busy()}
+          onToggle={() => setCollapsed((value) => ({ ...value, branch: !value.branch }))}
+          onPull={() => void post('pull', {})}
+          onPush={() => void post('push', {})}
+        />
         <GitCommitBox
           message={message()}
           stagedCount={stagedFiles().length}
@@ -148,6 +173,11 @@ export default function GitTab(props: { projectId?: string; refreshTrigger?: num
                 onFileAction={(file) => void post('stage-file', { path: file.path })}
                 onAllAction={() => void post('stage-all', {})}
                 onApplyPatch={(file, patch, reverse) => void post('apply', { path: file.path, patch, reverse })}
+              />
+              <GitCommitHistory
+                commits={commits()}
+                collapsed={collapsed().history}
+                onToggle={() => setCollapsed((value) => ({ ...value, history: !value.history }))}
               />
             </div>
         </Show>

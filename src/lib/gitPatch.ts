@@ -1,3 +1,25 @@
+export type GitRepositoryInfo = {
+  branch: string;
+  detached: boolean;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+};
+
+export type GitCommit = {
+  hash: string;
+  shortHash: string;
+  author: string;
+  authoredAt: string;
+  subject: string;
+};
+
+export type GitDivergence = {
+  upstream: string | null;
+  unpushed: GitCommit[];
+  unpulled: GitCommit[];
+};
+
 export type GitFile = {
   path: string;
   index: string;

@@ -59,13 +59,6 @@ export default function GitSourceSection(props: {
                           <span class="git-source-file-directory">{pathParts().directory}</span>
                         </Show>
                       </button>
-                      <span class="git-source-file-stats" aria-label={`${stats().added} lines added, ${stats().deleted} lines deleted`}>
-                        <Show when={stats().added > 0}><span class="diff-stats-added">+{stats().added}</span></Show>
-                        <Show when={stats().deleted > 0}><span class="diff-stats-deleted">-{stats().deleted}</span></Show>
-                      </span>
-                      <span class={`git-source-status status-${status().code.toLowerCase()}`} title={status().title}>
-                        {status().code}
-                      </span>
                       <button
                         class="git-icon-button git-source-file-action"
                         disabled={props.busy}
@@ -75,6 +68,13 @@ export default function GitSourceSection(props: {
                       >
                         {props.staged ? '−' : '+'}
                       </button>
+                      <span class="git-source-file-stats" aria-label={`${stats().added} lines added, ${stats().deleted} lines deleted`}>
+                        <Show when={stats().added > 0}><span class="diff-stats-added">+{stats().added}</span></Show>
+                        <Show when={stats().deleted > 0}><span class="diff-stats-deleted">-{stats().deleted}</span></Show>
+                      </span>
+                      <span class={`git-source-status status-${status().code.toLowerCase()}`} title={status().title}>
+                        {status().code}
+                      </span>
                     </div>
                     <Show when={props.expanded[key()]}>
                       <Show when={patch().trim()} fallback={<div class="git-source-no-diff">No text diff available. Use the file action to {props.staged ? 'unstage' : 'stage'} it.</div>}>
