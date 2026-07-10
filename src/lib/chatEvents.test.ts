@@ -12,6 +12,7 @@ function run(events: any[]) {
     const callbacks: AgentEventCallbacks = {
       setProcessing: vi.fn(),
       onTurnComplete: vi.fn(),
+      onSuccessfulFileMutation: vi.fn(),
     };
     for (const e of events) applyAgentEvent(messages, setMessages, e, callbacks);
     const snapshot = messages.map((m) => ({ ...m, tools: m.tools?.map((t) => ({ ...t })) }));
@@ -82,6 +83,32 @@ describe('applyAgentEvent', () => {
     ]);
     const t = messages[0].tools![0];
     expect(t).toMatchObject({ id: 'c1', name: 'bash', status: 'success', output: 'file.txt' });
+  });
+
+  it('notifies after successful edit/write tools only', () => {
+    const successful = run([
+      assistantStart('m1'),
+      { type: 'tool_execution_start', toolCallId: 'c1', toolName: 'edit', args: {} },
+      { type: 'tool_execution_end', toolCallId: 'c1', isError: false },
+      { type: 'tool_execution_start', toolCallId: 'c2', toolName: 'write', args: {} },
+      { type: 'tool_execution_end', toolCallId: 'c2', isError: false },
+      { type: 'tool_execution_start', toolCallId: 'c3', toolName: 'bash', args: {} },
+      { type: 'tool_execution_end', toolCallId: 'c3', isError: false },
+    ]);
+    expect(successful.callbacks.onSuccessfulFileMutation).toHaveBeenCalledTimes(2);
+
+    const namedEnd = run([
+      assistantStart('m1'),
+      { type: 'tool_execution_end', toolCallId: 'c4', toolName: 'write', isError: false },
+    ]);
+    expect(namedEnd.callbacks.onSuccessfulFileMutation).toHaveBeenCalledTimes(1);
+
+    const failed = run([
+      assistantStart('m1'),
+      { type: 'tool_execution_start', toolCallId: 'c1', toolName: 'edit', args: {} },
+      { type: 'tool_execution_end', toolCallId: 'c1', isError: true },
+    ]);
+    expect(failed.callbacks.onSuccessfulFileMutation).not.toHaveBeenCalled();
   });
 
   it('marks a tool call errored on a failed tool_execution_end', () => {

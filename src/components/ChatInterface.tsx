@@ -46,6 +46,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   const [panelOpen, setPanelOpen] = createSignal(false);
   const [panelTab, setPanelTab] = createSignal('changes');
   const [panelWidth, setPanelWidth] = createSignal(420);
+  const [gitRefreshTrigger, setGitRefreshTrigger] = createSignal(0);
   // null = whole session; a number filters the Changes tab to that turn.
   const [diffTurn, setDiffTurn] = createSignal<number | null>(null);
 
@@ -408,6 +409,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     applyAgentEvent(messages, setMessages, event, {
       setProcessing: setIsProcessing,
       onTurnComplete: props.onTurnComplete,
+      onSuccessfulFileMutation: () => setGitRefreshTrigger((value) => value + 1),
     });
   };
 
@@ -903,7 +905,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
         />
       </Show>
       <Show when={panelTab() === 'git'}>
-        <GitTab projectId={props.activeProjectId} />
+        <GitTab projectId={props.activeProjectId} refreshTrigger={gitRefreshTrigger()} />
       </Show>
       <Show when={panelTab() === 'server'}>
         <div class="server-status-panel">

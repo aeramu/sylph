@@ -10,11 +10,18 @@ export default function GitCommitBox(props: {
       <textarea
         value={props.message}
         onInput={(event) => props.onMessage(event.currentTarget.value)}
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter' || (!event.metaKey && !event.ctrlKey)) return;
+          event.preventDefault();
+          if (!props.busy && props.message.trim() && props.stagedCount > 0) props.onCommit();
+        }}
         placeholder="Commit message"
+        aria-keyshortcuts="Meta+Enter Control+Enter"
+        title="Commit message (⌘ Enter or Ctrl Enter to commit)"
         rows="3"
       />
       <button disabled={props.busy || !props.message.trim() || props.stagedCount === 0} onClick={props.onCommit}>
-        Commit {props.stagedCount > 0 ? `${props.stagedCount} staged` : 'staged'}
+        Commit
       </button>
     </div>
   );

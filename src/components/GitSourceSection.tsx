@@ -17,8 +17,7 @@ export default function GitSourceSection(props: {
   onApplyPatch: (file: GitFile, patch: string, reverse: boolean) => void;
 }) {
   return (
-    <Show when={props.files.length > 0}>
-      <section class="git-source-section">
+      <section class={`git-source-section ${props.files.length === 0 ? 'empty' : ''}`}>
         <div class="git-source-section-header">
           <button class="git-source-section-toggle" onClick={props.onToggle} aria-expanded={!props.collapsed}>
             <GitChevron expanded={!props.collapsed} />
@@ -27,7 +26,7 @@ export default function GitSourceSection(props: {
           </button>
           <button
             class="git-icon-button git-source-all-action"
-            disabled={props.busy}
+            disabled={props.busy || props.files.length === 0}
             onClick={props.onAllAction}
             title={props.staged ? 'Unstage all changes' : 'Stage all changes'}
             aria-label={props.staged ? 'Unstage all changes' : 'Stage all changes'}
@@ -36,6 +35,7 @@ export default function GitSourceSection(props: {
           </button>
         </div>
         <Show when={!props.collapsed}>
+          <Show when={props.files.length > 0} fallback={<div class="git-source-empty">No changes</div>}>
           <div class="git-source-files">
             <Index each={props.files}>
               {(file) => {
@@ -94,8 +94,8 @@ export default function GitSourceSection(props: {
               }}
             </Index>
           </div>
+          </Show>
         </Show>
       </section>
-    </Show>
   );
 }

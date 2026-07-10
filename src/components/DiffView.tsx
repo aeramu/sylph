@@ -1,8 +1,8 @@
 import { createEffect, onCleanup, untrack } from 'solid-js';
 import { ChangeSet, Compartment, EditorState, type Extension, type StateEffect } from '@codemirror/state';
-import { EditorView, GutterMarker, gutter } from '@codemirror/view';
+import { EditorView, GutterMarker, gutter, lineNumbers } from '@codemirror/view';
 import { getOriginalDoc, MergeView, originalDocChangeEffect, unifiedMergeView } from '@codemirror/merge';
-import { basicSetup } from 'codemirror';
+import { minimalSetup } from 'codemirror';
 import { sylphEditorTheme, sylphMergeTheme, sylphSyntaxHighlighting } from '../editor/codemirrorTheme';
 import { languageExtensionForPath } from '../editor/languages';
 import { diffMode } from '../lib/diffMode';
@@ -58,19 +58,26 @@ function lineActionGutter(actions: DiffLineAction[] | undefined): Extension[] {
   })];
 }
 
+function sourceLineNumbers(start: number) {
+  return lineNumbers({ formatNumber: (number) => start === 0 ? '' : String(start + number - 1) });
+}
+
 function diffEditorExtensions(
   languageCompartment: Compartment,
+  numberCompartment: Compartment,
   actionCompartment: Compartment,
+  lineStart: number,
   actions?: DiffLineAction[],
 ): Extension[] {
   return [
-    basicSetup,
+    minimalSetup,
     sylphEditorTheme,
     sylphMergeTheme,
     sylphSyntaxHighlighting,
     EditorView.lineWrapping,
     EditorState.tabSize.of(2),
     languageCompartment.of([]),
+    numberCompartment.of(sourceLineNumbers(lineStart)),
     actionCompartment.of(lineActionGutter(actions)),
     ...readOnlyExtensions,
   ];
@@ -90,6 +97,8 @@ export default function DiffView(props: {
   oldText: string;
   newText: string;
   path?: string;
+  oldLineStart?: number;
+  newLineStart?: number;
   oldLineActions?: DiffLineAction[];
   newLineActions?: DiffLineAction[];
 }) {
@@ -98,6 +107,8 @@ export default function DiffView(props: {
   let unifiedView: EditorView | undefined;
   let oldLanguage = new Compartment();
   let newLanguage = new Compartment();
+  let oldNumbers = new Compartment();
+  let newNumbers = new Compartment();
   let oldActions = new Compartment();
   let newActions = new Compartment();
   let mountedMode: 'split' | 'unified' | undefined;
@@ -118,6 +129,8 @@ export default function DiffView(props: {
     const mode = diffMode();
     const oldText = untrack(() => props.oldText);
     const newText = untrack(() => props.newText);
+    const oldLineStart = untrack(() => props.oldLineStart ?? 1);
+    const newLineStart = untrack(() => props.newLineStart ?? 1);
     const oldLineActions = untrack(() => props.oldLineActions);
     const newLineActions = untrack(() => props.newLineActions);
     let cancelled = false;
@@ -127,6 +140,8 @@ export default function DiffView(props: {
     container.replaceChildren();
     oldLanguage = new Compartment();
     newLanguage = new Compartment();
+    oldNumbers = new Compartment();
+    newNumbers = new Compartment();
     oldActions = new Compartment();
     newActions = new Compartment();
     mountedMode = mode;
@@ -136,7 +151,7 @@ export default function DiffView(props: {
         parent: container,
         doc: newText,
         extensions: [
-          ...diffEditorExtensions(newLanguage, newActions, newLineActions),
+          ...diffEditorExtensions(newLanguage, newNumbers, newActions, newLineStart, newLineActions),
           unifiedMergeView({
             original: oldText,
             mergeControls: false,
@@ -148,8 +163,8 @@ export default function DiffView(props: {
       });
     } else {
       mergeView = new MergeView({
-        a: { doc: oldText, extensions: diffEditorExtensions(oldLanguage, oldActions, oldLineActions) },
-        b: { doc: newText, extensions: diffEditorExtensions(newLanguage, newActions, newLineActions) },
+        a: { doc: oldText, extensions: diffEditorExtensions(oldLanguage, oldNumbers, oldActions, oldLineStart, oldLineActions) },
+        b: { doc: newText, extensions: diffEditorExtensions(newLanguage, newNumbers, newActions, newLineStart, newLineActions) },
         parent: container,
         highlightChanges: true,
         gutter: true,
@@ -171,12 +186,20 @@ export default function DiffView(props: {
   createEffect(() => {
     const oldText = props.oldText;
     const newText = props.newText;
+    const oldLineStart = props.oldLineStart ?? 1;
+    const newLineStart = props.newLineStart ?? 1;
     const oldLineActions = props.oldLineActions;
     const newLineActions = props.newLineActions;
 
     if (mountedMode === 'split' && mergeView) {
-      replaceDocument(mergeView.a, oldText, [oldActions.reconfigure(lineActionGutter(oldLineActions))]);
-      replaceDocument(mergeView.b, newText, [newActions.reconfigure(lineActionGutter(newLineActions))]);
+      replaceDocument(mergeView.a, oldText, [
+        oldNumbers.reconfigure(sourceLineNumbers(oldLineStart)),
+        oldActions.reconfigure(lineActionGutter(oldLineActions)),
+      ]);
+      replaceDocument(mergeView.b, newText, [
+        newNumbers.reconfigure(sourceLineNumbers(newLineStart)),
+        newActions.reconfigure(lineActionGutter(newLineActions)),
+      ]);
     } else if (mountedMode === 'unified' && unifiedView) {
       const currentOriginal = getOriginalDoc(unifiedView.state);
       const originalChanges = ChangeSet.of(
@@ -186,6 +209,7 @@ export default function DiffView(props: {
       const updateOriginal = originalDocChangeEffect(unifiedView.state, originalChanges);
       replaceDocument(unifiedView, newText, [
         updateOriginal,
+        newNumbers.reconfigure(sourceLineNumbers(newLineStart)),
         newActions.reconfigure(lineActionGutter(newLineActions)),
       ]);
     }

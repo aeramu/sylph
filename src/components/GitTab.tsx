@@ -1,11 +1,11 @@
-import { createEffect, createMemo, createSignal, Show } from 'solid-js';
+import { createEffect, createMemo, createSignal, on, Show } from 'solid-js';
 import type { GitFile } from '../lib/gitPatch';
 import GitCommitBox from './GitCommitBox';
 import GitSourceSection from './GitSourceSection';
 import GitToolbar from './GitToolbar';
 import './GitTab.css';
 
-export default function GitTab(props: { projectId?: string }) {
+export default function GitTab(props: { projectId?: string; refreshTrigger?: number }) {
   const [files, setFiles] = createSignal<GitFile[]>([]);
   const [loading, setLoading] = createSignal(false);
   const [loaded, setLoaded] = createSignal(false);
@@ -96,6 +96,12 @@ export default function GitTab(props: { projectId?: string }) {
     void refresh(projectId);
   });
 
+  createEffect(on(
+    () => props.refreshTrigger,
+    () => void refresh(),
+    { defer: true },
+  ));
+
   return (
     <div class="git-tab">
       <Show when={props.projectId} fallback={<div class="git-empty">Select a project to use git.</div>}>
@@ -109,7 +115,6 @@ export default function GitTab(props: { projectId?: string }) {
           onCommit={() => void commit()}
         />
         <Show when={loaded()} fallback={<div class="git-empty">Loading git status...</div>}>
-          <Show when={files().length > 0} fallback={<div class="git-empty">Working tree clean.</div>}>
             <div class="git-source-control">
               <GitSourceSection
                 title="Staged Changes"
@@ -125,7 +130,7 @@ export default function GitTab(props: { projectId?: string }) {
                 onApplyPatch={(file, patch, reverse) => void post('apply', { path: file.path, patch, reverse })}
               />
               <GitSourceSection
-                title="Changes"
+                title="Unstaged Changes"
                 files={unstagedFiles()}
                 staged={false}
                 busy={busy()}
@@ -138,7 +143,6 @@ export default function GitTab(props: { projectId?: string }) {
                 onApplyPatch={(file, patch, reverse) => void post('apply', { path: file.path, patch, reverse })}
               />
             </div>
-          </Show>
         </Show>
       </Show>
     </div>

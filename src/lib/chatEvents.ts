@@ -4,7 +4,12 @@ import type { ChatMessage } from '../types';
 export interface AgentEventCallbacks {
   setProcessing: (v: boolean) => void;
   onTurnComplete?: () => void;
+  onSuccessfulFileMutation?: () => void;
 }
+
+// Tool start/end events are separate. Keep the authoritative name keyed by
+// call id instead of relying on a reactive message-store lookup at end time.
+const activeToolNames = new Map<string, string>();
 
 // Index of the assistant message live events should mutate: the streaming
 // one, or failing that the most recent assistant message. Deltas used to
@@ -138,6 +143,7 @@ export function applyAgentEvent(
     const idx = liveAssistantIdx(messages);
     if (idx >= 0) {
       const toolName = event.toolName || event.name || (event.toolCall && event.toolCall.name) || 'tool';
+      if (event.toolCallId) activeToolNames.set(event.toolCallId, toolName);
       setMessages(idx, 'tools', (t) => [...(t || []), {
         id: event.toolCallId,
         name: toolName,
@@ -158,12 +164,21 @@ export function applyAgentEvent(
     }
   } else if (event.type === 'tool_execution_end') {
     if (event.toolCallId) {
+      const toolName = event.toolName
+        || event.name
+        || event.toolCall?.name
+        || activeToolNames.get(event.toolCallId)
+        || messages.flatMap((message) => message.tools ?? []).find((tool) => tool.id === event.toolCallId)?.name;
+      activeToolNames.delete(event.toolCallId);
       setMessages(
         m => m.role === 'assistant' && !!m.tools?.some(t => t.id === event.toolCallId),
         'tools',
         t => t.id === event.toolCallId,
         tool => ({ ...tool, status: (event.isError ? 'error' : 'success') as 'error' | 'success' })
       );
+      if (!event.isError && (toolName === 'edit' || toolName === 'write')) {
+        callbacks.onSuccessfulFileMutation?.();
+      }
     }
   }
 }

@@ -70,6 +70,8 @@ export default function GitPatchView(props: {
                     oldText={view().oldText}
                     newText={view().newText}
                     path={props.path}
+                    oldLineStart={hunk().oldStart}
+                    newLineStart={hunk().newStart}
                     oldLineActions={view().oldActions.map(action)}
                     newLineActions={view().newActions.map(action)}
                   />
