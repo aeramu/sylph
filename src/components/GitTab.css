@@ -83,6 +83,10 @@
   line-height: 1;
 }
 
+.git-sync-spinner {
+  animation: git-refresh-spin 0.8s linear infinite;
+}
+
 .git-tab .git-sync-button:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--accent) 45%, var(--border-color));
   background: rgba(255, 255, 255, 0.08);

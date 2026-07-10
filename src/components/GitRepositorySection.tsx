@@ -31,6 +31,7 @@ export function GitBranchSection(props: {
   divergence: GitDivergence;
   collapsed: boolean;
   busy: boolean;
+  syncOperation: 'pull' | 'push' | null;
   onToggle: () => void;
   onPull: () => void;
   onPush: () => void;
@@ -56,7 +57,13 @@ export function GitBranchSection(props: {
             title={`Pull ${props.repository?.behind ?? 0} commit${props.repository?.behind === 1 ? '' : 's'} (fast-forward only)`}
             aria-label={`Pull ${props.repository?.behind ?? 0} commits`}
           >
-            <span>↓&nbsp;{props.repository?.behind ?? 0}</span>
+            <Show when={props.syncOperation !== 'pull'} fallback={
+              <svg class="git-sync-spinner" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                <path d="M21 12a9 9 0 1 1-3-6.7"></path>
+              </svg>
+            }>
+              <span>↓&nbsp;{props.repository?.behind ?? 0}</span>
+            </Show>
           </button>
           <button
             class="git-sync-button"
@@ -65,7 +72,13 @@ export function GitBranchSection(props: {
             title={`Push ${props.repository?.ahead ?? 0} commit${props.repository?.ahead === 1 ? '' : 's'}`}
             aria-label={`Push ${props.repository?.ahead ?? 0} commits`}
           >
-            <span>↑&nbsp;{props.repository?.ahead ?? 0}</span>
+            <Show when={props.syncOperation !== 'push'} fallback={
+              <svg class="git-sync-spinner" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                <path d="M21 12a9 9 0 1 1-3-6.7"></path>
+              </svg>
+            }>
+              <span>↑&nbsp;{props.repository?.ahead ?? 0}</span>
+            </Show>
           </button>
         </div>
       </div>

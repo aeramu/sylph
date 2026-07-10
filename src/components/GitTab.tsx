@@ -15,6 +15,7 @@ export default function GitTab(props: { projectId?: string; refreshTrigger?: num
   const [loading, setLoading] = createSignal(false);
   const [loaded, setLoaded] = createSignal(false);
   const [busy, setBusy] = createSignal(false);
+  const [syncOperation, setSyncOperation] = createSignal<'pull' | 'push' | null>(null);
   const [error, setError] = createSignal('');
   const [message, setMessage] = createSignal(getGitCommitDraft(props.projectId));
   const [expanded, setExpanded] = createSignal<Record<string, boolean>>({});
@@ -78,6 +79,8 @@ export default function GitTab(props: { projectId?: string; refreshTrigger?: num
   const post = async (url: string, body: unknown) => {
     const projectId = props.projectId;
     if (!projectId) return false;
+    const sync = url === 'pull' || url === 'push' ? url : null;
+    if (sync) setSyncOperation(sync);
     setBusy(true);
     setError('');
     try {
@@ -94,6 +97,7 @@ export default function GitTab(props: { projectId?: string; refreshTrigger?: num
       if (props.projectId === projectId) setError(err.message || 'Git operation failed');
       return false;
     } finally {
+      if (sync) setSyncOperation(null);
       setBusy(false);
     }
   };
@@ -135,6 +139,7 @@ export default function GitTab(props: { projectId?: string; refreshTrigger?: num
           divergence={divergence()}
           collapsed={collapsed().branch}
           busy={busy()}
+          syncOperation={syncOperation()}
           onToggle={() => setCollapsed((value) => ({ ...value, branch: !value.branch }))}
           onPull={() => void post('pull', {})}
           onPush={() => void post('push', {})}
