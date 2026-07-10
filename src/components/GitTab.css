@@ -1,0 +1,427 @@
+.git-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 0.7rem 0;
+}
+
+.git-toolbar,
+.git-hunk-header,
+.git-commit-box {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.git-toolbar {
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0.75rem;
+}
+
+.git-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.git-diff-mode {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.14);
+}
+
+.git-tab .git-toolbar-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.8rem;
+  height: 1.7rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 0 0.52rem;
+  font-size: 0.7rem;
+  font-weight: 550;
+}
+
+.git-tab .git-toolbar-icon + .git-toolbar-icon {
+  border-left: 1px solid var(--border-color);
+}
+
+.git-tab .git-toolbar-icon.active {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
+.git-tab .git-refresh-button {
+  width: 1.8rem;
+  min-width: 1.8rem;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 0;
+}
+
+.git-tab .git-refresh-button:disabled svg {
+  animation: git-refresh-spin 0.8s linear infinite;
+}
+
+@keyframes git-refresh-spin {
+  to { transform: rotate(360deg); }
+}
+
+.git-title {
+  color: var(--text-primary);
+  font-weight: 650;
+}
+
+.git-subtitle {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+}
+
+.git-tab button {
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.76rem;
+  padding: 0.28rem 0.5rem;
+  cursor: pointer;
+}
+
+.git-tab button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.git-tab button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.git-empty,
+.git-error {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  padding: 0.45rem 0.75rem;
+}
+
+.git-error {
+  margin: 0 0.75rem;
+  color: var(--danger);
+  border: 1px solid rgba(239, 68, 68, 0.28);
+  border-radius: 7px;
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.git-commit-box {
+  flex-direction: column;
+  margin: 0 0.75rem 0.2rem;
+}
+
+.git-commit-box textarea {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.18);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 0.5rem;
+}
+
+.git-commit-box button {
+  align-self: stretch;
+  background: color-mix(in srgb, var(--accent) 70%, transparent);
+  border-color: transparent;
+  font-weight: 600;
+}
+
+.git-source-control {
+  display: flex;
+  flex-direction: column;
+}
+
+.git-source-section {
+  border-top: 1px solid var(--border-color);
+}
+
+.git-source-section:last-child {
+  border-bottom: 1px solid var(--border-color);
+}
+
+.git-source-section-header {
+  display: flex;
+  align-items: center;
+  min-height: 2rem;
+  padding: 0 0.35rem 0 0.2rem;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.git-tab .git-source-section-toggle {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 0.35rem;
+  border: 0;
+  background: transparent;
+  padding: 0.35rem 0.25rem;
+  text-align: left;
+  font-size: 0.76rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+}
+
+.git-chevron {
+  flex-shrink: 0;
+  opacity: 0.6;
+  transform: rotate(-90deg);
+  transition: transform 0.15s ease;
+}
+
+.git-chevron.expanded {
+  transform: rotate(0deg);
+}
+
+.git-source-count {
+  margin-left: auto;
+  min-width: 1.25rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.09);
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+  font-weight: 500;
+  line-height: 1.25rem;
+  text-align: center;
+}
+
+.git-tab .git-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+.git-source-all-action {
+  visibility: hidden;
+  margin-left: 0.2rem;
+}
+
+.git-source-section-header:hover .git-source-all-action,
+.git-source-all-action:focus-visible {
+  visibility: visible;
+}
+
+.git-source-file {
+  border: 0;
+}
+
+.git-source-file-row {
+  display: flex;
+  align-items: center;
+  min-height: 1.85rem;
+  padding: 0 0.35rem 0 0.55rem;
+}
+
+.git-source-file-row:hover {
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.git-tab .git-source-file-open {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 0.4rem;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  padding: 0.3rem 0.2rem;
+  text-align: left;
+}
+
+.git-tab button.git-source-file-open:hover:not(:disabled) {
+  background: transparent;
+}
+
+.git-file-chevron {
+  width: 0.8rem;
+  margin-right: 0.05rem;
+}
+
+.git-source-file-name {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-source-file-directory {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-source-file-stats {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.35rem;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+}
+
+.git-source-file-action {
+  visibility: hidden;
+  flex: 0 0 auto;
+  margin-left: 0.05rem;
+}
+
+.git-source-file-row:hover .git-source-file-action,
+.git-source-file-action:focus-visible {
+  visibility: visible;
+}
+
+.git-source-status {
+  flex: 0 0 1.3rem;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 750;
+  text-align: center;
+}
+
+.git-source-status.status-d,
+.git-source-status.status-u {
+  color: var(--danger);
+}
+
+.git-source-status.status-a {
+  color: var(--success);
+}
+
+.git-source-no-diff {
+  padding: 0.55rem 1rem 0.7rem 1.55rem;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+}
+
+.git-patch-block {
+  border-top: 1px solid var(--border-color);
+  background: rgba(0, 0, 0, 0.13);
+}
+
+.git-hunk {
+  border-top: 1px solid var(--border-color);
+}
+
+.git-hunk-header {
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.35rem 0.45rem;
+  background: rgba(99, 102, 241, 0.08);
+}
+
+.git-tab .git-hunk-toggle {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 0.35rem;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-align: left;
+}
+
+.git-tab button.git-hunk-toggle:hover:not(:disabled) {
+  background: transparent;
+}
+
+.git-hunk-toggle code {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.69rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-hunk-action {
+  visibility: hidden;
+  flex: 0 0 auto;
+}
+
+.git-hunk-header:hover .git-hunk-action,
+.git-hunk-action:focus-visible {
+  visibility: visible;
+}
+
+.git-hunk .diff-view {
+  border: 0;
+  border-radius: 0;
+}
+
+.git-hunk .cm-editor {
+  font-size: 0.72rem;
+}
+
+.git-hunk .cm-diff-actions-gutter {
+  background: rgba(0, 0, 0, 0.18);
+  border-left: 1px solid var(--border-color);
+}
+
+.git-hunk .cm-diff-actions-gutter .cm-gutterElement {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  width: 1.6rem;
+}
+
+.git-hunk .cm-diff-line-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: 700 0.9rem/1 var(--font-mono);
+  margin-top: 0.18rem;
+  visibility: hidden;
+  opacity: 0;
+  padding: 0;
+  transition: color 0.12s ease, background 0.12s ease, opacity 0.12s ease;
+}
+
+.git-hunk .cm-diff-actions-gutter .cm-gutterElement:hover .cm-diff-line-action,
+.git-hunk .cm-diff-line-action:focus-visible {
+  visibility: visible;
+  opacity: 1;
+}
+
+.git-hunk .cm-diff-line-action:hover,
+.git-hunk .cm-diff-line-action:focus-visible {
+  background: rgba(255, 255, 255, 0.09);
+  color: var(--text-primary);
+}

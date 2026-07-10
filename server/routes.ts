@@ -14,6 +14,7 @@ import { reconstructInterruptedQuestion, resumeInterruptedQuestion } from "./int
 import { walkProject, resolveMentionsInPrompt, fuzzyPathScore, MENTION_MAX_RESULTS, type MentionEntry } from "./mentions.ts";
 import { readModelsJson, writeModelsJson } from "./modelsConfig.ts";
 import { startOAuthLogin, getSerializedOAuthFlow, respondToOAuthFlow, cancelOAuthFlow } from "./oauthFlows.ts";
+import { applyToIndex, commit, getGitStatus, stageAll, stageFile, unstageAll, unstageFile } from "./git.ts";
 
 function handleError(res: express.Response, err: any) {
   console.error(err);
@@ -547,6 +548,98 @@ export function createRouter(): express.Router {
         })),
         messageRenderers: Array.from(extension.messageRenderers?.keys() ?? []),
       });
+    } catch (err) {
+      handleError(res, err);
+    }
+  });
+
+  router.get("/api/projects/:id/git/status", async (req, res) => {
+    const project = getProjectById(req.params.id);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+
+    try {
+      res.json(await getGitStatus(project));
+    } catch (err) {
+      handleError(res, err);
+    }
+  });
+
+  router.post("/api/projects/:id/git/stage-file", async (req, res) => {
+    const project = getProjectById(req.params.id);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+    const { path: filePath } = req.body ?? {};
+    if (typeof filePath !== "string" || !filePath) return res.status(400).json({ error: "path is required" });
+
+    try {
+      await stageFile(project, filePath);
+      res.json({ success: true });
+    } catch (err) {
+      handleError(res, err);
+    }
+  });
+
+  router.post("/api/projects/:id/git/stage-all", async (req, res) => {
+    const project = getProjectById(req.params.id);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+
+    try {
+      await stageAll(project);
+      res.json({ success: true });
+    } catch (err) {
+      handleError(res, err);
+    }
+  });
+
+  router.post("/api/projects/:id/git/unstage-file", async (req, res) => {
+    const project = getProjectById(req.params.id);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+    const { path: filePath } = req.body ?? {};
+    if (typeof filePath !== "string" || !filePath) return res.status(400).json({ error: "path is required" });
+
+    try {
+      await unstageFile(project, filePath);
+      res.json({ success: true });
+    } catch (err) {
+      handleError(res, err);
+    }
+  });
+
+  router.post("/api/projects/:id/git/unstage-all", async (req, res) => {
+    const project = getProjectById(req.params.id);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+
+    try {
+      await unstageAll(project);
+      res.json({ success: true });
+    } catch (err) {
+      handleError(res, err);
+    }
+  });
+
+  router.post("/api/projects/:id/git/apply", async (req, res) => {
+    const project = getProjectById(req.params.id);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+    const { path: filePath, patch, reverse } = req.body ?? {};
+    if (typeof filePath !== "string" || !filePath) return res.status(400).json({ error: "path is required" });
+    if (typeof patch !== "string" || !patch.trim()) return res.status(400).json({ error: "patch is required" });
+
+    try {
+      await applyToIndex(project, filePath, patch, !!reverse);
+      res.json({ success: true });
+    } catch (err) {
+      handleError(res, err);
+    }
+  });
+
+  router.post("/api/projects/:id/git/commit", async (req, res) => {
+    const project = getProjectById(req.params.id);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+    const { message } = req.body ?? {};
+    if (typeof message !== "string" || !message.trim()) return res.status(400).json({ error: "message is required" });
+
+    try {
+      await commit(project, message);
+      res.json({ success: true });
     } catch (err) {
       handleError(res, err);
     }

@@ -16,6 +16,7 @@ import QuestionsModal, { type QuestionsRequest } from './QuestionsModal';
 import RightPanel from './RightPanel';
 import ChangesTab from './ChangesTab';
 import DiffStats from './DiffStats';
+import GitTab from './GitTab';
 import { startPointerResize } from '../lib/resize';
 
 export default function ChatInterface(props: { activeSessionId?: string, activeProjectId?: string, onSelectProject?: (id: string) => void, onSessionCreated: (id: string, projectId?: string, firstMessage?: string) => void, onTurnComplete?: () => void, projectRefreshTrigger?: number }) {
@@ -724,6 +725,20 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
               </button>
               <button
                 class="chat-header-panel-tab"
+                onClick={() => openPanelTab('git')}
+                title="Open Git"
+                aria-label="Open Git"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <circle cx="18" cy="18" r="3"></circle>
+                  <circle cx="6" cy="6" r="3"></circle>
+                  <circle cx="6" cy="18" r="3"></circle>
+                  <path d="M6 9v6"></path>
+                  <path d="M8.5 7.5 15.5 16.5"></path>
+                </svg>
+              </button>
+              <button
+                class="chat-header-panel-tab"
                 onClick={togglePanel}
                 title="Open right sidebar"
                 aria-label="Open right sidebar"
@@ -838,7 +853,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
             models={models()}
             selectedModel={selectedModel()}
             onSelectModel={selectModel}
-            thinkingLevels={THINKING_LEVELS}
+            thinkingLevels={thinkingLevelOptions()}
             selectedThinkingLevel={selectedThinkingLevel()}
             onSelectThinkingLevel={selectThinkingLevel}
             contextInfo={contextInfo()}
@@ -875,7 +890,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     </Show>
     <RightPanel
       class={panelOpen() ? 'panel-open' : ''}
-      tabs={[{ id: 'server', label: 'Server' }, { id: 'changes', label: 'Changes' }]}
+      tabs={[{ id: 'server', label: 'Server' }, { id: 'changes', label: 'Changes' }, { id: 'git', label: 'Git' }]}
       activeTab={panelTab()}
       onSelectTab={setPanelTab}
       onClose={closePanel}
@@ -886,6 +901,9 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
           turnFilter={diffTurn()}
           onClearFilter={() => setDiffTurn(null)}
         />
+      </Show>
+      <Show when={panelTab() === 'git'}>
+        <GitTab projectId={props.activeProjectId} />
       </Show>
       <Show when={panelTab() === 'server'}>
         <div class="server-status-panel">

@@ -30,6 +30,18 @@ function PanelTabIcon(props: { id: string }) {
     );
   }
 
+  if (props.id === 'git') {
+    return (
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="18" cy="18" r="3"></circle>
+        <circle cx="6" cy="6" r="3"></circle>
+        <circle cx="6" cy="18" r="3"></circle>
+        <path d="M6 9v6"></path>
+        <path d="M8.5 7.5 15.5 16.5"></path>
+      </svg>
+    );
+  }
+
   return null;
 }
 
