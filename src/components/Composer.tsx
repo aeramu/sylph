@@ -1,4 +1,4 @@
-import { createSignal, createEffect, createMemo, For, Show, onCleanup } from 'solid-js';
+import { createSignal, createEffect, createMemo, For, Show, onCleanup, onMount } from 'solid-js';
 import type { Attachment, CommandInfo, ContextInfo, FileMentionInfo, ModelOption, ThinkingLevel, ThinkingLevelOption } from '../types';
 import { ACCEPT_ATTR, readFile } from '../lib/attachments';
 import CustomSelect, { type CustomSelectApi } from './CustomSelect';
@@ -83,6 +83,8 @@ export default function Composer(props: {
   let textareaRef: HTMLTextAreaElement | undefined;
   let highlightRef: HTMLDivElement | undefined;
   let commandListRef: HTMLDivElement | undefined;
+  let thinkingSliderRef: HTMLDivElement | undefined;
+  let thinkingSliderInputRef: HTMLInputElement | undefined;
   let modelSelectApi: CustomSelectApi | undefined;
   let dragCounter = 0;
   let skipNextMentionSync = false;
@@ -96,8 +98,77 @@ export default function Composer(props: {
       builtin: true,
       run: () => modelSelectApi?.open(),
     },
+    {
+      name: 'thinking',
+      source: 'built-in',
+      description: 'Set the thinking level',
+      builtin: true,
+      run: () => setIsThinkingSliderOpen(true),
+    },
   ];
   const isBuiltin = (cmd: CommandInfo): cmd is BuiltinCommand => (cmd as BuiltinCommand).builtin === true;
+
+  const selectedThinkingIndex = () => {
+    const index = props.thinkingLevels.findIndex((level) => level.value === props.selectedThinkingLevel);
+    return index >= 0 ? index : 0;
+  };
+
+  const selectedThinkingLabel = () =>
+    props.thinkingLevels.find((level) => level.value === props.selectedThinkingLevel)?.label
+    || props.selectedThinkingLevel;
+
+  const selectThinkingIndex = (index: number) => {
+    const level = props.thinkingLevels[index];
+    if (level) props.onSelectThinkingLevel(level.value);
+  };
+
+  const [draggedThinkingIndex, setDraggedThinkingIndex] = createSignal<number | null>(null);
+  const displayedThinkingIndex = () => draggedThinkingIndex() ?? selectedThinkingIndex();
+
+  const thinkingSliderProgress = (index = displayedThinkingIndex()) => {
+    const lastIndex = Math.max(props.thinkingLevels.length - 1, 1);
+    return (index / lastIndex) * 100;
+  };
+
+  const thinkingSliderPosition = (index = displayedThinkingIndex()) =>
+    `${thinkingSliderProgress(index)}%`;
+
+  const commitThinkingSlider = (rawIndex: number) => {
+    const lastIndex = Math.max(props.thinkingLevels.length - 1, 0);
+    const index = Math.max(0, Math.min(lastIndex, Math.round(rawIndex)));
+    selectThinkingIndex(index);
+    setDraggedThinkingIndex(null);
+  };
+
+  const [isThinkingSliderOpen, setIsThinkingSliderOpen] = createSignal(false);
+
+  const handleThinkingSliderOutside = (e: MouseEvent) => {
+    if (thinkingSliderRef && !thinkingSliderRef.contains(e.target as Node)) {
+      setIsThinkingSliderOpen(false);
+    }
+  };
+
+  const handleThinkingSliderKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') setIsThinkingSliderOpen(false);
+  };
+
+  onMount(() => {
+    document.addEventListener('mousedown', handleThinkingSliderOutside);
+    document.addEventListener('keydown', handleThinkingSliderKeyDown);
+  });
+
+  onCleanup(() => {
+    document.removeEventListener('mousedown', handleThinkingSliderOutside);
+    document.removeEventListener('keydown', handleThinkingSliderKeyDown);
+  });
+
+  createEffect(() => {
+    if (!isThinkingSliderOpen()) {
+      setDraggedThinkingIndex(null);
+      return;
+    }
+    requestAnimationFrame(() => thinkingSliderInputRef?.focus());
+  });
 
   const addFiles = async (fileList: FileList | File[]) => {
     const files = Array.from(fileList);
@@ -609,14 +680,91 @@ export default function Composer(props: {
             groupBy={(opt) => opt.provider}
             api={(a) => { modelSelectApi = a; }}
           />
-          <CustomSelect
-            triggerClass="thinking-selector"
-            value={props.selectedThinkingLevel}
-            onChange={(val) => props.onSelectThinkingLevel(val as ThinkingLevel)}
-            options={props.thinkingLevels}
-            placeholder="Thinking"
-            position="top"
-          />
+          <div class="thinking-slider" ref={thinkingSliderRef}>
+            <button
+              class="thinking-selector thinking-slider-trigger"
+              type="button"
+              aria-haspopup="dialog"
+              aria-expanded={isThinkingSliderOpen()}
+              title={`Thinking: ${selectedThinkingLabel()}`}
+              disabled={props.thinkingLevels.length === 0}
+              onClick={() => setIsThinkingSliderOpen((open) => !open)}
+            >
+              <span class="thinking-slider-trigger-value">{selectedThinkingLabel()}</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class={`custom-select-chevron ${isThinkingSliderOpen() ? 'open' : ''}`}>
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </button>
+            <Show when={isThinkingSliderOpen()}>
+              <div class="thinking-slider-popover" role="dialog" aria-label="Thinking level">
+                <div class="thinking-slider-popover-header">
+                  <span>Thinking level</span>
+                  <strong>{selectedThinkingLabel()}</strong>
+                </div>
+                <div class="thinking-slider-scale" aria-hidden="true">
+                  <span>Faster</span>
+                  <span>Smarter</span>
+                </div>
+                <div class="thinking-slider-control">
+                  <div class="thinking-slider-track" aria-hidden="true">
+                    <div class="thinking-slider-points">
+                      <span
+                        class="thinking-slider-fill"
+                        style={`width: calc(${thinkingSliderPosition()} + 11px)`}
+                      />
+                      <For each={props.thinkingLevels}>
+                        {(_, index) => (
+                          <span
+                            class="thinking-slider-dot"
+                            style={`left: ${thinkingSliderPosition(index())}`}
+                          />
+                        )}
+                      </For>
+                      <span
+                        class="thinking-slider-thumb"
+                        style={`left: ${thinkingSliderPosition()}`}
+                      />
+                    </div>
+                  </div>
+                  <input
+                    ref={thinkingSliderInputRef}
+                    class="thinking-slider-input"
+                    type="range"
+                    min="0"
+                    max={Math.max(props.thinkingLevels.length - 1, 0)}
+                    step="any"
+                    value={displayedThinkingIndex()}
+                    aria-label="Thinking level"
+                    aria-valuetext={selectedThinkingLabel()}
+                    disabled={props.thinkingLevels.length < 2}
+                    onInput={(e) => setDraggedThinkingIndex(Number(e.currentTarget.value))}
+                    onChange={(e) => commitThinkingSlider(Number(e.currentTarget.value))}
+                    onKeyDown={(e) => {
+                      const lastIndex = Math.max(props.thinkingLevels.length - 1, 0);
+                      if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        commitThinkingSlider(Math.round(displayedThinkingIndex()) - 1);
+                      } else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        commitThinkingSlider(Math.round(displayedThinkingIndex()) + 1);
+                      } else if (e.key === 'Home') {
+                        e.preventDefault();
+                        commitThinkingSlider(0);
+                      } else if (e.key === 'End') {
+                        e.preventDefault();
+                        commitThinkingSlider(lastIndex);
+                      } else if (e.key === 'Enter') {
+                        e.preventDefault();
+                        commitThinkingSlider(Number(e.currentTarget.value));
+                        setIsThinkingSliderOpen(false);
+                        requestAnimationFrame(() => textareaRef?.focus());
+                      }
+                    }}
+                  />
+                </div>
+              </div>
+            </Show>
+          </div>
         </div>
 
         <div class="input-toolbar-right">
