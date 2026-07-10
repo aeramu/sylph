@@ -167,6 +167,9 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   let messagesAreaRef: HTMLDivElement | undefined;
   let messagesEndRef: HTMLDivElement | undefined;
   let eventSource: EventSource | null = null;
+  // Distinguish the initial connection from a recovery after SSE dropped.
+  // The latter may have missed events, so its session snapshot must be fresh.
+  let hasConnectedOnce = false;
   let chatDragCounter = 0;
   const [isChatDragOver, setIsChatDragOver] = createSignal(false);
 
@@ -346,7 +349,10 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       const data = JSON.parse(e.data);
 
       if (data.type === 'connection_established') {
+        const isReconnect = hasConnectedOnce && !isConnected();
+        hasConnectedOnce = true;
         setIsConnected(true);
+        if (isReconnect) void fetchHistory();
         return;
       }
 
