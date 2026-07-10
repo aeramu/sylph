@@ -1,4 +1,4 @@
-import { createSignal, createEffect, createMemo, For, Show, onCleanup, onMount } from 'solid-js';
+import { createSignal, createEffect, createMemo, For, Show, on, onCleanup, onMount } from 'solid-js';
 import type { Attachment, CommandInfo, ContextInfo, FileMentionInfo, ModelOption, ThinkingLevel, ThinkingLevelOption } from '../types';
 import { ACCEPT_ATTR, readFile } from '../lib/attachments';
 import CustomSelect, { type CustomSelectApi } from './CustomSelect';
@@ -57,6 +57,9 @@ export default function Composer(props: {
   disabled: boolean;
   commands: CommandInfo[];
   projectId?: string;
+  draftKey: string;
+  draftText: string;
+  onDraftChange: (text: string) => void;
   models: ModelOption[];
   selectedModel: string;
   onSelectModel: (id: string) => void;
@@ -68,7 +71,7 @@ export default function Composer(props: {
   onStop: () => void;
   api?: (api: ComposerApi) => void;
 }) {
-  const [input, setInput] = createSignal('');
+  const [input, setInput] = createSignal(props.draftText);
   const [attachments, setAttachments] = createSignal<Attachment[]>([]);
   const [isDragOver, setIsDragOver] = createSignal(false);
   const [selectedIndex, setSelectedIndex] = createSignal(0);
@@ -89,6 +92,21 @@ export default function Composer(props: {
   let dragCounter = 0;
   let skipNextMentionSync = false;
   let suppressNextMentionFetch = false;
+
+  const updateInput = (text: string) => {
+    setInput(text);
+    props.onDraftChange(text);
+  };
+
+  createEffect(on(
+    () => props.draftKey,
+    () => {
+      const text = props.draftText;
+      setInput(text);
+      setAttachments([]);
+      if (textareaRef) textareaRef.value = text;
+    },
+  ));
 
   const builtinCommands: BuiltinCommand[] = [
     {
@@ -189,7 +207,7 @@ export default function Composer(props: {
   props.api?.({
     setText: (text) => {
       if (textareaRef) textareaRef.value = text;
-      setInput(text);
+      updateInput(text);
     },
     pasteText: (text) => {
       if (!textareaRef) return;
@@ -197,7 +215,7 @@ export default function Composer(props: {
       const pos = textareaRef.selectionStart;
       const pasted = cur.slice(0, pos) + text + cur.slice(textareaRef.selectionEnd);
       textareaRef.value = pasted;
-      setInput(pasted);
+      updateInput(pasted);
       textareaRef.focus();
     },
     focus: () => textareaRef?.focus(),
@@ -394,7 +412,7 @@ export default function Composer(props: {
     // Built-in commands run a local UI action and clear the input rather than
     // completing the text or being sent to the agent.
     if (isBuiltin(cmd)) {
-      setInput('');
+      updateInput('');
       setSelectedIndex(0);
       cmd.run();
       return;
@@ -402,7 +420,7 @@ export default function Composer(props: {
     // Replace the initial slash word with the completed command
     const text = input();
     const replaced = text.replace(/^\/\S*/, `/${cmd.name} `);
-    setInput(replaced);
+    updateInput(replaced);
     setSelectedIndex(0);
     requestAnimationFrame(() => {
       if (!textareaRef) return;
@@ -428,7 +446,7 @@ export default function Composer(props: {
     const replaced = text.slice(0, mention.start) + inserted + text.slice(mention.end);
     const nextPos = mention.start + inserted.length;
     textareaRef.value = replaced;
-    setInput(replaced);
+    updateInput(replaced);
     if (options.keepOpen) {
       // Tab behaves like autocomplete: fill the text but keep the current
       // dropdown/results/selection alive. The keyup after Tab would otherwise
@@ -454,14 +472,14 @@ export default function Composer(props: {
     // instead of being sent to the agent.
     const builtin = builtinCommands.find(c => `/${c.name}` === input().trim());
     if (builtin) {
-      setInput('');
+      updateInput('');
       builtin.run();
       return;
     }
     if (!input().trim() && attachments().length === 0) return;
     const text = input();
     const pending = attachments();
-    setInput('');
+    updateInput('');
     setAttachments([]);
     setActiveMention(null);
     setMentionResults([]);
@@ -650,7 +668,7 @@ export default function Composer(props: {
           onInput={(e) => {
             const text = e.currentTarget.value;
             const pos = e.currentTarget.selectionStart ?? text.length;
-            setInput(text);
+            updateInput(text);
             setCaretPos(pos);
             updateActiveMention(text, pos);
             if (highlightRef) highlightRef.scrollTop = e.currentTarget.scrollTop;

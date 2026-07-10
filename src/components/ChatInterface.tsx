@@ -7,6 +7,7 @@ import { trackSessionEvent, setSessionStatus, sessionStatuses } from '../lib/ses
 import { hasRenderableContent, mapHistoryToMessages } from '../lib/messages';
 import { computeSessionDiffs, emptyDiffSummary } from '../lib/sessionDiff';
 import { stripAnsi } from '../lib/markdown';
+import { getChatDraft, setChatDraft } from '../lib/chatDraft';
 import './ChatInterface.css';
 import CustomSelect from './CustomSelect';
 import Composer, { type ComposerApi } from './Composer';
@@ -33,6 +34,9 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   const [statusEntries, setStatusEntries] = createStore<Record<string, string>>({});
   const [widgets, setWidgets] = createSignal<Record<string, ExtWidget>>({});
   const activeProject = () => projects().find((p) => p.id === props.activeProjectId);
+  const chatDraftKey = () => props.activeSessionId
+    ? `session:${props.activeSessionId}`
+    : `project:${props.activeProjectId ?? 'none'}:new`;
   const activeSessionTitle = () => {
     const firstUserMessage = messages.find((m) => m.role === 'user' && m.content?.trim());
     const title = firstUserMessage?.content.trim().split('\n')[0] || 'New Chat';
@@ -852,6 +856,9 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
             disabled={!!uiRequest() || !!questionsRequest()}
             commands={commandsList()}
             projectId={props.activeProjectId}
+            draftKey={chatDraftKey()}
+            draftText={getChatDraft(chatDraftKey())}
+            onDraftChange={(text) => setChatDraft(chatDraftKey(), text)}
             models={models()}
             selectedModel={selectedModel()}
             onSelectModel={selectModel}
