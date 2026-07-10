@@ -4,6 +4,7 @@ import path from "path";
 import os from "os";
 import { randomUUID } from "crypto";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { getProjects, saveProjects, getProjectById, type Project } from "./projects.ts";
 import { addClient, removeClient } from "./sse.ts";
 import { resolveUiRequest, getPendingUiRequests, getSessionStatuses } from "./uiBridge.ts";
@@ -98,6 +99,8 @@ export function createRouter(): express.Router {
           provider: m.provider,
           value: `${m.provider}/${m.id}`,
           label: m.id,
+          reasoning: !!m.reasoning,
+          thinkingLevels: getSupportedThinkingLevels(m),
         })),
       });
     } catch (err) {
@@ -575,7 +578,17 @@ export function createRouter(): express.Router {
         }
       }
 
-      if (thinkingLevel && typeof thinkingLevel === "string") {
+      if (thinkingLevel !== undefined) {
+        if (typeof thinkingLevel !== "string") {
+          return res.status(400).json({ error: "thinkingLevel must be a string" });
+        }
+        const availableThinkingLevels = runtime.session.getAvailableThinkingLevels();
+        if (!availableThinkingLevels.includes(thinkingLevel)) {
+          return res.status(400).json({
+            error: `Thinking level ${thinkingLevel} is not supported by ${runtime.session.model?.id || "the selected model"}`,
+            availableThinkingLevels,
+          });
+        }
         runtime.session.setThinkingLevel(thinkingLevel);
       }
 

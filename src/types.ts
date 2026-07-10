@@ -77,9 +77,11 @@ export interface ModelOption {
   label: string;
   provider?: string;
   searchText?: string;
+  reasoning?: boolean;
+  thinkingLevels?: ThinkingLevel[];
 }
 
-export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 export interface ThinkingLevelOption {
   value: ThinkingLevel;
@@ -93,6 +95,7 @@ export const THINKING_LEVELS: ThinkingLevelOption[] = [
   { value: 'medium', label: 'Medium' },
   { value: 'high', label: 'High' },
   { value: 'xhigh', label: 'XHigh' },
+  { value: 'max', label: 'Max' },
 ];
 
 // Context-window snapshot computed server-side (see getContextInfo in

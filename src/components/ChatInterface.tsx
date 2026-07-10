@@ -138,11 +138,17 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
         const mapped = data.models.map((m: any) => {
           const value = m.value || `${m.provider}/${m.id}`;
           const provider = m.provider || String(value).split('/')[0] || 'Other';
+          const thinkingLevels = Array.isArray(m.thinkingLevels)
+            ? m.thinkingLevels.filter((level: unknown): level is ThinkingLevel =>
+                typeof level === 'string' && THINKING_LEVELS.some((option) => option.value === level))
+            : undefined;
           return {
             value,
             label: m.id,
             provider,
             searchText: `${provider} ${m.id} ${value}`,
+            reasoning: !!m.reasoning,
+            thinkingLevels,
           };
         });
         setModels(mapped);
@@ -174,6 +180,33 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     setSelectedThinkingLevel(level);
     try { localStorage.setItem('sylph.thinkingLevel', level); } catch {}
   };
+
+  const availableThinkingLevels = createMemo<ThinkingLevel[]>(() => {
+    const model = models().find((option) => option.value === selectedModel());
+    return model?.thinkingLevels?.length
+      ? model.thinkingLevels
+      : THINKING_LEVELS.map((option) => option.value);
+  });
+
+  const thinkingLevelOptions = createMemo(() => {
+    const available = new Set(availableThinkingLevels());
+    return THINKING_LEVELS.filter((option) => available.has(option.value));
+  });
+
+  // A saved level may not exist on the newly selected model (for example,
+  // Opus 4.6 has max but not xhigh). Match Pi's clamp order: prefer the next
+  // stronger supported level, then fall back toward weaker levels.
+  createEffect(() => {
+    const available = availableThinkingLevels();
+    const selected = selectedThinkingLevel();
+    if (available.includes(selected)) return;
+
+    const ordered = THINKING_LEVELS.map((option) => option.value);
+    const requestedIndex = ordered.indexOf(selected);
+    const stronger = ordered.slice(requestedIndex + 1).find((level) => available.includes(level));
+    const weaker = ordered.slice(0, requestedIndex).reverse().find((level) => available.includes(level));
+    selectThinkingLevel(stronger ?? weaker ?? available[0] ?? 'off');
+  });
 
   let messagesAreaRef: HTMLDivElement | undefined;
   let messagesEndRef: HTMLDivElement | undefined;
