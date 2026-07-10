@@ -133,10 +133,19 @@ export default function Composer(props: {
   const thinkingSliderPosition = (index = displayedThinkingIndex()) =>
     `${thinkingSliderProgress(index)}%`;
 
-  const commitThinkingSlider = (rawIndex: number) => {
+  const nearestThinkingIndex = (rawIndex: number) => {
     const lastIndex = Math.max(props.thinkingLevels.length - 1, 0);
-    const index = Math.max(0, Math.min(lastIndex, Math.round(rawIndex)));
-    selectThinkingIndex(index);
+    return Math.max(0, Math.min(lastIndex, Math.round(rawIndex)));
+  };
+
+  const updateThinkingSlider = (rawIndex: number) => {
+    setDraggedThinkingIndex(rawIndex);
+    const index = nearestThinkingIndex(rawIndex);
+    if (index !== selectedThinkingIndex()) selectThinkingIndex(index);
+  };
+
+  const commitThinkingSlider = (rawIndex: number) => {
+    selectThinkingIndex(nearestThinkingIndex(rawIndex));
     setDraggedThinkingIndex(null);
   };
 
@@ -747,7 +756,7 @@ export default function Composer(props: {
                     aria-label="Thinking level"
                     aria-valuetext={selectedThinkingLabel()}
                     disabled={props.thinkingLevels.length < 2}
-                    onInput={(e) => setDraggedThinkingIndex(Number(e.currentTarget.value))}
+                    onInput={(e) => updateThinkingSlider(Number(e.currentTarget.value))}
                     onChange={(e) => commitThinkingSlider(Number(e.currentTarget.value))}
                     onKeyDown={(e) => {
                       const lastIndex = Math.max(props.thinkingLevels.length - 1, 0);
