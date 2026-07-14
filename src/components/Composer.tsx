@@ -6,6 +6,13 @@ import ContextIndicator from './ContextIndicator';
 import { escapeHtml } from '../lib/html';
 import { fuzzyScore } from '../lib/fuzzyScore';
 import { createMentionSearch, type ActiveMention } from '../lib/mentionSearch';
+import {
+  getSpeechRecognitionConstructor,
+  mergeSpeechTranscript,
+  readSpeechTranscript,
+  speechRecognitionErrorMessage,
+  type SpeechRecognitionLike,
+} from '../lib/speechRecognition';
 import './Composer.css';
 
 // Built-in slash commands handled locally by the composer (they run a UI
@@ -75,6 +82,9 @@ export default function Composer(props: {
   const [input, setInput] = createSignal(props.draftText);
   const [attachments, setAttachments] = createSignal<Attachment[]>([]);
   const [isDragOver, setIsDragOver] = createSignal(false);
+  const [isListening, setIsListening] = createSignal(false);
+  const [isStartingVoice, setIsStartingVoice] = createSignal(false);
+  const [voiceError, setVoiceError] = createSignal<string | null>(null);
   const [selectedIndex, setSelectedIndex] = createSignal(0);
   const [caretPos, setCaretPos] = createSignal<number | null>(null);
   const [activeMention, setActiveMention] = createSignal<ActiveMention | null>(null);
@@ -94,6 +104,7 @@ export default function Composer(props: {
   let thinkingSliderRef: HTMLDivElement | undefined;
   let thinkingSliderInputRef: HTMLInputElement | undefined;
   let modelSelectApi: CustomSelectApi | undefined;
+  let speechRecognition: SpeechRecognitionLike | undefined;
   let dragCounter = 0;
   let skipNextMentionSync = false;
 
@@ -102,9 +113,25 @@ export default function Composer(props: {
     props.onDraftChange(text);
   };
 
+  const cancelVoiceInput = () => {
+    const active = speechRecognition;
+    speechRecognition = undefined;
+    if (active) {
+      active.onstart = null;
+      active.onresult = null;
+      active.onerror = null;
+      active.onend = null;
+      try { active.abort(); } catch { /* Already stopped. */ }
+    }
+    setIsListening(false);
+    setIsStartingVoice(false);
+  };
+
   createEffect(on(
     () => props.draftKey,
     () => {
+      cancelVoiceInput();
+      setVoiceError(null);
       const text = props.draftText;
       setInput(text);
       setAttachments([]);
@@ -191,6 +218,7 @@ export default function Composer(props: {
   onCleanup(() => {
     document.removeEventListener('mousedown', handleThinkingSliderOutside);
     document.removeEventListener('keydown', handleThinkingSliderKeyDown);
+    cancelVoiceInput();
   });
 
   createEffect(() => {
@@ -437,8 +465,81 @@ export default function Composer(props: {
     });
   };
 
+  const voiceInputSupported = () => typeof window !== 'undefined' && !!getSpeechRecognitionConstructor(window);
+
+  const startVoiceInput = () => {
+    const Recognition = typeof window !== 'undefined'
+      ? getSpeechRecognitionConstructor(window)
+      : undefined;
+    if (!Recognition) {
+      setVoiceError('Voice input is not supported in this browser');
+      return;
+    }
+
+    cancelVoiceInput();
+    setVoiceError(null);
+    const baseInput = input();
+    const recognition = new Recognition();
+    speechRecognition = recognition;
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = navigator.language || 'en-US';
+    recognition.onstart = () => {
+      if (speechRecognition !== recognition) return;
+      setIsStartingVoice(false);
+      setIsListening(true);
+    };
+    recognition.onresult = (event) => {
+      if (speechRecognition !== recognition) return;
+      const text = mergeSpeechTranscript(baseInput, readSpeechTranscript(event.results));
+      updateInput(text);
+      if (textareaRef) {
+        textareaRef.value = text;
+        textareaRef.setSelectionRange(text.length, text.length);
+      }
+    };
+    recognition.onerror = (event) => {
+      if (speechRecognition !== recognition) return;
+      const message = speechRecognitionErrorMessage(event.error);
+      if (message) setVoiceError(message);
+    };
+    recognition.onend = () => {
+      if (speechRecognition !== recognition) return;
+      speechRecognition = undefined;
+      setIsStartingVoice(false);
+      setIsListening(false);
+      requestAnimationFrame(() => textareaRef?.focus());
+    };
+
+    setIsStartingVoice(true);
+    try {
+      recognition.start();
+    } catch {
+      speechRecognition = undefined;
+      setIsStartingVoice(false);
+      setVoiceError('Could not start voice input');
+    }
+  };
+
+  const stopVoiceInput = () => {
+    const active = speechRecognition;
+    if (!active) return;
+    setIsStartingVoice(false);
+    try {
+      active.stop();
+    } catch {
+      cancelVoiceInput();
+    }
+  };
+
+  const toggleVoiceInput = () => {
+    if (isListening() || isStartingVoice()) stopVoiceInput();
+    else startVoiceInput();
+  };
+
   const handleSubmit = (e?: Event) => {
     e?.preventDefault();
+    if (isListening() || isStartingVoice()) cancelVoiceInput();
     // Intercept a bare built-in command (e.g. "/model") so it runs its action
     // instead of being sent to the agent.
     const builtin = builtinCommands.find(c => `/${c.name}` === input().trim());
@@ -654,6 +755,9 @@ export default function Composer(props: {
           disabled={!props.isConnected || props.disabled}
         />
       </div>
+      <Show when={voiceError()}>
+        <div class="voice-input-status error" role="alert">{voiceError()}</div>
+      </Show>
       <div class="input-toolbar">
         <div class="input-toolbar-left">
           <input
@@ -789,27 +893,43 @@ export default function Composer(props: {
           </button>
         </Show>
         <Show when={!props.isProcessing}>
-          <button
-            class="send-button"
-            onClick={() => handleSubmit()}
-            disabled={props.disabled || isEmpty() || !props.isConnected}
-            title={props.disabled ? "Respond to the request first" : "Send message"}
-            style={isEmpty() ? "background: transparent; box-shadow: none; color: var(--text-secondary);" : ""}
-          >
-            <Show when={isEmpty()}>
+          <Show when={isEmpty() || isListening() || isStartingVoice()} fallback={
+            <button
+              class="send-button"
+              onClick={() => handleSubmit()}
+              disabled={props.disabled || !props.isConnected}
+              title={props.disabled ? "Respond to the request first" : "Send message"}
+              aria-label="Send message"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+                <polyline points="12 5 19 12 12 19"></polyline>
+              </svg>
+            </button>
+          }>
+            <button
+              class={`send-button microphone-button ${isListening() || isStartingVoice() ? 'listening' : ''}`}
+              type="button"
+              onClick={toggleVoiceInput}
+              disabled={props.disabled || !props.isConnected || !voiceInputSupported()}
+              title={!voiceInputSupported()
+                ? "Voice input is not supported in this browser"
+                : isListening() || isStartingVoice()
+                  ? "Stop voice input"
+                  : "Start voice input"}
+              aria-label={isListening() || isStartingVoice() ? "Stop voice input" : "Start voice input"}
+              aria-pressed={isListening() || isStartingVoice()}
+            >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
                 <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
                 <line x1="12" y1="19" x2="12" y2="22"></line>
               </svg>
-            </Show>
-            <Show when={!isEmpty()}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="5" y1="12" x2="19" y2="12"></line>
-                <polyline points="12 5 19 12 12 19"></polyline>
-              </svg>
-            </Show>
-          </button>
+              <Show when={isListening() || isStartingVoice()}>
+                <span class="microphone-pulse" aria-hidden="true" />
+              </Show>
+            </button>
+          </Show>
         </Show>
         </div>
       </div>
