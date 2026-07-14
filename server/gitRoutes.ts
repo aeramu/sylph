@@ -1,5 +1,5 @@
 import express from "express";
-import { applyToIndex, commit, getGitDivergence, getGitLog, getGitStatus, pull, push, stageAll, stageFile, unstageAll, unstageFile } from "./git.ts";
+import { applyToIndex, commit, fetchRemote, getGitDivergence, getGitLog, getGitStatus, pull, push, stageAll, stageFile, unstageAll, unstageFile } from "./git.ts";
 import { getProjectById } from "./projects.ts";
 
 function handleError(res: express.Response, error: unknown) {
@@ -46,7 +46,7 @@ export function createGitRouter(): express.Router {
     }
   });
 
-  for (const [route, action] of [["pull", pull], ["push", push], ["stage-all", stageAll], ["unstage-all", unstageAll]] as const) {
+  for (const [route, action] of [["fetch", fetchRemote], ["pull", pull], ["push", push], ["stage-all", stageAll], ["unstage-all", unstageAll]] as const) {
     router.post(`/api/projects/:id/git/${route}`, async (_req, res) => {
       try {
         await action(res.locals.project);

@@ -24,7 +24,7 @@ export default function GitTab(props: { projectId?: string; refreshTrigger?: num
   const unstagedFiles = createMemo(() => files().filter((file) => file.workingTree !== ' '));
   let refreshGeneration = 0;
 
-  const refresh = async (projectId = props.projectId) => {
+  const refresh = async (projectId = props.projectId, fetchRemote = false) => {
     const generation = ++refreshGeneration;
     if (!projectId) {
       setFiles([]);
@@ -36,6 +36,16 @@ export default function GitTab(props: { projectId?: string; refreshTrigger?: num
     setLoading(true);
     setError('');
     try {
+      if (fetchRemote) {
+        const fetchRes = await fetch(`/api/projects/${encodeURIComponent(projectId)}/git/fetch`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+        });
+        const fetchData = await fetchRes.json();
+        if (!fetchRes.ok) throw new Error(fetchData.error || 'Failed to fetch remote Git state');
+        if (generation !== refreshGeneration || props.projectId !== projectId) return false;
+      }
       const [statusRes, logRes, divergenceRes] = await Promise.all([
         fetch(`/api/projects/${encodeURIComponent(projectId)}/git/status`),
         fetch(`/api/projects/${encodeURIComponent(projectId)}/git/log?limit=30`),
@@ -132,7 +142,7 @@ export default function GitTab(props: { projectId?: string; refreshTrigger?: num
   return (
     <div class="git-tab">
       <Show when={props.projectId} fallback={<div class="git-empty">Select a project to use git.</div>}>
-        <GitToolbar fileCount={files().length} loading={loading()} busy={busy()} onRefresh={() => void refresh()} />
+        <GitToolbar fileCount={files().length} loading={loading()} busy={busy()} onRefresh={() => void refresh(props.projectId, true)} />
         <Show when={error()}><div class="git-error">{error()}</div></Show>
         <GitBranchSection
           repository={repository()}

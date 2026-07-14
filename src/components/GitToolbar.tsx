@@ -32,8 +32,8 @@ export default function GitToolbar(props: { fileCount: number; loading: boolean;
           class={`git-toolbar-icon git-refresh-button ${props.loading ? 'loading' : ''}`}
           disabled={props.loading || props.busy}
           onClick={props.onRefresh}
-          title="Refresh Git status"
-          aria-label="Refresh Git status"
+          title="Fetch remote and refresh Git status"
+          aria-label="Fetch remote and refresh Git status"
         >
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5"></path>

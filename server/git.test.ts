@@ -3,7 +3,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { spawnSync } from "child_process";
-import { applyToIndex, commit, getGitDivergence, getGitLog, getGitStatus, pull, push, stageAll, stageFile, unstageAll, unstageFile } from "./git.ts";
+import { applyToIndex, commit, fetchRemote, getGitDivergence, getGitLog, getGitStatus, pull, push, stageAll, stageFile, unstageAll, unstageFile } from "./git.ts";
 import type { Project } from "./projects.ts";
 
 const directories: string[] = [];
@@ -35,6 +35,11 @@ function write(root: string, filePath: string, content: string | Buffer) {
 }
 
 describe("Git tab backend", () => {
+  it("treats fetching without a configured upstream as a no-op", async () => {
+    const { project } = repository();
+    await expect(fetchRemote(project)).resolves.toBeUndefined();
+  });
+
   it("restricts a nested project to its own paths and stages them correctly", async () => {
     const { root } = repository();
     write(root, "root.txt", "root\n");
@@ -161,7 +166,8 @@ describe("Git tab backend", () => {
     git(clone, "add", ".");
     git(clone, "commit", "-qm", "remote commit");
     git(clone, "push", "-q");
-    git(root, "fetch", "-q");
+    expect((await getGitStatus(project)).repository.behind).toBe(0);
+    await fetchRemote(project);
     expect((await getGitStatus(project)).repository.behind).toBe(1);
     expect((await getGitDivergence(project)).unpulled.map((entry) => entry.subject)).toEqual(["remote commit"]);
     await pull(project);

@@ -259,6 +259,14 @@ export async function getGitDivergence(project: Project, limit = 30) {
   return { upstream: repository.upstream, unpushed, unpulled };
 }
 
+export async function fetchRemote(project: Project) {
+  const context = await getContext(project);
+  const upstream = await runGit(context.root, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"])
+    .then((value) => value.trim(), () => null);
+  if (!upstream) return;
+  await runGit(context.root, ["fetch"]);
+}
+
 export async function pull(project: Project) {
   const context = await getContext(project);
   await runGit(context.root, ["pull", "--ff-only"]);
