@@ -16,6 +16,7 @@ import { readModelsJson, writeModelsJson } from "./modelsConfig.ts";
 import { startOAuthLogin, getSerializedOAuthFlow, respondToOAuthFlow, cancelOAuthFlow } from "./oauthFlows.ts";
 import { createGitRouter } from "./gitRoutes.ts";
 import { findAvailableModel, isSameModel } from "./modelSelection.ts";
+import { getAgentBrowserDashboardStatus, startAgentBrowserDashboard } from "./agentBrowserDashboard.ts";
 
 function handleError(res: express.Response, err: any) {
   console.error(err);
@@ -85,6 +86,14 @@ function introspectionRoute(handler: (session: any) => unknown): express.Request
 
 export function createRouter(): express.Router {
   const router = express.Router();
+
+  router.get("/api/agent-browser/dashboard", async (_req, res) => {
+    res.json(await getAgentBrowserDashboardStatus());
+  });
+
+  router.post("/api/agent-browser/dashboard/start", async (_req, res) => {
+    res.json(await startAgentBrowserDashboard());
+  });
 
   router.get("/api/models", async (_req, res) => {
     try {

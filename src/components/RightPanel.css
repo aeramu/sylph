@@ -126,6 +126,13 @@ body.resizing-right-panel .right-panel {
   scrollbar-gutter: stable;
 }
 
+/* BrowserTab's iframe needs the complete panel viewport rather than a
+   content-sized scrolling ancestor. */
+.right-panel-body:has(.browser-tab) {
+  overflow: hidden;
+  scrollbar-gutter: auto;
+}
+
 .server-status-panel {
   padding: 1rem;
 }

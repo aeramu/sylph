@@ -6,10 +6,11 @@ A local web UI for the [pi coding agent](https://www.npmjs.com/package/@earendil
 
 - `server.ts` — Express backend (port 3001, localhost only). Wraps `@earendil-works/pi-coding-agent`: manages projects (`~/.sylph/projects.json`), creates/resumes agent sessions, and broadcasts agent events to the browser over SSE (`/api/stream`).
 - `src/` — SolidJS frontend (Vite, port 5173). `/api/*` requests are proxied to the backend (see `vite.config.ts`).
+- The backend automatically starts the bundled agent-browser observability dashboard on port 4848. Its live dashboard is available from the Browser tab in the right panel.
 
 ## Setup
 
-Requires Node 20+ and a configured pi agent (auth/models in the agent dir, e.g. `~/.pi`).
+Requires Node 24+ and a configured pi agent (auth/models in the agent dir, e.g. `~/.pi`).
 
 ```bash
 npm install

@@ -4,6 +4,7 @@ import { fileURLToPath } from "url";
 import { HOST, PORT } from "./config.ts";
 import { createRouter } from "./routes.ts";
 import { startEvictionTimer } from "./runtimes.ts";
+import { startAgentBrowserDashboard } from "./agentBrowserDashboard.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -27,6 +28,11 @@ app.get(/.*/, (_req, res) => {
 });
 
 startEvictionTimer();
+void startAgentBrowserDashboard().then((status) => {
+  if (!status.available) {
+    console.warn(`[agent-browser] Dashboard unavailable: ${status.error}`);
+  }
+});
 
 app.listen(PORT, HOST, () => {
   console.log(`Backend server listening on http://${HOST}:${PORT}`);

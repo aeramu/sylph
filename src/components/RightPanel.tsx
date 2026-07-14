@@ -1,7 +1,7 @@
 import { For, type JSX } from 'solid-js';
 import './RightPanel.css';
 
-export type PanelTabId = 'server' | 'changes' | 'git';
+export type PanelTabId = 'server' | 'browser' | 'changes' | 'git';
 
 export interface PanelTab {
   id: PanelTabId;
@@ -16,6 +16,17 @@ function PanelTabIcon(props: { id: PanelTabId }) {
         <rect x="3" y="13" width="18" height="7"></rect>
         <line x1="7" y1="7.5" x2="7.01" y2="7.5"></line>
         <line x1="7" y1="16.5" x2="7.01" y2="16.5"></line>
+      </svg>
+    );
+  }
+
+  if (props.id === 'browser') {
+    return (
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="3" y="4" width="18" height="16" rx="2"></rect>
+        <line x1="3" y1="9" x2="21" y2="9"></line>
+        <circle cx="6.5" cy="6.5" r="0.5" fill="currentColor" stroke="none"></circle>
+        <circle cx="9" cy="6.5" r="0.5" fill="currentColor" stroke="none"></circle>
       </svg>
     );
   }

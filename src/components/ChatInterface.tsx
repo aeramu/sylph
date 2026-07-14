@@ -19,6 +19,7 @@ import { startPointerResize } from '../lib/resize';
 import { SessionEventBuffer } from '../lib/sessionEventBuffer';
 import { createModelPreferences } from '../lib/modelPreferences';
 
+const BrowserTab = lazy(() => import('./BrowserTab'));
 const ChangesTab = lazy(() => import('./ChangesTab'));
 const GitTab = lazy(() => import('./GitTab'));
 
@@ -653,6 +654,19 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
               </button>
               <button
                 class="chat-header-panel-tab"
+                onClick={() => openPanelTab('browser')}
+                title="Open agent browser"
+                aria-label="Open agent browser"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <rect x="3" y="4" width="18" height="16" rx="2"></rect>
+                  <line x1="3" y1="9" x2="21" y2="9"></line>
+                  <circle cx="6.5" cy="6.5" r="0.5" fill="currentColor" stroke="none"></circle>
+                  <circle cx="9" cy="6.5" r="0.5" fill="currentColor" stroke="none"></circle>
+                </svg>
+              </button>
+              <button
+                class="chat-header-panel-tab"
                 onClick={() => openPanelTab('changes')}
                 title="Open changes"
                 aria-label="Open changes"
@@ -835,11 +849,16 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     </Show>
     <RightPanel
       class={panelOpen() ? 'panel-open' : ''}
-      tabs={[{ id: 'server', label: 'Server' }, { id: 'changes', label: 'Changes' }, { id: 'git', label: 'Git' }]}
+      tabs={[{ id: 'server', label: 'Server' }, { id: 'browser', label: 'Browser' }, { id: 'changes', label: 'Changes' }, { id: 'git', label: 'Git' }]}
       activeTab={panelTab()}
       onSelectTab={setPanelTab}
       onClose={closePanel}
     >
+      <Show when={panelOpen() && panelTab() === 'browser'}>
+        <Suspense>
+          <BrowserTab />
+        </Suspense>
+      </Show>
       <Show when={panelOpen() && panelTab() === 'changes'}>
         <Suspense>
           <ChangesTab
