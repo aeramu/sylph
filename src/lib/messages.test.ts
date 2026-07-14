@@ -36,20 +36,20 @@ describe('mapHistoryToMessages', () => {
       {
         id: 'a1',
         role: 'assistant',
-        content: [{ type: 'toolCall', id: 'c1', name: 'send_image', arguments: { path: '/tmp/page.png' } }],
+        content: [{ type: 'toolCall', id: 'c1', name: 'read', arguments: { path: '/tmp/page.png' } }],
       },
       {
         id: 'r1',
         role: 'toolResult',
         toolCallId: 'c1',
         content: [
-          { type: 'text', text: 'Sent image: page.png' },
+          { type: 'text', text: 'Read image file [image/png]' },
           { type: 'image', data: 'aGVsbG8=', mimeType: 'image/png' },
         ],
       },
     ]);
 
     expect(message.images).toEqual([{ url: 'data:image/png;base64,aGVsbG8=', mimeType: 'image/png' }]);
-    expect(message.tools?.[0]).toMatchObject({ status: 'success', output: 'Sent image: page.png' });
+    expect(message.tools?.[0]).toMatchObject({ status: 'success', output: 'Read image file [image/png]' });
   });
 });
