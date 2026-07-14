@@ -30,6 +30,7 @@ const activeRuntimes = new Map<string, RuntimeEntry>();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const askUserQuestionExtensionPath = path.join(__dirname, "askUserQuestion.ts");
+const sendImageExtensionPath = path.join(__dirname, "sendImage.ts");
 
 async function buildRuntime(sessionManager: any, cwd: string, opts?: { uiContext?: any }) {
   const factory: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
@@ -41,7 +42,9 @@ async function buildRuntime(sessionManager: any, cwd: string, opts?: { uiContext
       // every runtime (replaces the TUI-only @juicesharp version). Use a real
       // extension path instead of an inline factory so /api/resources can show
       // the filename rather than pi's synthetic <inline:1> id.
-      resourceLoaderOptions: { additionalExtensionPaths: [askUserQuestionExtensionPath] },
+      resourceLoaderOptions: {
+        additionalExtensionPaths: [askUserQuestionExtensionPath, sendImageExtensionPath],
+      },
     });
 
     return {

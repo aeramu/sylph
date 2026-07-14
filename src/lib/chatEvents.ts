@@ -53,11 +53,15 @@ export function applyAgentEvent(
     } else if (event.message.role === 'toolResult') {
       const toolCallId = event.message.toolCallId;
       let initialOutput = '';
+      let resultImages: { url: string; mimeType: string }[] = [];
 
       if (typeof event.message.content === 'string') {
         initialOutput = event.message.content;
       } else if (Array.isArray(event.message.content)) {
         initialOutput = event.message.content.filter((c: any) => c.type === 'text').map((c: any) => c.text || '').join('');
+        resultImages = event.message.content
+          .filter((c: any) => c.type === 'image' && c.data && c.mimeType)
+          .map((c: any) => ({ url: `data:${c.mimeType};base64,${c.data}`, mimeType: c.mimeType }));
       }
 
       setMessages(
@@ -71,6 +75,12 @@ export function applyAgentEvent(
           output: initialOutput || tool.output
         })
       );
+      if (resultImages.length) {
+        setMessages(
+          m => m.role === 'assistant' && !!m.tools?.some(t => t.id === toolCallId),
+          message => ({ ...message, images: [...(message.images ?? []), ...resultImages] }),
+        );
+      }
     }
   } else if (event.type === 'message_update' && event.assistantMessageEvent?.type === 'thinking_start') {
     // Thinking only streams on the active assistant message (never tool results).

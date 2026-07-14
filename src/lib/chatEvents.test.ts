@@ -85,6 +85,28 @@ describe('applyAgentEvent', () => {
     expect(t).toMatchObject({ id: 'c1', name: 'bash', status: 'success', output: 'file.txt' });
   });
 
+  it('promotes image content from a live tool result onto the assistant bubble', () => {
+    const { messages } = run([
+      assistantStart('m1'),
+      { type: 'tool_execution_start', toolCallId: 'c1', toolName: 'send_image', args: { path: '/tmp/page.png' } },
+      {
+        type: 'message_start',
+        message: {
+          id: 'r1',
+          role: 'toolResult',
+          toolCallId: 'c1',
+          content: [
+            { type: 'text', text: 'Sent image: page.png' },
+            { type: 'image', data: 'aGVsbG8=', mimeType: 'image/png' },
+          ],
+        },
+      },
+    ]);
+
+    expect(messages[0].images).toEqual([{ url: 'data:image/png;base64,aGVsbG8=', mimeType: 'image/png' }]);
+    expect(messages[0].tools?.[0]).toMatchObject({ status: 'success', output: 'Sent image: page.png' });
+  });
+
   it('notifies after successful edit/write tools only', () => {
     const successful = run([
       assistantStart('m1'),

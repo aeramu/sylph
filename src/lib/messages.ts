@@ -94,6 +94,12 @@ export function mapHistoryToMessages(rawMessages: any[]): ChatMessage[] {
           resultStr = m.content;
         } else if (Array.isArray(m.content)) {
           resultStr = m.content.filter((c: any) => c.type === 'text').map((c: any) => c.text || '').join('');
+          const resultImages = m.content
+            .filter((c: any) => c.type === 'image' && c.data && c.mimeType)
+            .map((c: any) => ({ url: `data:${c.mimeType};base64,${c.data}`, mimeType: c.mimeType }));
+          if (resultImages.length) {
+            currentAssistantMessage.images = [...(currentAssistantMessage.images ?? []), ...resultImages];
+          }
         }
         tool.output = resultStr;
         tool.status = m.isError ? 'error' : 'success';
