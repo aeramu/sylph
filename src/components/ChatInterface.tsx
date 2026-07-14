@@ -18,6 +18,7 @@ import DiffStats from './DiffStats';
 import { startPointerResize } from '../lib/resize';
 import { SessionEventBuffer } from '../lib/sessionEventBuffer';
 import { createModelPreferences } from '../lib/modelPreferences';
+import { getRightPanelState, setRightPanelState } from '../lib/rightPanelState';
 
 const BrowserTab = lazy(() => import('./BrowserTab'));
 const ChangesTab = lazy(() => import('./ChangesTab'));
@@ -75,23 +76,37 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   // per turn and for the whole session. Recomputes as tool calls stream in.
   const diffs = createMemo(() => computeSessionDiffs(messages));
 
+  const savePanelState = (open: boolean, tab = panelTab()) => {
+    if (props.activeSessionId) setRightPanelState(props.activeSessionId, { open, tab });
+  };
+
   const closePanel = () => {
     setPanelOpen(false);
+    savePanelState(false);
   };
 
   const openChangesPanel = (turn?: number) => {
     setDiffTurn(turn ?? null);
     setPanelTab('changes');
     setPanelOpen(true);
+    savePanelState(true, 'changes');
   };
 
   const togglePanel = () => {
-    setPanelOpen(open => !open);
+    const open = !panelOpen();
+    setPanelOpen(open);
+    savePanelState(open);
+  };
+
+  const selectPanelTab = (tab: PanelTabId) => {
+    setPanelTab(tab);
+    savePanelState(panelOpen(), tab);
   };
 
   const openPanelTab = (tab: PanelTabId) => {
     setPanelTab(tab);
     setPanelOpen(true);
+    savePanelState(true, tab);
   };
 
   const startPanelResize = (event: PointerEvent) => {
@@ -235,7 +250,9 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     setContextInfo(null);
     setUiRequest(null);
     setQuestionsRequest(null);
-    setPanelOpen(false);
+    const savedPanel = getRightPanelState(id);
+    setPanelOpen(savedPanel.open);
+    setPanelTab(savedPanel.tab);
     setDiffTurn(null);
     setWidgets({});
     setStatusEntries(produce((s) => { for (const k of Object.keys(s)) delete s[k]; }));
@@ -851,7 +868,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       class={panelOpen() ? 'panel-open' : ''}
       tabs={[{ id: 'server', label: 'Server' }, { id: 'browser', label: 'Browser' }, { id: 'changes', label: 'Changes' }, { id: 'git', label: 'Git' }]}
       activeTab={panelTab()}
-      onSelectTab={setPanelTab}
+      onSelectTab={selectPanelTab}
       onClose={closePanel}
     >
       <Show when={panelOpen() && panelTab() === 'browser'}>
