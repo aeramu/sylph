@@ -50,6 +50,20 @@ describe('applyAgentEvent', () => {
     expect(messages[0].content).toBe('Hello');
   });
 
+  it('normalizes inline thinking while text streams', () => {
+    const { messages } = run([
+      assistantStart('m1'),
+      textDelta('<think>Rea'),
+      textDelta('son</think>Answer'),
+    ]);
+    expect(messages[0]).toMatchObject({
+      rawContent: '<think>Reason</think>Answer',
+      content: 'Answer',
+      thinking: 'Reason',
+      isThinking: false,
+    });
+  });
+
   it('routes deltas to the streaming message even when a later bubble was appended', () => {
     // A steering user message can land behind the still-streaming assistant.
     const { messages } = run([

@@ -14,15 +14,94 @@ export function stripAnsi(text: string): string {
   return text.replace(ANSI_ESCAPE, '');
 }
 
+export interface ExtractedThinking {
+  content: string;
+  thinking: string;
+  /** True when the stream has opened a thinking block but not closed it yet. */
+  isThinking: boolean;
+}
+
+// Some providers expose reasoning as ordinary text wrapped in <think> or
+// <thinking> instead of emitting structured thinking events. Split those
+// blocks out so callers can render them with the same UI as structured
+// reasoning. A tiny scanner is used rather than a single regex so an unclosed
+// block can still be displayed while its contents stream in.
+function fencedCodeRanges(text: string): Array<[number, number]> {
+  const ranges: Array<[number, number]> = [];
+  const lines = text.match(/.*(?:\n|$)/g) ?? [];
+  let offset = 0;
+  let fenceStart: number | undefined;
+  let fenceCharacter = '';
+  let fenceLength = 0;
+
+  for (const line of lines) {
+    const marker = line.match(/^ {0,3}(`{3,}|~{3,})/i)?.[1];
+    if (marker && fenceStart === undefined) {
+      fenceStart = offset;
+      fenceCharacter = marker[0];
+      fenceLength = marker.length;
+    } else if (marker && fenceStart !== undefined && marker[0] === fenceCharacter && marker.length >= fenceLength) {
+      ranges.push([fenceStart, offset + line.length]);
+      fenceStart = undefined;
+    }
+    offset += line.length;
+  }
+
+  if (fenceStart !== undefined) ranges.push([fenceStart, text.length]);
+  return ranges;
+}
+
+export function extractThinkingBlocks(text: string): ExtractedThinking {
+  const tagPattern = /<\/?(?:think|thinking)>/gi;
+  const codeRanges = fencedCodeRanges(text);
+  const contentParts: string[] = [];
+  const thinkingBlocks: string[] = [];
+  let thinkingPart = '';
+  let segmentStart = 0;
+  let insideThinking = false;
+  let match: RegExpExecArray | null;
+
+  while ((match = tagPattern.exec(text)) !== null) {
+    if (codeRanges.some(([start, end]) => match!.index >= start && match!.index < end)) continue;
+    const segment = text.slice(segmentStart, match.index);
+    if (insideThinking) thinkingPart += segment;
+    else contentParts.push(segment);
+
+    const closing = match[0].startsWith('</');
+    if (closing) {
+      if (insideThinking) {
+        thinkingBlocks.push(thinkingPart);
+        thinkingPart = '';
+        insideThinking = false;
+      }
+      // Stray closing tags are omitted from visible answer text too.
+    } else if (insideThinking) {
+      // Nested thinking tags are redundant; keep collecting into this block.
+    } else {
+      insideThinking = true;
+      thinkingPart = '';
+    }
+    segmentStart = tagPattern.lastIndex;
+  }
+
+  const tail = text.slice(segmentStart);
+  if (insideThinking) {
+    thinkingPart += tail;
+    thinkingBlocks.push(thinkingPart);
+  } else {
+    contentParts.push(tail);
+  }
+
+  return {
+    content: contentParts.join('').trimStart(),
+    thinking: thinkingBlocks.join('\n\n'),
+    isThinking: insideThinking,
+  };
+}
+
+// Kept as a convenience for non-chat callers that only need the answer.
 export function stripThinkingBlocks(text: string): string {
-  return text
-    // Remove complete <think>...</think> / <thinking>...</thinking> blocks.
-    .replace(/<(?:think|thinking)>[\s\S]*?<\/(?:think|thinking)>/gi, '')
-    // During malformed/partial streams, remove an opening tag through EOF.
-    .replace(/<(?:think|thinking)>[\s\S]*$/gi, '')
-    // Remove stray tags without deleting surrounding answer text.
-    .replace(/<\/?(?:think|thinking)>/gi, '')
-    .trimStart();
+  return extractThinkingBlocks(text).content;
 }
 
 export function renderMarkdown(content: string, options: { processThinkingTags?: boolean } = {}): string {

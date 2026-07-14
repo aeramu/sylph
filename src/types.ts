@@ -11,6 +11,9 @@ export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'notification';
   content: string;
+  rawContent?: string;
+  structuredThinking?: string;
+  structuredThinkingActive?: boolean;
   // For role 'notification': controls styling ('info' | 'warning' | 'error').
   notifyType?: string;
   thinking?: string;

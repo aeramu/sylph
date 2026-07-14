@@ -1,7 +1,36 @@
 import { describe, expect, it } from 'vitest';
 import { mapHistoryToMessages } from './messages';
 
-describe('mapHistoryToMessages tool-result images', () => {
+describe('mapHistoryToMessages', () => {
+  it('normalizes inline thinking into the canonical thinking fields', () => {
+    const [message] = mapHistoryToMessages([{
+      id: 'a1',
+      role: 'assistant',
+      content: '<think>Reasoning</think>Answer',
+    }]);
+
+    expect(message).toMatchObject({
+      content: 'Answer',
+      rawContent: '<think>Reasoning</think>Answer',
+      thinking: 'Reasoning',
+      isThinking: false,
+    });
+  });
+
+  it('prefers structured thinking when both forms are present', () => {
+    const [message] = mapHistoryToMessages([{
+      id: 'a1',
+      role: 'assistant',
+      content: [
+        { type: 'thinking', thinking: 'Structured' },
+        { type: 'text', text: '<think>Inline duplicate</think>Answer' },
+      ],
+    }]);
+
+    expect(message.content).toBe('Answer');
+    expect(message.thinking).toBe('Structured');
+  });
+
   it('promotes tool-result images onto the owning assistant message', () => {
     const [message] = mapHistoryToMessages([
       {

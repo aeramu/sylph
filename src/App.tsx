@@ -1,10 +1,11 @@
-import { createSignal, Show } from 'solid-js';
+import { createSignal, lazy, Show, Suspense } from 'solid-js';
 import type { DraftSession } from './types';
 import ChatInterface from './components/ChatInterface';
 import SessionSidebar from './components/SessionSidebar';
-import SettingsModal from './components/SettingsModal';
 import { startPointerResize } from './lib/resize';
 import './App.css';
+
+const SettingsModal = lazy(() => import('./components/SettingsModal'));
 
 function App() {
   const [activeSessionId, setActiveSessionId] = createSignal<string | undefined>(undefined);
@@ -86,7 +87,9 @@ function App() {
         aria-label="Resize sidebar"
       />
       <Show when={showSettings()}>
-        <SettingsModal onClose={() => setShowSettings(false)} />
+        <Suspense>
+          <SettingsModal onClose={() => setShowSettings(false)} />
+        </Suspense>
       </Show>
       <ChatInterface
         activeSessionId={activeSessionId()}

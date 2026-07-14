@@ -1,12 +1,14 @@
 import { For, type JSX } from 'solid-js';
 import './RightPanel.css';
 
+export type PanelTabId = 'server' | 'changes' | 'git';
+
 export interface PanelTab {
-  id: string;
+  id: PanelTabId;
   label: string;
 }
 
-function PanelTabIcon(props: { id: string }) {
+function PanelTabIcon(props: { id: PanelTabId }) {
   if (props.id === 'server') {
     return (
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -51,8 +53,8 @@ function PanelTabIcon(props: { id: string }) {
 // activeTab in the parent.
 export default function RightPanel(props: {
   tabs: PanelTab[];
-  activeTab: string;
-  onSelectTab: (id: string) => void;
+  activeTab: PanelTabId;
+  onSelectTab: (id: PanelTabId) => void;
   onClose: () => void;
   class?: string;
   children: JSX.Element;

@@ -1,5 +1,6 @@
 import type { SetStoreFunction } from 'solid-js/store';
 import type { ChatMessage } from '../types';
+import { normalizeAssistantThinking } from './messageThinking';
 
 export interface AgentEventCallbacks {
   setProcessing: (v: boolean) => void;
@@ -36,7 +37,7 @@ export function applyAgentEvent(
   callbacks: AgentEventCallbacks,
 ) {
   if (event.type === 'message_start') {
-    const msgId = event.message?.id || event.message?.responseId || Date.now().toString();
+    const msgId = event.message?.id || event.message?.responseId || crypto.randomUUID();
 
     if (event.message.role === 'assistant') {
       // An assistant message can arrive already terminated with an error
@@ -47,6 +48,7 @@ export function applyAgentEvent(
         id: msgId,
         role: 'assistant',
         content: '',
+        rawContent: '',
         isStreaming: !isError,
         ...(isError ? { errorMessage: event.message.errorMessage } : {}),
       });
@@ -83,20 +85,34 @@ export function applyAgentEvent(
       }
     }
   } else if (event.type === 'message_update' && event.assistantMessageEvent?.type === 'thinking_start') {
-    // Thinking only streams on the active assistant message (never tool results).
     const idx = liveAssistantIdx(messages);
     if (idx >= 0) {
-      setMessages(idx, 'isThinking', true);
+      setMessages(idx, (message) => ({
+        ...message,
+        structuredThinkingActive: true,
+        ...normalizeAssistantThinking({ ...message, structuredThinkingActive: true }),
+      }));
     }
   } else if (event.type === 'message_update' && event.assistantMessageEvent?.type === 'thinking_delta') {
     const idx = liveAssistantIdx(messages);
     if (idx >= 0) {
-      setMessages(idx, 'thinking', (t) => (t || '') + event.assistantMessageEvent.delta);
+      setMessages(idx, (message) => {
+        const structuredThinking = (message.structuredThinking || '') + event.assistantMessageEvent.delta;
+        return {
+          ...message,
+          structuredThinking,
+          ...normalizeAssistantThinking({ ...message, structuredThinking }),
+        };
+      });
     }
   } else if (event.type === 'message_update' && event.assistantMessageEvent?.type === 'thinking_end') {
     const idx = liveAssistantIdx(messages);
     if (idx >= 0) {
-      setMessages(idx, 'isThinking', false);
+      setMessages(idx, (message) => ({
+        ...message,
+        structuredThinkingActive: false,
+        ...normalizeAssistantThinking({ ...message, structuredThinkingActive: false }),
+      }));
     }
   } else if (event.type === 'message_update' && event.assistantMessageEvent?.type === 'text_delta') {
     const msgId = event.message?.id || event.message?.responseId;
@@ -125,7 +141,14 @@ export function applyAgentEvent(
     } else {
       const idx = liveAssistantIdx(messages);
       if (idx >= 0) {
-        setMessages(idx, 'content', (c) => (c || '') + event.assistantMessageEvent.delta);
+        setMessages(idx, (message) => {
+          const rawContent = (message.rawContent ?? message.content ?? '') + event.assistantMessageEvent.delta;
+          return {
+            ...message,
+            rawContent,
+            ...normalizeAssistantThinking({ ...message, rawContent }),
+          };
+        });
       }
     }
   } else if (event.type === 'message_end') {
@@ -139,13 +162,21 @@ export function applyAgentEvent(
     } else {
       setMessages(m => m.isStreaming === true, 'isStreaming', false);
     }
-    setMessages(m => m.isThinking === true, 'isThinking', false);
+    setMessages(m => m.isThinking === true, (message) => ({
+      ...message,
+      isThinking: false,
+      structuredThinkingActive: false,
+    }));
   } else if (event.type === 'agent_start') {
     callbacks.setProcessing(true);
   } else if (event.type === 'agent_end') {
     callbacks.setProcessing(false);
     setMessages(m => m.isStreaming === true, 'isStreaming', false);
-    setMessages(m => m.isThinking === true, 'isThinking', false);
+    setMessages(m => m.isThinking === true, (message) => ({
+      ...message,
+      isThinking: false,
+      structuredThinkingActive: false,
+    }));
     // All message_end persistence has already run before agent_end, so the
     // session file on disk now has real metadata (first message, count).
     callbacks.onTurnComplete?.();

@@ -12,8 +12,6 @@ const distDir = path.resolve(__dirname, "../dist");
 const app = express();
 app.use(express.json({ limit: '25mb' }));
 
-app.use((_req, _res, next) => next());
-
 app.use(createRouter());
 
 // In production/local-preview mode, serve the built frontend from the same

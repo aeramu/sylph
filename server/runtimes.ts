@@ -27,6 +27,7 @@ interface RuntimeEntry {
 }
 
 const activeRuntimes = new Map<string, RuntimeEntry>();
+const sessionEventSequences = new Map<string, number>();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const askUserQuestionExtensionPath = path.join(__dirname, "askUserQuestion.ts");
@@ -125,6 +126,10 @@ export function getActiveRuntime(sessionId: string) {
   return activeRuntimes.get(sessionId)?.runtime;
 }
 
+export function getSessionEventSequence(sessionId: string) {
+  return sessionEventSequences.get(sessionId) ?? 0;
+}
+
 // Build a runtime and wire up its SSE broadcast. Does not touch activeRuntimes;
 // registration (and dedup) is the caller's responsibility.
 async function buildSessionRuntime(
@@ -170,7 +175,10 @@ async function buildSessionRuntime(
   // land after an assistant message completes also carry a fresh context
   // snapshot so the composer's context indicator stays live mid-turn.
   runtime.session.subscribe((event: AgentSessionEvent) => {
-    const payload: any = { sessionId: sessionManager.getSessionId(), ...event };
+    const currentSessionId = sessionManager.getSessionId();
+    const eventSeq = getSessionEventSequence(currentSessionId) + 1;
+    sessionEventSequences.set(currentSessionId, eventSeq);
+    const payload: any = { sessionId: currentSessionId, eventSeq, ...event };
     if (event.type === "message_end" || event.type === "agent_end" || event.type === "compaction_end") {
       const context = getContextInfo(runtime.session);
       if (context) payload.context = context;
@@ -248,6 +256,7 @@ export function startEvictionTimer() {
       if (entry.runtime.session?.isStreaming) continue;
       if (now - entry.lastUsed > RUNTIME_IDLE_MS) {
         activeRuntimes.delete(id);
+        sessionEventSequences.delete(id);
         rejectPendingForSession(id, "session evicted");
         clearSessionStatuses(id);
         try {

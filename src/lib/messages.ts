@@ -1,4 +1,5 @@
 import type { ChatMessage, ToolCall } from '../types';
+import { normalizeAssistantThinking } from './messageThinking';
 
 // Whether a message has anything worth rendering. Aborted/steered turns can
 // leave empty assistant messages in history; rendering them as blank bubbles
@@ -42,7 +43,7 @@ export function mapHistoryToMessages(rawMessages: any[]): ChatMessage[] {
       }
 
       mapped.push({
-        id: m.id || Math.random().toString(),
+        id: m.id || crypto.randomUUID(),
         role: 'user',
         content: contentStr,
         images: images.length ? images : undefined,
@@ -73,12 +74,17 @@ export function mapHistoryToMessages(rawMessages: any[]): ChatMessage[] {
         });
       }
 
-      const msg: ChatMessage = {
-        id: m.id || Math.random().toString(),
+      const baseMessage: ChatMessage = {
+        id: m.id || crypto.randomUUID(),
         role: 'assistant',
         content: contentStr,
-        thinking: thinkingStr || undefined,
-        tools
+        rawContent: contentStr,
+        structuredThinking: thinkingStr || undefined,
+        tools,
+      };
+      const msg: ChatMessage = {
+        ...baseMessage,
+        ...normalizeAssistantThinking(baseMessage),
       };
       // Preserve error state from persisted history.
       if (m.stopReason === 'error' && m.errorMessage) {

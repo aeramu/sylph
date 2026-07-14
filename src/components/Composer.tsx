@@ -5,6 +5,7 @@ import CustomSelect, { type CustomSelectApi } from './CustomSelect';
 import ContextIndicator from './ContextIndicator';
 import { escapeHtml } from '../lib/html';
 import { fuzzyScore } from '../lib/fuzzyScore';
+import { createMentionSearch, type ActiveMention } from '../lib/mentionSearch';
 import './Composer.css';
 
 // Built-in slash commands handled locally by the composer (they run a UI
@@ -76,12 +77,16 @@ export default function Composer(props: {
   const [isDragOver, setIsDragOver] = createSignal(false);
   const [selectedIndex, setSelectedIndex] = createSignal(0);
   const [caretPos, setCaretPos] = createSignal<number | null>(null);
-  const [activeMention, setActiveMention] = createSignal<{ query: string; start: number; end: number } | null>(null);
+  const [activeMention, setActiveMention] = createSignal<ActiveMention | null>(null);
   // Input value the command popup was Escape-dismissed at; cleared as soon as
   // the text changes so the popup reappears on further typing.
   const [dismissedCommand, setDismissedCommand] = createSignal<string | null>(null);
-  const [mentionResults, setMentionResults] = createSignal<FileMentionInfo[]>([]);
-  const [isMentionLoading, setIsMentionLoading] = createSignal(false);
+  const {
+    results: mentionResults,
+    loading: isMentionLoading,
+    clear: clearMentionResults,
+    suppressNext: suppressNextMentionRequest,
+  } = createMentionSearch(activeMention, () => props.projectId);
   let fileInputRef: HTMLInputElement | undefined;
   let textareaRef: HTMLTextAreaElement | undefined;
   let highlightRef: HTMLDivElement | undefined;
@@ -91,7 +96,6 @@ export default function Composer(props: {
   let modelSelectApi: CustomSelectApi | undefined;
   let dragCounter = 0;
   let skipNextMentionSync = false;
-  let suppressNextMentionFetch = false;
 
   const updateInput = (text: string) => {
     setInput(text);
@@ -292,39 +296,6 @@ export default function Composer(props: {
     ));
   };
 
-  createEffect(() => {
-    const mention = activeMention();
-    const projectId = props.projectId;
-    if (!mention || !projectId) {
-      setMentionResults([]);
-      setIsMentionLoading(false);
-      return;
-    }
-    if (suppressNextMentionFetch) {
-      suppressNextMentionFetch = false;
-      return;
-    }
-
-    let cancelled = false;
-    setIsMentionLoading(true);
-    const timer = window.setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/fs/files?projectId=${encodeURIComponent(projectId)}&q=${encodeURIComponent(mention.query)}`);
-        const data = await res.json();
-        if (!cancelled) setMentionResults(res.ok ? (data.files || []) : []);
-      } catch {
-        if (!cancelled) setMentionResults([]);
-      } finally {
-        if (!cancelled) setIsMentionLoading(false);
-      }
-    }, 120);
-
-    onCleanup(() => {
-      cancelled = true;
-      clearTimeout(timer);
-    });
-  });
-
   const filteredMentions = createMemo(() => activeMention() ? mentionResults() : null);
 
   const mentionEmptyText = () => {
@@ -452,11 +423,11 @@ export default function Composer(props: {
       // dropdown/results/selection alive. The keyup after Tab would otherwise
       // re-detect the completed mention, re-query, and reset navigation.
       skipNextMentionSync = true;
-      suppressNextMentionFetch = true;
+      suppressNextMentionRequest();
       setActiveMention({ query: file.path, start: mention.start, end: nextPos });
     } else {
       setSelectedIndex(0);
-      setMentionResults([]);
+      clearMentionResults();
       setActiveMention(null);
     }
     requestAnimationFrame(() => {
@@ -482,7 +453,7 @@ export default function Composer(props: {
     updateInput('');
     setAttachments([]);
     setActiveMention(null);
-    setMentionResults([]);
+    clearMentionResults();
     setSelectedIndex(0);
     props.onSubmit(text, pending);
   };
@@ -505,7 +476,7 @@ export default function Composer(props: {
       if (e.key === 'Escape') {
         e.preventDefault();
         setActiveMention(null);
-        setMentionResults([]);
+        clearMentionResults();
         setSelectedIndex(0);
         return;
       }

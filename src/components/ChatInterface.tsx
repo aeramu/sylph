@@ -1,7 +1,6 @@
-import { createSignal, createEffect, createMemo, For, Show, onCleanup, onMount } from 'solid-js';
+import { createSignal, createEffect, createMemo, For, lazy, Show, Suspense, onCleanup, onMount } from 'solid-js';
 import { createStore, produce } from 'solid-js/store';
-import type { Attachment, ChatMessage, CommandInfo, ContextInfo, ExtWidget, ModelOption, ThinkingLevel } from '../types';
-import { THINKING_LEVELS } from '../types';
+import type { Attachment, ChatMessage, CommandInfo, ContextInfo, ExtWidget, ProjectInfo } from '../types';
 import { applyAgentEvent } from '../lib/chatEvents';
 import { trackSessionEvent, setSessionStatus, sessionStatuses } from '../lib/sessionStatus';
 import { hasRenderableContent, mapHistoryToMessages } from '../lib/messages';
@@ -14,11 +13,14 @@ import Composer, { type ComposerApi } from './Composer';
 import MessageBubble from './MessageBubble';
 import UiRequestModal, { type UiRequest } from './UiRequestModal';
 import QuestionsModal, { type QuestionsRequest } from './QuestionsModal';
-import RightPanel from './RightPanel';
-import ChangesTab from './ChangesTab';
+import RightPanel, { type PanelTabId } from './RightPanel';
 import DiffStats from './DiffStats';
-import GitTab from './GitTab';
 import { startPointerResize } from '../lib/resize';
+import { SessionEventBuffer } from '../lib/sessionEventBuffer';
+import { createModelPreferences } from '../lib/modelPreferences';
+
+const ChangesTab = lazy(() => import('./ChangesTab'));
+const GitTab = lazy(() => import('./GitTab'));
 
 export default function ChatInterface(props: { activeSessionId?: string, activeProjectId?: string, onSelectProject?: (id: string) => void, onSessionCreated: (id: string, projectId?: string, firstMessage?: string) => void, onTurnComplete?: () => void, projectRefreshTrigger?: number }) {
   const [messages, setMessages] = createStore<ChatMessage[]>([]);
@@ -33,9 +35,16 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   const [isConnected, setIsConnected] = createSignal(false);
   const [lightboxUrl, setLightboxUrl] = createSignal<string | null>(null);
   const [commandsList, setCommandsList] = createSignal<CommandInfo[]>([]);
-  const [projects, setProjects] = createSignal<any[]>([]);
-  const [models, setModels] = createSignal<ModelOption[]>([]);
-  const [selectedModel, setSelectedModel] = createSignal('');
+  const [projects, setProjects] = createSignal<ProjectInfo[]>([]);
+  const {
+    models,
+    selectedModel,
+    selectedThinkingLevel,
+    thinkingLevelOptions,
+    loadModels,
+    selectModel,
+    selectThinkingLevel,
+  } = createModelPreferences();
   const [uiRequest, setUiRequest] = createSignal<UiRequest | null>(null);
   const [questionsRequest, setQuestionsRequest] = createSignal<QuestionsRequest | null>(null);
   const [statusEntries, setStatusEntries] = createStore<Record<string, string>>({});
@@ -55,7 +64,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
 
   // Right side panel (tabbed; the Changes tab shows session/turn file diffs).
   const [panelOpen, setPanelOpen] = createSignal(false);
-  const [panelTab, setPanelTab] = createSignal('changes');
+  const [panelTab, setPanelTab] = createSignal<PanelTabId>('changes');
   const [panelWidth, setPanelWidth] = createSignal(420);
   const [gitRefreshTrigger, setGitRefreshTrigger] = createSignal(0);
   // null = whole session; a number filters the Changes tab to that turn.
@@ -79,7 +88,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     setPanelOpen(open => !open);
   };
 
-  const openPanelTab = (tab: string) => {
+  const openPanelTab = (tab: PanelTabId) => {
     setPanelTab(tab);
     setPanelOpen(true);
   };
@@ -124,11 +133,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   let pendingEventBuffer: any[] = [];
   // Guards fetchHistory against stale responses when switching sessions fast.
   let historyRequestSeq = 0;
-  // While a snapshot is in flight, live events for the session are dropped:
-  // the server serves the snapshot from the same live state, so events
-  // received during the fetch are already part of it (applying them too
-  // would duplicate streamed content).
-  let historyLoading = false;
+  const historyEventBuffer = new SessionEventBuffer<any>();
 
   const fetchProjects = () => {
     fetch(`/api/projects`).then(res => res.json()).then(data => {
@@ -142,84 +147,6 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       }
     });
   };
-
-  const fetchModels = () => {
-    fetch('/api/models').then(res => res.json()).then(data => {
-      if (data.models && data.models.length > 0) {
-        // Use the server-provided value ("provider/id") directly as the
-        // select value, so the ID round-trips without name ambiguity.
-        const mapped = data.models.map((m: any) => {
-          const value = m.value || `${m.provider}/${m.id}`;
-          const provider = m.provider || String(value).split('/')[0] || 'Other';
-          const thinkingLevels = Array.isArray(m.thinkingLevels)
-            ? m.thinkingLevels.filter((level: unknown): level is ThinkingLevel =>
-                typeof level === 'string' && THINKING_LEVELS.some((option) => option.value === level))
-            : undefined;
-          return {
-            value,
-            label: m.id,
-            provider,
-            searchText: `${provider} ${m.id} ${value}`,
-            reasoning: !!m.reasoning,
-            thinkingLevels,
-          };
-        });
-        setModels(mapped);
-
-        let saved: string | null = null;
-        try { saved = localStorage.getItem('sylph.selectedModel'); } catch {}
-        const initial = (saved && mapped.find((m: any) => m.value === saved))
-          || mapped.find((m: any) => m.value.toLowerCase().includes('flash'))
-          || mapped[0];
-        if (initial) setSelectedModel(initial.value);
-      }
-    }).catch(console.error);
-  };
-
-  const selectModel = (id: string) => {
-    setSelectedModel(id);
-    try { localStorage.setItem('sylph.selectedModel', id); } catch {}
-  };
-
-  const [selectedThinkingLevel, setSelectedThinkingLevel] = createSignal<ThinkingLevel>('medium');
-
-  // Restore persisted thinking level preference.
-  try {
-    const saved = localStorage.getItem('sylph.thinkingLevel') as ThinkingLevel | null;
-    if (saved && THINKING_LEVELS.some((l) => l.value === saved)) setSelectedThinkingLevel(saved);
-  } catch {}
-
-  const selectThinkingLevel = (level: ThinkingLevel) => {
-    setSelectedThinkingLevel(level);
-    try { localStorage.setItem('sylph.thinkingLevel', level); } catch {}
-  };
-
-  const availableThinkingLevels = createMemo<ThinkingLevel[]>(() => {
-    const model = models().find((option) => option.value === selectedModel());
-    return model?.thinkingLevels?.length
-      ? model.thinkingLevels
-      : THINKING_LEVELS.map((option) => option.value);
-  });
-
-  const thinkingLevelOptions = createMemo(() => {
-    const available = new Set(availableThinkingLevels());
-    return THINKING_LEVELS.filter((option) => available.has(option.value));
-  });
-
-  // A saved level may not exist on the newly selected model (for example,
-  // Opus 4.6 has max but not xhigh). Match Pi's clamp order: prefer the next
-  // stronger supported level, then fall back toward weaker levels.
-  createEffect(() => {
-    const available = availableThinkingLevels();
-    const selected = selectedThinkingLevel();
-    if (available.includes(selected)) return;
-
-    const ordered = THINKING_LEVELS.map((option) => option.value);
-    const requestedIndex = ordered.indexOf(selected);
-    const stronger = ordered.slice(requestedIndex + 1).find((level) => available.includes(level));
-    const weaker = ordered.slice(0, requestedIndex).reverse().find((level) => available.includes(level));
-    selectThinkingLevel(stronger ?? weaker ?? available[0] ?? 'off');
-  });
 
   let messagesAreaRef: HTMLDivElement | undefined;
   let messagesEndRef: HTMLDivElement | undefined;
@@ -267,7 +194,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   });
 
   onMount(() => {
-    fetchModels();
+    loadModels().catch(console.error);
     fetchCommands();
     connectSSE();
   });
@@ -327,18 +254,21 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   };
 
   const fetchHistory = async () => {
+    const seq = ++historyRequestSeq;
     if (!props.activeSessionId) {
+      historyEventBuffer.cancel();
       setMessages([]);
       setUiRequest(null);
       setQuestionsRequest(null);
       return;
     }
-    const seq = ++historyRequestSeq;
-    historyLoading = true;
+    const sessionId = props.activeSessionId;
+    historyEventBuffer.begin(sessionId);
     try {
-      const res = await fetch(`/api/sessions/${encodeURIComponent(props.activeSessionId)}`);
+      const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`);
+      if (!res.ok) throw new Error(`Failed to load history (${res.status})`);
       const data = await res.json();
-      if (seq !== historyRequestSeq) return; // a newer request superseded this one
+      if (seq !== historyRequestSeq) return;
       setMessages(mapHistoryToMessages(data.messages || []));
       setContextInfo(data.context || null);
       // Replace extension statuses with the snapshot's. Their live SSE
@@ -353,14 +283,12 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       // or blocked on a dialog gets its indicator back (e.g. after a server
       // restart wiped the live status), and stale live badges get cleared.
       // Error badges are left alone — only the SSE stream knows about those.
-      if (props.activeSessionId) {
-        if (data.isStreaming) {
-          setSessionStatus(props.activeSessionId, 'working');
-        } else if (data.pendingUiRequests?.length) {
-          setSessionStatus(props.activeSessionId, 'needsInput');
-        } else if (sessionStatuses[props.activeSessionId] !== 'error') {
-          setSessionStatus(props.activeSessionId, undefined);
-        }
+      if (data.isStreaming) {
+        setSessionStatus(sessionId, 'working');
+      } else if (data.pendingUiRequests?.length) {
+        setSessionStatus(sessionId, 'needsInput');
+      } else if (sessionStatuses[sessionId] !== 'error') {
+        setSessionStatus(sessionId, undefined);
       }
       // Re-show a dialog the agent is still blocked on (its one-shot SSE
       // broadcast was dropped if we were on another session at the time).
@@ -371,10 +299,10 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
         if (pendingUi.method === 'questions') setQuestionsRequest(pendingUi);
         else setUiRequest(pendingUi);
       }
+      for (const event of historyEventBuffer.finish(sessionId, data.eventSeq)) dispatchSessionEvent(event);
     } catch (err) {
+      if (seq === historyRequestSeq) historyEventBuffer.cancel();
       console.error('Failed to load history:', err);
-    } finally {
-      if (seq === historyRequestSeq) historyLoading = false;
     }
   };
 
@@ -432,10 +360,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     if (event.sessionId) {
       if (props.activeSessionId) {
         if (event.sessionId !== props.activeSessionId) return;
-        // Agent events during a history fetch are already part of the
-        // snapshot being loaded; UI requests are not (the snapshot only
-        // carries ones pending when it was built), so let them through.
-        if (historyLoading && event.type !== 'extension_ui_request') return;
+        if (historyEventBuffer.capture(event)) return;
       } else if (awaitingSessionCommit) {
         pendingEventBuffer.push(event);
         return;
@@ -456,7 +381,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
 
   const addNotification = (message: string, type: string = 'info') => {
     setMessages(messages.length, {
-      id: Math.random().toString(36).slice(2),
+      id: crypto.randomUUID(),
       role: 'notification',
       content: message,
       notifyType: type,
@@ -551,7 +476,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       .map(a => ({ url: a.previewUrl!, mimeType: a.mimeType }));
 
     setMessages(messages.length, {
-      id: Date.now().toString(),
+      id: crypto.randomUUID(),
       role: 'user',
       content: userMessage,
       images: messageImages.length ? messageImages : undefined,
@@ -608,7 +533,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
         // Render it as an assistant error bubble so the user sees what went
         // wrong instead of a silent hang.
         setMessages(messages.length, {
-          id: Date.now().toString() + '-err',
+          id: crypto.randomUUID(),
           role: 'assistant',
           content: '',
           errorMessage: data.error || `Request failed (${res.status})`,
@@ -628,7 +553,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       stopBuffering();
       console.error('Failed to send message:', err);
       setMessages(messages.length, {
-        id: Date.now().toString() + '-err',
+        id: crypto.randomUUID(),
         role: 'assistant',
         content: '',
         errorMessage: err instanceof Error ? err.message : 'Failed to connect to server',
@@ -915,17 +840,21 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       onSelectTab={setPanelTab}
       onClose={closePanel}
     >
-      <Show when={panelTab() === 'changes'}>
-        <ChangesTab
-          diff={diffTurn() != null ? (diffs().turns.get(diffTurn()!) ?? emptyDiffSummary()) : diffs().session}
-          turnFilter={diffTurn()}
-          onClearFilter={() => setDiffTurn(null)}
-        />
+      <Show when={panelOpen() && panelTab() === 'changes'}>
+        <Suspense>
+          <ChangesTab
+            diff={diffTurn() != null ? (diffs().turns.get(diffTurn()!) ?? emptyDiffSummary()) : diffs().session}
+            turnFilter={diffTurn()}
+            onClearFilter={() => setDiffTurn(null)}
+          />
+        </Suspense>
       </Show>
-      <Show when={panelTab() === 'git'}>
-        <GitTab projectId={props.activeProjectId} refreshTrigger={gitRefreshTrigger()} />
+      <Show when={panelOpen() && panelTab() === 'git'}>
+        <Suspense>
+          <GitTab projectId={props.activeProjectId} refreshTrigger={gitRefreshTrigger()} />
+        </Suspense>
       </Show>
-      <Show when={panelTab() === 'server'}>
+      <Show when={panelOpen() && panelTab() === 'server'}>
         <div class="server-status-panel">
           <div class="server-status-panel-card">
             <div
