@@ -6,7 +6,7 @@ A local web UI for the [pi coding agent](https://www.npmjs.com/package/@earendil
 
 - `server.ts` — Express backend (port 3001, localhost only). Wraps `@earendil-works/pi-coding-agent`: manages projects (`~/.sylph/projects.json`), creates/resumes agent sessions, and broadcasts agent events to the browser over SSE (`/api/stream`).
 - `src/` — SolidJS frontend (Vite, port 5173). `/api/*` requests are proxied to the backend (see `vite.config.ts`).
-- The backend automatically starts the bundled agent-browser observability dashboard on port 4848. Its live dashboard is available from the Browser tab in the right panel.
+- The backend automatically starts the bundled agent-browser observability dashboard on loopback port 4848 and exposes it through Sylph's existing server at `/browser/`. Its live dashboard is embedded in the Browser tab in the right panel.
 
 ## Setup
 
@@ -27,5 +27,5 @@ Open http://localhost:5173, add a project (any directory on disk), and start cha
 
 ## Notes
 
-- The backend binds to `127.0.0.1` and rejects non-local `Host` headers. It intentionally has no auth — do not expose it beyond localhost, as it can read the filesystem and run an agent in any project directory.
+- The backend binds to `0.0.0.0` by default. It intentionally has no authentication, and both Sylph and the dashboard can control local browser sessions and agent processes — only expose them on a trusted network or behind authentication.
 - Idle agent runtimes are evicted from memory after 30 minutes; sessions themselves are persisted by the agent SDK and can be resumed anytime.

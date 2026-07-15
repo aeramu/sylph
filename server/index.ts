@@ -5,12 +5,18 @@ import { HOST, PORT } from "./config.ts";
 import { createRouter } from "./routes.ts";
 import { startEvictionTimer } from "./runtimes.ts";
 import { startAgentBrowserDashboard } from "./agentBrowserDashboard.ts";
+import { createAgentBrowserDashboardProxy } from "./agentBrowserDashboardProxy.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const distDir = path.resolve(__dirname, "../dist");
 
 const app = express();
+const agentBrowserDashboardProxy = createAgentBrowserDashboardProxy();
+
+// Mount before express.json(): dashboard commands have their own request-body
+// handling and need the untouched stream when proxied to agent-browser.
+app.use(agentBrowserDashboardProxy.middleware);
 app.use(express.json({ limit: '25mb' }));
 
 app.use(createRouter());
@@ -34,6 +40,7 @@ void startAgentBrowserDashboard().then((status) => {
   }
 });
 
-app.listen(PORT, HOST, () => {
+const server = app.listen(PORT, HOST, () => {
   console.log(`Backend server listening on http://${HOST}:${PORT}`);
 });
+server.on("upgrade", agentBrowserDashboardProxy.handleUpgrade);

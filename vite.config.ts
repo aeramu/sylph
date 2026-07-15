@@ -54,6 +54,12 @@ export default defineConfig({
     host: '0.0.0.0',
     allowedHosts: true,
     proxy: {
+      '/browser': {
+        // In dev, pass the complete path through the backend so its dashboard
+        // response rewriting and WebSocket upgrade handling stay authoritative.
+        target: `http://localhost:${process.env.API_PORT || 3001}`,
+        ws: true,
+      },
       '/api': {
         // API_PORT lets a second instance (e.g. a worktree copy) run
         // alongside the default one without port collisions.

@@ -29,8 +29,13 @@ self.addEventListener('fetch', (event) => {
 
   if (request.method !== 'GET') return;
 
-  // API calls should stay network-first and should not be cached by the PWA.
-  if (url.origin === self.location.origin && url.pathname.startsWith('/api')) {
+  // API and embedded dashboard calls should stay network-first and should not
+  // be cached by the PWA. In particular, a /browser/ navigation must never
+  // replace the cached Sylph app shell at '/'.
+  if (
+    url.origin === self.location.origin
+    && (url.pathname.startsWith('/api') || url.pathname.startsWith('/browser'))
+  ) {
     event.respondWith(fetch(request));
     return;
   }

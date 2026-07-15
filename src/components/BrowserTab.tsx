@@ -5,9 +5,10 @@ import './BrowserTab.css';
 interface DashboardStatus {
   available: boolean;
   running: boolean;
-  url: string;
   error?: string;
 }
+
+const dashboardUrl = () => new URL('/browser/', window.location.origin).toString();
 
 export default function BrowserTab() {
   const [status, setStatus] = createSignal<DashboardStatus>();
@@ -25,7 +26,6 @@ export default function BrowserTab() {
       setStatus({
         available: false,
         running: false,
-        url: 'http://127.0.0.1:4848',
         error: error?.message || 'Could not query the agent-browser dashboard.',
       });
     } finally {
@@ -44,13 +44,13 @@ export default function BrowserTab() {
             <div class="browser-tab-state-message">{status()?.error || 'The dashboard is not responding.'}</div>
             <div class="browser-tab-actions">
               <button class="browser-tab-button" onClick={() => void loadStatus(true)}>Start again</button>
-              <a class="browser-tab-link" href={status()?.url} target="_blank" rel="noreferrer">Open dashboard</a>
+              <a class="browser-tab-link" href={dashboardUrl()} target="_blank" rel="noreferrer">Open dashboard</a>
             </div>
           </div>
         }>
           <iframe
             class="browser-tab-frame"
-            src={status()!.url}
+            src={dashboardUrl()}
             title="Agent Browser dashboard"
             allow="clipboard-read; clipboard-write"
           />

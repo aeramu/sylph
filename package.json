@@ -38,12 +38,14 @@
     "codemirror": "^6.0.2",
     "dompurify": "^3.4.11",
     "express": "^5.2.1",
+    "http-proxy": "^1.18.1",
     "marked": "^18.0.5",
     "solid-js": "^1.9.13"
   },
   "devDependencies": {
     "@types/dompurify": "^3.0.5",
     "@types/express": "^5.0.6",
+    "@types/http-proxy": "^1.17.17",
     "@types/node": "^24.13.2",
     "concurrently": "^10.0.3",
     "tsx": "^4.22.4",
