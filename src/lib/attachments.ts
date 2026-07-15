@@ -1,4 +1,5 @@
 import type { Attachment } from '../types';
+import { createId } from './id';
 
 const TEXT_FILE_EXTENSIONS = [
   '.txt', '.md', '.markdown', '.json', '.js', '.jsx', '.ts', '.tsx',
@@ -19,7 +20,7 @@ function isTextFile(file: File): boolean {
 
 export function readFile(file: File): Promise<Attachment | null> {
   return new Promise((resolve) => {
-    const id = crypto.randomUUID();
+    const id = createId();
     const base = { id, name: file.name, mimeType: file.type || 'application/octet-stream', size: file.size };
 
     if (file.type.startsWith('image/')) {

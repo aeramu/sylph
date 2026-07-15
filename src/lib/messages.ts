@@ -1,5 +1,6 @@
 import type { ChatMessage, ToolCall } from '../types';
 import { normalizeAssistantThinking } from './messageThinking';
+import { createId } from './id';
 
 // Whether a message has anything worth rendering. Aborted/steered turns can
 // leave empty assistant messages in history; rendering them as blank bubbles
@@ -43,7 +44,7 @@ export function mapHistoryToMessages(rawMessages: any[]): ChatMessage[] {
       }
 
       mapped.push({
-        id: m.id || crypto.randomUUID(),
+        id: m.id || createId(),
         role: 'user',
         content: contentStr,
         images: images.length ? images : undefined,
@@ -75,7 +76,7 @@ export function mapHistoryToMessages(rawMessages: any[]): ChatMessage[] {
       }
 
       const baseMessage: ChatMessage = {
-        id: m.id || crypto.randomUUID(),
+        id: m.id || createId(),
         role: 'assistant',
         content: contentStr,
         rawContent: contentStr,

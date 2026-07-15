@@ -19,6 +19,7 @@ import { startPointerResize } from '../lib/resize';
 import { SessionEventBuffer } from '../lib/sessionEventBuffer';
 import { createModelPreferences } from '../lib/modelPreferences';
 import { getRightPanelState, setRightPanelState } from '../lib/rightPanelState';
+import { createId } from '../lib/id';
 
 const BrowserTab = lazy(() => import('./BrowserTab'));
 const ChangesTab = lazy(() => import('./ChangesTab'));
@@ -405,7 +406,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
 
   const addNotification = (message: string, type: string = 'info') => {
     setMessages(messages.length, {
-      id: crypto.randomUUID(),
+      id: createId(),
       role: 'notification',
       content: message,
       notifyType: type,
@@ -500,7 +501,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       .map(a => ({ url: a.previewUrl!, mimeType: a.mimeType }));
 
     setMessages(messages.length, {
-      id: crypto.randomUUID(),
+      id: createId(),
       role: 'user',
       content: userMessage,
       images: messageImages.length ? messageImages : undefined,
@@ -557,7 +558,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
         // Render it as an assistant error bubble so the user sees what went
         // wrong instead of a silent hang.
         setMessages(messages.length, {
-          id: crypto.randomUUID(),
+          id: createId(),
           role: 'assistant',
           content: '',
           errorMessage: data.error || `Request failed (${res.status})`,
@@ -577,7 +578,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       stopBuffering();
       console.error('Failed to send message:', err);
       setMessages(messages.length, {
-        id: crypto.randomUUID(),
+        id: createId(),
         role: 'assistant',
         content: '',
         errorMessage: err instanceof Error ? err.message : 'Failed to connect to server',

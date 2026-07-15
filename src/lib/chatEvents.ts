@@ -1,6 +1,7 @@
 import type { SetStoreFunction } from 'solid-js/store';
 import type { ChatMessage } from '../types';
 import { normalizeAssistantThinking } from './messageThinking';
+import { createId } from './id';
 
 export interface AgentEventCallbacks {
   setProcessing: (v: boolean) => void;
@@ -37,7 +38,7 @@ export function applyAgentEvent(
   callbacks: AgentEventCallbacks,
 ) {
   if (event.type === 'message_start') {
-    const msgId = event.message?.id || event.message?.responseId || crypto.randomUUID();
+    const msgId = event.message?.id || event.message?.responseId || createId();
 
     if (event.message.role === 'assistant') {
       // An assistant message can arrive already terminated with an error
