@@ -1,6 +1,6 @@
 interface CryptoLike {
   randomUUID?: () => string;
-  getRandomValues?: <T extends ArrayBufferView | null>(array: T) => T;
+  getRandomValues?: (array: Uint8Array<ArrayBuffer>) => Uint8Array<ArrayBuffer>;
 }
 
 let fallbackCounter = 0;
