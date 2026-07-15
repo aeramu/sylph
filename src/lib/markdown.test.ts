@@ -51,6 +51,32 @@ describe('extractThinkingBlocks', () => {
     });
   });
 
+  it('preserves literal thinking tags inside inline code', () => {
+    const text = 'Write the literal tag `<think>` or `<thinking>example</thinking>` in your config.';
+    expect(extractThinkingBlocks(text)).toEqual({
+      content: text,
+      thinking: '',
+      isThinking: false,
+    });
+  });
+
+  it('supports matching multi-backtick inline-code delimiters', () => {
+    const text = 'Use `` `<think>` `` when the example itself contains a backtick.';
+    expect(extractThinkingBlocks(text)).toEqual({
+      content: text,
+      thinking: '',
+      isThinking: false,
+    });
+  });
+
+  it('still extracts thinking adjacent to inline code', () => {
+    expect(extractThinkingBlocks('`<think>` <think>Actual reasoning</think>Answer')).toEqual({
+      content: '`<think>` Answer',
+      thinking: 'Actual reasoning',
+      isThinking: false,
+    });
+  });
+
   it('accepts equivalent long and short closing tags', () => {
     expect(extractThinkingBlocks('<think>Reasoning</thinking>Answer')).toEqual({
       content: 'Answer',

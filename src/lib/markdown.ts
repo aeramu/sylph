@@ -51,9 +51,42 @@ function fencedCodeRanges(text: string): Array<[number, number]> {
   return ranges;
 }
 
+function containsOffset(ranges: Array<[number, number]>, offset: number): boolean {
+  return ranges.some(([start, end]) => offset >= start && offset < end);
+}
+
+// Markdown code spans use matching runs of backticks as delimiters. Protect
+// their contents as well as fenced blocks: literal examples such as `<think>`
+// must remain answer text rather than being mistaken for provider reasoning.
+function inlineCodeRanges(text: string, fencedRanges: Array<[number, number]>): Array<[number, number]> {
+  const runs = Array.from(text.matchAll(/`+/g))
+    .filter((match) => !containsOffset(fencedRanges, match.index))
+    .map((match) => ({ start: match.index, end: match.index + match[0].length, length: match[0].length }));
+  const ranges: Array<[number, number]> = [];
+
+  for (let i = 0; i < runs.length; i++) {
+    const opener = runs[i];
+    let precedingBackslashes = 0;
+    for (let offset = opener.start - 1; offset >= 0 && text[offset] === '\\'; offset--) precedingBackslashes++;
+    if (precedingBackslashes % 2 === 1) continue;
+
+    const closingIndex = runs.findIndex((candidate, index) => index > i && candidate.length === opener.length);
+    if (closingIndex < 0) continue;
+    ranges.push([opener.start, runs[closingIndex].end]);
+    i = closingIndex;
+  }
+
+  return ranges;
+}
+
+function markdownCodeRanges(text: string): Array<[number, number]> {
+  const fencedRanges = fencedCodeRanges(text);
+  return [...fencedRanges, ...inlineCodeRanges(text, fencedRanges)];
+}
+
 export function extractThinkingBlocks(text: string): ExtractedThinking {
   const tagPattern = /<\/?(?:think|thinking)>/gi;
-  const codeRanges = fencedCodeRanges(text);
+  const codeRanges = markdownCodeRanges(text);
   const contentParts: string[] = [];
   const thinkingBlocks: string[] = [];
   let thinkingPart = '';
@@ -62,7 +95,7 @@ export function extractThinkingBlocks(text: string): ExtractedThinking {
   let match: RegExpExecArray | null;
 
   while ((match = tagPattern.exec(text)) !== null) {
-    if (codeRanges.some(([start, end]) => match!.index >= start && match!.index < end)) continue;
+    if (containsOffset(codeRanges, match.index)) continue;
     const segment = text.slice(segmentStart, match.index);
     if (insideThinking) thinkingPart += segment;
     else contentParts.push(segment);
