@@ -65,6 +65,7 @@ export default function Composer(props: {
   disabled: boolean;
   commands: CommandInfo[];
   projectId?: string;
+  sessionId?: string;
   draftKey: string;
   draftText: string;
   onDraftChange: (text: string) => void;
@@ -96,7 +97,7 @@ export default function Composer(props: {
     loading: isMentionLoading,
     clear: clearMentionResults,
     suppressNext: suppressNextMentionRequest,
-  } = createMentionSearch(activeMention, () => props.projectId);
+  } = createMentionSearch(activeMention, () => props.projectId, () => props.sessionId);
   let fileInputRef: HTMLInputElement | undefined;
   let textareaRef: HTMLTextAreaElement | undefined;
   let highlightRef: HTMLDivElement | undefined;

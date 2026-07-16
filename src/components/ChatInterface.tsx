@@ -25,7 +25,20 @@ const BrowserTab = lazy(() => import('./BrowserTab'));
 const ChangesTab = lazy(() => import('./ChangesTab'));
 const GitTab = lazy(() => import('./GitTab'));
 
-export default function ChatInterface(props: { activeSessionId?: string, activeProjectId?: string, onSelectProject?: (id: string) => void, onSessionCreated: (id: string, projectId?: string, firstMessage?: string) => void, onTurnComplete?: () => void, projectRefreshTrigger?: number }) {
+interface GitBranchOption {
+  name: string;
+  current: boolean;
+  remote: boolean;
+}
+
+interface SessionBindingInfo {
+  cwd: string;
+  branch?: string;
+  baseBranch?: string;
+  worktree?: boolean;
+}
+
+export default function ChatInterface(props: { activeSessionId?: string, activeProjectId?: string, onSelectProject?: (id: string) => void, onSessionCreated: (id: string, projectId?: string, firstMessage?: string, meta?: { branch?: string; worktree?: boolean }) => void, onTurnComplete?: () => void, projectRefreshTrigger?: number }) {
   const [messages, setMessages] = createStore<ChatMessage[]>([]);
   // Only needed during the brief new-chat window before /api/chat returns a
   // session id. Existing sessions derive processing from sessionStatuses.
@@ -39,6 +52,11 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   const [lightboxUrl, setLightboxUrl] = createSignal<string | null>(null);
   const [commandsList, setCommandsList] = createSignal<CommandInfo[]>([]);
   const [projects, setProjects] = createSignal<ProjectInfo[]>([]);
+  const [branches, setBranches] = createSignal<GitBranchOption[]>([]);
+  const [selectedBaseBranch, setSelectedBaseBranch] = createSignal('');
+  const [useWorktree, setUseWorktree] = createSignal(false);
+  const [branchError, setBranchError] = createSignal('');
+  const [sessionBinding, setSessionBinding] = createSignal<SessionBindingInfo | null>(null);
   const {
     models,
     selectedModel,
@@ -228,6 +246,42 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     fetchProjects();
   });
 
+  // A branch is only used as the base for a new isolated worktree. Leaving
+  // the checkbox off preserves today's behavior and never switches the user's
+  // checkout underneath another session.
+  let branchRequest = 0;
+  createEffect(() => {
+    const projectId = props.activeProjectId;
+    const sessionId = props.activeSessionId;
+    if (sessionId || !projectId) {
+      setBranches([]);
+      setSelectedBaseBranch('');
+      setBranchError('');
+      return;
+    }
+    const request = ++branchRequest;
+    setBranchError('');
+    fetch(`/api/projects/${encodeURIComponent(projectId)}/git/branches`, { cache: 'no-store' })
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Git branches unavailable');
+        if (request !== branchRequest) return;
+        const list = data.branches || [];
+        setBranches(list);
+        const current = list.find((branch: GitBranchOption) => branch.current);
+        setSelectedBaseBranch((previous) => list.some((branch: GitBranchOption) => branch.name === previous)
+          ? previous
+          : (current?.name || list[0]?.name || ''));
+      })
+      .catch((error) => {
+        if (request !== branchRequest) return;
+        setBranches([]);
+        setSelectedBaseBranch('');
+        setUseWorktree(false);
+        setBranchError(error instanceof Error ? error.message : 'Git branches unavailable');
+      });
+  });
+
   createEffect(() => {
     const id = props.activeSessionId; // track
     if (id && pendingSessionId === id) {
@@ -252,6 +306,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     setMessages([]);
     setPinnedToBottom(true); // fresh session — follow from the bottom
     setContextInfo(null);
+    setSessionBinding(null);
     setUiRequest(null);
     setQuestionsRequest(null);
     const savedPanel = getRightPanelState(id);
@@ -293,6 +348,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       if (seq !== historyRequestSeq) return;
       setMessages(mapHistoryToMessages(data.messages || []));
       setContextInfo(data.context || null);
+      setSessionBinding(data.binding || null);
       // Replace extension statuses with the snapshot's. Their live SSE
       // broadcasts are one-shot: any fired while this session wasn't active
       // (background turn, other tab) were dropped by the session gate, so the
@@ -549,6 +605,8 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
           modelId: selectedModel() || undefined,
           thinkingLevel: selectedThinkingLevel(),
           images: images.length ? images : undefined,
+          useWorktree: isNewSession && useWorktree(),
+          baseBranch: isNewSession && useWorktree() ? selectedBaseBranch() : undefined,
         }),
       });
       const data = await res.json();
@@ -570,7 +628,12 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
         // Fall back to the locally selected project if the server couldn't
         // resolve one, so the sidebar draft still lands in the right group.
         pendingSessionId = data.sessionId;
-        props.onSessionCreated(data.sessionId, data.projectId ?? props.activeProjectId, userMessage.slice(0, 200));
+        props.onSessionCreated(
+          data.sessionId,
+          data.projectId ?? props.activeProjectId,
+          userMessage.slice(0, 200),
+          { branch: data.branch, worktree: data.worktree },
+        );
       } else {
         stopBuffering();
       }
@@ -796,18 +859,49 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
                 triggerClass="project-selector"
                 value={props.activeProjectId || ''}
                 onChange={(val) => {
+                  setUseWorktree(false);
                   if (props.onSelectProject) props.onSelectProject(val);
                 }}
                 options={projects().map(p => ({ value: p.id, label: p.name, icon: 'folder' }))}
                 placeholder="Select a Project"
                 position="bottom"
               />
+              <Show when={props.activeProjectId && branches().length > 0}>
+                <label class="worktree-toggle" title="Create an isolated Git worktree for this chat">
+                  <input
+                    type="checkbox"
+                    checked={useWorktree()}
+                    onChange={(event) => setUseWorktree(event.currentTarget.checked)}
+                  />
+                  <span>Worktree</span>
+                </label>
+                <CustomSelect
+                  triggerClass={`branch-selector ${useWorktree() ? '' : 'disabled'}`}
+                  value={selectedBaseBranch()}
+                  onChange={setSelectedBaseBranch}
+                  options={branches().map((branch) => ({
+                    value: branch.name,
+                    label: branch.name,
+                    group: branch.remote ? 'Remote branches' : 'Local branches',
+                  }))}
+                  placeholder="Base branch"
+                  position="bottom"
+                  disabled={!useWorktree()}
+                  searchable
+                  searchPlaceholder="Search branches…"
+                />
+              </Show>
+              <Show when={props.activeProjectId && branchError()}>
+                <span class="worktree-unavailable" title={branchError()}>Worktree unavailable</span>
+              </Show>
             </div>
           )}
           <Show when={props.activeSessionId}>
             <div class="composer-session-bar">
               <Show when={activeProject()} keyed>
-                {(project) => <span class="composer-session-project" title={project.path}>{project.name}</span>}
+                {(project) => <span class="composer-session-project" title={sessionBinding()?.cwd || project.path}>
+                  {project.name}<Show when={sessionBinding()?.branch}> · {sessionBinding()!.branch}</Show>
+                </span>}
               </Show>
               <Show when={diffs().session.files.length > 0}>
                 <button
@@ -830,6 +924,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
             disabled={!!uiRequest() || !!questionsRequest()}
             commands={commandsList()}
             projectId={props.activeProjectId}
+            sessionId={props.activeSessionId}
             draftKey={chatDraftKey()}
             draftText={getChatDraft(chatDraftKey())}
             onDraftChange={(text) => setChatDraft(chatDraftKey(), text)}
@@ -894,7 +989,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       </Show>
       <Show when={panelOpen() && panelTab() === 'git'}>
         <Suspense>
-          <GitTab projectId={props.activeProjectId} refreshTrigger={gitRefreshTrigger()} />
+          <GitTab projectId={props.activeProjectId} sessionId={props.activeSessionId} refreshTrigger={gitRefreshTrigger()} />
         </Suspense>
       </Show>
       <Show when={panelOpen() && panelTab() === 'server'}>

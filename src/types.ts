@@ -71,6 +71,8 @@ export type SessionStatus = 'working' | 'needsInput' | 'error';
 export interface DraftSession {
   id: string;
   projectId?: string;
+  branch?: string;
+  worktree?: boolean;
   firstMessage: string;
   createdAt: string;
 }

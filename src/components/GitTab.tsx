@@ -7,7 +7,7 @@ import GitSourceSection from './GitSourceSection';
 import GitToolbar from './GitToolbar';
 import './GitTab.css';
 
-export default function GitTab(props: { projectId?: string; refreshTrigger?: number }) {
+export default function GitTab(props: { projectId?: string; sessionId?: string; refreshTrigger?: number }) {
   const [files, setFiles] = createSignal<GitFile[]>([]);
   const [repository, setRepository] = createSignal<GitRepositoryInfo>();
   const [commits, setCommits] = createSignal<GitCommit[]>([]);
@@ -17,7 +17,10 @@ export default function GitTab(props: { projectId?: string; refreshTrigger?: num
   const [busy, setBusy] = createSignal(false);
   const [syncOperation, setSyncOperation] = createSignal<'pull' | 'push' | null>(null);
   const [error, setError] = createSignal('');
-  const [message, setMessage] = createSignal(getGitCommitDraft(props.projectId));
+  const draftId = () => props.sessionId || props.projectId;
+  const [message, setMessage] = createSignal(getGitCommitDraft(draftId()));
+  const sessionQuery = () => props.sessionId ? `?sessionId=${encodeURIComponent(props.sessionId)}` : '';
+  const withSession = (path: string) => `${path}${path.includes('?') ? '&' : '?'}${sessionQuery().slice(1)}`.replace(/[?&]$/, '');
   const [expanded, setExpanded] = createSignal<Record<string, boolean>>({});
   const [collapsed, setCollapsed] = createSignal({ branch: true, history: true, staged: false, unstaged: false });
   const stagedFiles = createMemo(() => files().filter((file) => file.index !== ' ' && file.index !== '?'));
@@ -37,7 +40,7 @@ export default function GitTab(props: { projectId?: string; refreshTrigger?: num
     setError('');
     try {
       if (fetchRemote) {
-        const fetchRes = await fetch(`/api/projects/${encodeURIComponent(projectId)}/git/fetch`, {
+        const fetchRes = await fetch(withSession(`/api/projects/${encodeURIComponent(projectId)}/git/fetch`), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: '{}',
@@ -48,9 +51,9 @@ export default function GitTab(props: { projectId?: string; refreshTrigger?: num
       }
       const requestOptions: RequestInit = { cache: 'no-store' };
       const [statusRes, logRes, divergenceRes] = await Promise.all([
-        fetch(`/api/projects/${encodeURIComponent(projectId)}/git/status`, requestOptions),
-        fetch(`/api/projects/${encodeURIComponent(projectId)}/git/log?limit=30`, requestOptions),
-        fetch(`/api/projects/${encodeURIComponent(projectId)}/git/divergence?limit=30`, requestOptions),
+        fetch(withSession(`/api/projects/${encodeURIComponent(projectId)}/git/status`), requestOptions),
+        fetch(withSession(`/api/projects/${encodeURIComponent(projectId)}/git/log?limit=30`), requestOptions),
+        fetch(withSession(`/api/projects/${encodeURIComponent(projectId)}/git/divergence?limit=30`), requestOptions),
       ]);
       const [data, logData, divergenceData] = await Promise.all([statusRes.json(), logRes.json(), divergenceRes.json()]);
       if (!statusRes.ok) throw new Error(data.error || 'Failed to load git status');
@@ -95,7 +98,7 @@ export default function GitTab(props: { projectId?: string; refreshTrigger?: num
     setBusy(true);
     setError('');
     try {
-      const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/git/${url}`, {
+      const res = await fetch(withSession(`/api/projects/${encodeURIComponent(projectId)}/git/${url}`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -115,7 +118,7 @@ export default function GitTab(props: { projectId?: string; refreshTrigger?: num
 
   const updateMessage = (value: string) => {
     setMessage(value);
-    setGitCommitDraft(props.projectId, value);
+    setGitCommitDraft(draftId(), value);
   };
 
   const commit = async () => {
@@ -125,7 +128,8 @@ export default function GitTab(props: { projectId?: string; refreshTrigger?: num
   createEffect(() => {
     const projectId = props.projectId;
     setExpanded({});
-    setMessage(getGitCommitDraft(projectId));
+    void props.sessionId;
+    setMessage(getGitCommitDraft(draftId()));
     setFiles([]);
     setRepository(undefined);
     setCommits([]);

@@ -69,6 +69,48 @@
   background: var(--danger);
 }
 
+/* New-chat checkout controls. A branch is a base for a new isolated
+   worktree; the unchecked state intentionally leaves the current checkout alone. */
+.worktree-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.worktree-toggle input {
+  accent-color: var(--accent);
+}
+
+.branch-selector {
+  max-width: min(300px, 38vw);
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+.branch-selector.disabled {
+  opacity: 0.4;
+}
+
+.worktree-unavailable {
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  opacity: 0.65;
+}
+
+.session-branch {
+  display: inline-block;
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--accent);
+  font-size: 0.65rem;
+}
+
 /* Session bar above the composer: project label + whole-session diff stats. */
 .composer-session-bar {
   display: flex;

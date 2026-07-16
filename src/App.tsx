@@ -74,6 +74,10 @@ function App() {
         refreshTrigger={refreshSidebar()}
         draftSessions={draftSessions()}
         onProjectsChanged={() => setProjectRefresh(r => r + 1)}
+        onSessionDetached={(id) => {
+          if (activeSessionId() === id) setActiveSessionId(undefined);
+          setRefreshSidebar((value) => value + 1);
+        }}
         onOpenSettings={() => {
           setShowSettings(true);
           setSidebarOpen(false);
@@ -96,10 +100,12 @@ function App() {
         activeProjectId={activeProjectId()}
         onSelectProject={setActiveProjectId}
         projectRefreshTrigger={projectRefresh()}
-        onSessionCreated={(newId, newProjectId, firstMessage) => {
+        onSessionCreated={(newId, newProjectId, firstMessage, sessionMeta) => {
           setDraftSessions((prev) => [...prev, {
             id: newId,
             projectId: newProjectId,
+            branch: sessionMeta?.branch,
+            worktree: sessionMeta?.worktree,
             firstMessage: firstMessage || '',
             createdAt: new Date().toISOString(),
           }]);

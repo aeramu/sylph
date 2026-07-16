@@ -17,6 +17,9 @@ interface SessionInfo {
   messageCount: number;
   firstMessage: string;
   status?: SessionStatus;
+  branch?: string;
+  worktree?: boolean;
+  worktreeMissing?: boolean;
 }
 
 const SESSION_PREVIEW_COUNT = 5;
@@ -71,6 +74,7 @@ function ProjectItem(props: {
   onSelectProject: (id?: string) => void,
   onNewChat: () => void,
   onDelete: () => void,
+  onSessionDetached: (id: string) => void,
   refreshTrigger: number,
   draftSessions: DraftSession[]
 }) {
@@ -126,10 +130,40 @@ function ProjectItem(props: {
           modified: draft.createdAt,
           messageCount: 1,
           firstMessage: draft.firstMessage,
+          branch: draft.branch,
+          worktree: draft.worktree,
         });
       }
     }
     return list;
+  };
+
+  const handleWorktreeAction = async (session: SessionInfo) => {
+    try {
+      if (session.worktreeMissing) {
+        const res = await fetch(`/api/sessions/${encodeURIComponent(session.id)}/worktree/recreate`, { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to recreate worktree');
+        await refetch();
+        props.onSelectProject(props.project.id);
+        props.onSelectSession(session.id);
+        return;
+      }
+
+      if (!confirm(`Remove the worktree for ${session.branch || 'this session'}?\n\nThe chat history and branch will be kept.`)) return;
+      let res = await fetch(`/api/sessions/${encodeURIComponent(session.id)}/worktree`, { method: 'DELETE' });
+      let data = await res.json();
+      if (res.status === 409 && data.code === 'unmerged') {
+        if (!confirm(`${data.branch || session.branch} is not merged into its base branch.\n\nRemove the clean worktree anyway? The branch will be kept.`)) return;
+        res = await fetch(`/api/sessions/${encodeURIComponent(session.id)}/worktree?confirmUnmerged=true`, { method: 'DELETE' });
+        data = await res.json();
+      }
+      if (!res.ok) throw new Error(data.error || 'Failed to remove worktree');
+      props.onSessionDetached(session.id);
+      await refetch();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Worktree operation failed');
+    }
   };
 
   const visibleSessions = () => {
@@ -186,6 +220,10 @@ function ProjectItem(props: {
               <div
                 class={`session-item ${props.activeSessionId === session.id ? 'active' : ''}`}
                 onClick={() => {
+                  if (session.worktreeMissing) {
+                    void handleWorktreeAction(session);
+                    return;
+                  }
                   // Opening an errored session acknowledges the error badge.
                   if (sessionStatuses[session.id] === 'error') {
                     setSessionStatus(session.id, undefined);
@@ -198,7 +236,11 @@ function ProjectItem(props: {
                   {session.name || session.firstMessage || 'Empty Chat'}
                 </div>
                 <div class="session-meta">
-                  <Switch fallback={formatRelativeTime(session.modified)}>
+                  <Switch fallback={session.worktreeMissing
+                    ? <span class="session-worktree-missing">Missing</span>
+                    : session.branch
+                      ? <span class="session-branch" title={session.branch}>{session.branch}</span>
+                      : formatRelativeTime(session.modified)}>
                     <Match when={sessionStatuses[session.id] === 'working'}>
                       <span class="session-typing" title="Working…">
                         <span class="session-typing-dot" />
@@ -225,6 +267,30 @@ function ProjectItem(props: {
                       </span>
                     </Match>
                   </Switch>
+                  <Show when={session.worktree}>
+                    <button
+                      class={`session-worktree-action ${session.worktreeMissing ? 'recreate' : ''}`}
+                      title={session.worktreeMissing ? 'Recreate worktree' : 'Remove worktree'}
+                      aria-label={session.worktreeMissing ? 'Recreate worktree' : 'Remove worktree'}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void handleWorktreeAction(session);
+                      }}
+                    >
+                      <Show when={session.worktreeMissing} fallback={
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <polyline points="3 6 5 6 21 6"></polyline>
+                          <path d="M19 6l-1 14H6L5 6"></path>
+                          <path d="M8 6V4h8v2"></path>
+                        </svg>
+                      }>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <polyline points="23 4 23 10 17 10"></polyline>
+                          <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                        </svg>
+                      </Show>
+                    </button>
+                  </Show>
                 </div>
               </div>
             )}
@@ -251,6 +317,7 @@ export default function SessionSidebar(props: {
   refreshTrigger: number,
   draftSessions: DraftSession[]
   onProjectsChanged?: () => void,
+  onSessionDetached: (id: string) => void,
   onOpenSettings: () => void,
   onToggleSidebar: () => void,
 }) {
@@ -309,6 +376,7 @@ export default function SessionSidebar(props: {
                 props.onSelectSession(undefined);
               }}
               onDelete={() => handleDeleteProject(proj.id)}
+              onSessionDetached={props.onSessionDetached}
               refreshTrigger={props.refreshTrigger}
               draftSessions={props.draftSessions.filter(d => d.projectId === proj.id)}
             />

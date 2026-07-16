@@ -12,7 +12,11 @@ interface MentionResponse {
   files?: FileMentionInfo[];
 }
 
-export function createMentionSearch(mention: Accessor<ActiveMention | null>, projectId: Accessor<string | undefined>) {
+export function createMentionSearch(
+  mention: Accessor<ActiveMention | null>,
+  projectId: Accessor<string | undefined>,
+  sessionId: Accessor<string | undefined> = () => undefined,
+) {
   const [results, setResults] = createSignal<FileMentionInfo[]>([]);
   const [loading, setLoading] = createSignal(false);
   let suppressNextRequest = false;
@@ -20,6 +24,7 @@ export function createMentionSearch(mention: Accessor<ActiveMention | null>, pro
   createEffect(() => {
     const activeMention = mention();
     const activeProjectId = projectId();
+    const activeSessionId = sessionId();
     if (!activeMention || !activeProjectId) {
       setResults([]);
       setLoading(false);
@@ -34,6 +39,7 @@ export function createMentionSearch(mention: Accessor<ActiveMention | null>, pro
     setLoading(true);
     const timer = window.setTimeout(() => {
       const query = new URLSearchParams({ projectId: activeProjectId, q: activeMention.query });
+      if (activeSessionId) query.set('sessionId', activeSessionId);
       api<MentionResponse>(`/api/fs/files?${query}`, { signal: controller.signal })
         .then((data) => setResults(data.files || []))
         .catch((error) => {

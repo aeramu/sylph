@@ -8,7 +8,7 @@ import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { getProjects, saveProjects, getProjectById, type Project } from "./projects.ts";
 import { addClient, removeClient } from "./sse.ts";
 import { resolveUiRequest, getPendingUiRequests, getSessionStatuses } from "./uiBridge.ts";
-import { getActiveRuntime, getOrInitRuntime, getIntrospectionRuntime, touchRuntime, getContextInfo, getSessionEventSequence } from "./runtimes.ts";
+import { disposeRuntime, getActiveRuntime, getOrInitRuntime, getIntrospectionRuntime, rollbackNewWorktreeSession, touchRuntime, getContextInfo, getSessionEventSequence } from "./runtimes.ts";
 import { authStorage, modelRegistry, refreshAuthState } from "./auth.ts";
 import { reconstructInterruptedQuestion, resumeInterruptedQuestion } from "./interruptedQuestions.ts";
 import { walkProject, resolveMentionsInPrompt, fuzzyPathScore, MENTION_MAX_RESULTS, type MentionEntry } from "./mentions.ts";
@@ -17,6 +17,9 @@ import { startOAuthLogin, getSerializedOAuthFlow, respondToOAuthFlow, cancelOAut
 import { createGitRouter } from "./gitRoutes.ts";
 import { findAvailableModel, isSameModel } from "./modelSelection.ts";
 import { getAgentBrowserDashboardStatus, startAgentBrowserDashboard } from "./agentBrowserDashboard.ts";
+import { getManagedWorktreeRemovalStatus, listGitBranches, recreateManagedWorktree, removeManagedWorktree } from "./git.ts";
+import { getProjectSessionBindings, getSessionBinding } from "./sessionBindings.ts";
+import { WORKTREES_DIR } from "./config.ts";
 
 function handleError(res: express.Response, err: any) {
   console.error(err);
@@ -342,10 +345,15 @@ export function createRouter(): express.Router {
     try {
       const project = getProjectById(req.query.projectId);
       if (!project) return res.status(404).json({ error: "Project not found" });
-      if (!fs.existsSync(project.path)) return res.status(404).json({ error: "Project path not found" });
+      const binding = getSessionBinding(req.query.sessionId);
+      if (binding && binding.projectId !== project.id) {
+        return res.status(400).json({ error: "Session does not belong to this project" });
+      }
+      const mentionProject = binding ? { ...project, path: binding.cwd } : project;
+      if (!fs.existsSync(mentionProject.path)) return res.status(404).json({ error: "Project path not found" });
 
       const query = typeof req.query.q === "string" ? req.query.q : "";
-      const entries = await walkProject(project);
+      const entries = await walkProject(mentionProject);
       const scored = entries
         .map((entry) => ({ entry, score: fuzzyPathScore(query, entry.path) }))
         .filter((x): x is { entry: MentionEntry; score: number } => x.score !== null)
@@ -388,37 +396,128 @@ export function createRouter(): express.Router {
     try {
       const projectId = req.query.projectId as string;
       let targetDir = process.cwd();
+      let bindings = [] as ReturnType<typeof getProjectSessionBindings>;
 
       if (projectId) {
-        const proj = getProjects().find(p => p.id === projectId);
-        if (!proj) {
-          return res.status(404).json({ error: "Project not found" });
-        }
-        targetDir = proj.path;
+        const project = getProjects().find((entry) => entry.id === projectId);
+        if (!project) return res.status(404).json({ error: "Project not found" });
+        targetDir = project.path;
+        bindings = getProjectSessionBindings(projectId);
       }
 
-      if (!fs.existsSync(targetDir)) {
-        return res.json({ sessions: [] });
+      const directories = new Set<string>([targetDir]);
+      for (const binding of bindings) if (fs.existsSync(binding.cwd)) directories.add(binding.cwd);
+      const byId = new Map<string, any>();
+      for (const directory of directories) {
+        if (!fs.existsSync(directory)) continue;
+        try {
+          for (const session of await SessionManager.list(directory)) byId.set(session.id, session);
+        } catch { /* an unavailable worktree must not hide the rest */ }
+      }
+      // A removed worktree's pi session file lives outside the checkout and is
+      // still valid. Load it directly so the sidebar can offer Recreate.
+      for (const binding of bindings) {
+        if (byId.has(binding.sessionId) || !binding.sessionFile || !fs.existsSync(binding.sessionFile)) continue;
+        try {
+          const detached = SessionManager.open(binding.sessionFile);
+          const info = (await SessionManager.list(binding.cwd, path.dirname(binding.sessionFile)))
+            .find((entry) => entry.id === binding.sessionId);
+          if (info) byId.set(info.id, info);
+          else if (detached.getSessionId() === binding.sessionId) {
+            const header = detached.getHeader();
+            byId.set(binding.sessionId, {
+              id: binding.sessionId,
+              path: binding.sessionFile,
+              cwd: binding.cwd,
+              created: new Date(header?.timestamp || 0),
+              modified: fs.statSync(binding.sessionFile).mtime,
+              messageCount: detached.buildSessionContext().messages.length,
+              firstMessage: "Worktree session",
+              allMessagesText: "",
+            });
+          }
+        } catch { /* malformed session binding */ }
       }
 
-      const sessions = await SessionManager.list(targetDir);
-      sessions.sort((a, b) => new Date(b.modified).getTime() - new Date(a.modified).getTime());
-      // Attach live status so a page loaded mid-turn can badge sessions whose
-      // SSE events it never saw. Errors are client-side only (they live in
-      // the event stream, not the runtime), so 'error' is never reported here.
-      res.json({
-        sessions: sessions.map((s) => {
-          const status = getPendingUiRequests(s.id).length > 0
+      const bindingById = new Map(bindings.map((binding) => [binding.sessionId, binding]));
+      const sessions = Array.from(byId.values())
+        .filter((session) => !projectId || !bindingById.has(session.id) || bindingById.get(session.id)?.projectId === projectId)
+        .map((session) => {
+          const binding = bindingById.get(session.id);
+          const status = getPendingUiRequests(session.id).length > 0
             ? "needsInput"
-            : getActiveRuntime(s.id)?.session?.isStreaming
+            : getActiveRuntime(session.id)?.session?.isStreaming
               ? "working"
               : undefined;
-          return status ? { ...s, status } : s;
-        }),
-      });
+          return {
+            ...session,
+            ...(status ? { status } : {}),
+            ...(binding?.branch ? { branch: binding.branch } : {}),
+            ...(binding?.worktree ? { worktree: true, worktreeMissing: !fs.existsSync(binding.cwd) } : {}),
+          };
+        })
+        .sort((a, b) => new Date(b.modified).getTime() - new Date(a.modified).getTime());
+
+      res.json({ sessions });
     } catch (err) {
       handleError(res, err);
     }
+  });
+
+  router.get("/api/sessions/:sessionId/worktree", async (req, res) => {
+    const binding = getSessionBinding(req.params.sessionId);
+    if (!binding?.worktree || !binding.managedWorktreeRoot || !binding.branch || !binding.baseBranch) {
+      return res.status(404).json({ error: "Managed worktree not found" });
+    }
+    const project = getProjectById(binding.projectId);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+    try {
+      const status = await getManagedWorktreeRemovalStatus(
+        project, binding.managedWorktreeRoot, binding.branch, binding.baseBranch, WORKTREES_DIR,
+      );
+      res.json({ ...status, cwd: binding.cwd, worktreeRoot: binding.managedWorktreeRoot, baseBranch: binding.baseBranch });
+    } catch (err) { handleError(res, err); }
+  });
+
+  router.delete("/api/sessions/:sessionId/worktree", async (req, res) => {
+    const { sessionId } = req.params;
+    const binding = getSessionBinding(sessionId);
+    if (!binding?.worktree || !binding.managedWorktreeRoot || !binding.branch || !binding.baseBranch) {
+      return res.status(404).json({ error: "Managed worktree not found" });
+    }
+    const project = getProjectById(binding.projectId);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+    const runtime = getActiveRuntime(sessionId);
+    if (runtime?.session?.isStreaming) return res.status(409).json({ error: "Stop the session before removing its worktree" });
+    try {
+      const status = await getManagedWorktreeRemovalStatus(
+        project, binding.managedWorktreeRoot, binding.branch, binding.baseBranch, WORKTREES_DIR,
+      );
+      if (status.dirty) return res.status(409).json({ error: "Worktree has uncommitted changes; commit or discard them before removal", code: "dirty" });
+      if (!status.merged && req.query.confirmUnmerged !== "true") {
+        return res.status(409).json({ error: "Branch is not merged into its base branch", code: "unmerged", branch: status.branch });
+      }
+      await removeManagedWorktree(
+        project, binding.managedWorktreeRoot, binding.branch, binding.baseBranch, WORKTREES_DIR,
+      );
+      disposeRuntime(sessionId);
+      res.json({ success: true, branch: binding.branch, branchKept: true });
+    } catch (err) { handleError(res, err); }
+  });
+
+  router.post("/api/sessions/:sessionId/worktree/recreate", async (req, res) => {
+    const binding = getSessionBinding(req.params.sessionId);
+    if (!binding?.worktree || !binding.managedWorktreeRoot || !binding.branch) {
+      return res.status(404).json({ error: "Managed worktree not found" });
+    }
+    const project = getProjectById(binding.projectId);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+    try {
+      await recreateManagedWorktree(
+        project, binding.managedWorktreeRoot, binding.cwd, binding.branch, WORKTREES_DIR,
+      );
+      res.json({ success: true, branch: binding.branch, cwd: binding.cwd });
+    } catch (err) { handleError(res, err); }
   });
 
   router.get("/api/sessions/:sessionId", async (req, res) => {
@@ -450,6 +549,7 @@ export function createRouter(): express.Router {
         // Seed for the composer's context-window indicator; kept fresh after
         // load by the context snapshots attached to SSE events.
         context: getContextInfo(runtime.session),
+        binding: getSessionBinding(sessionId),
       });
     } catch (err) {
       handleError(res, err);
@@ -564,23 +664,43 @@ export function createRouter(): express.Router {
     }
   });
 
+  router.get("/api/projects/:id/git/branches", async (req, res) => {
+    const project = getProjectById(req.params.id);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+    try {
+      res.json({ branches: await listGitBranches(project) });
+    } catch (err) {
+      handleError(res, err);
+    }
+  });
+
   router.use(createGitRouter());
 
   router.post("/api/chat", async (req, res) => {
-    const { sessionId, prompt, mentionText, projectId, modelId, thinkingLevel, images } = req.body;
+    const { sessionId, prompt, mentionText, projectId, modelId, thinkingLevel, images, useWorktree, baseBranch } = req.body;
     if (!prompt) {
       return res.status(400).json({ error: "prompt is required" });
     }
 
+    let newWorktreeSessionId: string | undefined;
     try {
-      const runtime = await getOrInitRuntime(sessionId, projectId);
+      if (!sessionId && useWorktree && (typeof baseBranch !== "string" || !baseBranch.trim())) {
+        return res.status(400).json({ error: "baseBranch is required when useWorktree is enabled" });
+      }
+      const runtime = await getOrInitRuntime(sessionId, projectId, {
+        useWorktree: !sessionId && useWorktree === true,
+        baseBranch: typeof baseBranch === "string" ? baseBranch.trim() : undefined,
+        branchPrompt: typeof mentionText === "string" ? mentionText : prompt,
+      });
       const resolvedSessionId = runtime.session.sessionId;
+      if (!sessionId && useWorktree === true) newWorktreeSessionId = resolvedSessionId;
       touchRuntime(resolvedSessionId);
 
       if (modelId) {
         const available = runtime.session.modelRegistry.getAvailable();
         const targetModel = findAvailableModel(available, modelId);
         if (!targetModel) {
+          if (!sessionId && useWorktree === true) await rollbackNewWorktreeSession(resolvedSessionId);
           return res.status(400).json({ error: `Unknown or unavailable model: ${modelId}` });
         }
         if (!isSameModel(runtime.session.model, targetModel)) {
@@ -590,10 +710,12 @@ export function createRouter(): express.Router {
 
       if (thinkingLevel !== undefined) {
         if (typeof thinkingLevel !== "string") {
+          if (!sessionId && useWorktree === true) await rollbackNewWorktreeSession(resolvedSessionId);
           return res.status(400).json({ error: "thinkingLevel must be a string" });
         }
         const availableThinkingLevels = runtime.session.getAvailableThinkingLevels();
         if (!availableThinkingLevels.includes(thinkingLevel)) {
+          if (!sessionId && useWorktree === true) await rollbackNewWorktreeSession(resolvedSessionId);
           return res.status(400).json({
             error: `Thinking level ${thinkingLevel} is not supported by ${runtime.session.model?.id || "the selected model"}`,
             availableThinkingLevels,
@@ -603,8 +725,15 @@ export function createRouter(): express.Router {
       }
 
       const projects = getProjects();
-      const resolvedProject = projects.find(p => p.path === runtime.session.cwd);
-      const mentionProject = getProjectById(projectId) || resolvedProject;
+      const binding = getSessionBinding(resolvedSessionId);
+      const resolvedProject = (binding ? projects.find((entry) => entry.id === binding.projectId) : undefined)
+        || projects.find((entry) => path.resolve(entry.path) === path.resolve(runtime.session.cwd));
+      // Mentions must resolve inside the checkout used by this session. Using
+      // the saved project's main path here would quietly feed the model stale
+      // files while it edits the worktree.
+      const mentionProject = resolvedProject
+        ? { ...resolvedProject, path: runtime.session.cwd }
+        : undefined;
       // Scan only the user-typed text for @mentions when the client provides it,
       // so mentions inside inlined file attachments aren't resolved as well.
       const mentionSource = typeof mentionText === "string" ? mentionText : prompt;
@@ -622,8 +751,18 @@ export function createRouter(): express.Router {
         });
       }
 
-      res.json({ success: true, sessionId: resolvedSessionId, projectId: resolvedProject?.id });
+      res.json({
+        success: true,
+        sessionId: resolvedSessionId,
+        projectId: resolvedProject?.id,
+        branch: binding?.branch,
+        worktree: binding?.worktree,
+      });
     } catch (err) {
+      if (newWorktreeSessionId) {
+        await rollbackNewWorktreeSession(newWorktreeSessionId)
+          .catch((rollbackError) => console.error("Failed to roll back new worktree session:", rollbackError));
+      }
       handleError(res, err);
     }
   });

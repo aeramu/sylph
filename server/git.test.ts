@@ -3,7 +3,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { spawnSync } from "child_process";
-import { applyToIndex, commit, fetchRemote, getGitDivergence, getGitLog, getGitStatus, pull, push, stageAll, stageFile, unstageAll, unstageFile } from "./git.ts";
+import { applyToIndex, commit, createManagedWorktree, fetchRemote, getGitDivergence, getGitLog, getGitStatus, getManagedWorktreeRemovalStatus, listGitBranches, recreateManagedWorktree, removeManagedWorktree, pull, push, stageAll, stageFile, unstageAll, unstageFile, worktreeBranchName } from "./git.ts";
 import type { Project } from "./projects.ts";
 
 const directories: string[] = [];
@@ -35,6 +35,64 @@ function write(root: string, filePath: string, content: string | Buffer) {
 }
 
 describe("Git tab backend", () => {
+  it("lists branches and creates an isolated managed worktree", async () => {
+    const { root, project } = repository();
+    write(root, "file.txt", "base\n");
+    git(root, "add", ".");
+    git(root, "commit", "-qm", "initial");
+    git(root, "branch", "feature-base");
+
+    const branches = await listGitBranches(project);
+    expect(branches.map((branch) => branch.name)).toContain("feature-base");
+    expect(branches.find((branch) => branch.current)?.name).toBe(git(root, "branch", "--show-current").trim());
+
+    const worktreePath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "sylph-worktree-parent-")), "checkout");
+    directories.push(path.dirname(worktreePath));
+    const branch = worktreeBranchName("Fix auth callback!", "ABC-123-XYZ");
+    const worktree = await createManagedWorktree(project, worktreePath, "feature-base", branch);
+    expect(worktree.branch).toBe("sylph/fix-auth-callback-abc123xy");
+    expect(worktree.worktreeRoot).toBe(worktreePath);
+    expect(git(worktreePath, "branch", "--show-current").trim()).toBe(branch);
+    write(worktreePath, "file.txt", "worktree\n");
+    expect(fs.readFileSync(path.join(root, "file.txt"), "utf-8")).toBe("base\n");
+  });
+
+  it("refuses dirty worktree removal and can remove then recreate a clean worktree", async () => {
+    const { root, project } = repository();
+    write(root, "file.txt", "base\n");
+    git(root, "add", ".");
+    git(root, "commit", "-qm", "initial");
+    const baseBranch = git(root, "branch", "--show-current").trim();
+    const managedRoot = fs.mkdtempSync(path.join(os.tmpdir(), "sylph-managed-worktrees-"));
+    directories.push(managedRoot);
+    const worktreePath = path.join(managedRoot, "checkout");
+    const branch = "sylph/remove-recreate-test";
+    const worktree = await createManagedWorktree(project, worktreePath, baseBranch, branch);
+
+    write(worktree.path, "dirty.txt", "dirty\n");
+    await expect(removeManagedWorktree(project, worktree.worktreeRoot, branch, baseBranch, managedRoot))
+      .rejects.toThrow(/uncommitted changes/);
+    fs.rmSync(path.join(worktree.path, "dirty.txt"));
+    expect(await getManagedWorktreeRemovalStatus(project, worktree.worktreeRoot, branch, baseBranch, managedRoot))
+      .toMatchObject({ exists: true, dirty: false, merged: true });
+
+    await removeManagedWorktree(project, worktree.worktreeRoot, branch, baseBranch, managedRoot);
+    expect(fs.existsSync(worktree.worktreeRoot)).toBe(false);
+    expect(git(root, "show-ref", "--verify", `refs/heads/${branch}`).trim()).not.toBe("");
+    await recreateManagedWorktree(project, worktree.worktreeRoot, worktree.path, branch, managedRoot);
+    expect(git(worktree.path, "branch", "--show-current").trim()).toBe(branch);
+  });
+
+  it("rejects managed worktree operations outside the configured root", async () => {
+    const { root, project } = repository();
+    write(root, "file.txt", "base\n");
+    git(root, "add", ".");
+    git(root, "commit", "-qm", "initial");
+    const baseBranch = git(root, "branch", "--show-current").trim();
+    await expect(getManagedWorktreeRemovalStatus(project, root, "sylph/nope", baseBranch, path.join(root, "managed")))
+      .rejects.toThrow(/outside Sylph/);
+  });
+
   it("treats fetching without a configured upstream as a no-op", async () => {
     const { project } = repository();
     await expect(fetchRemote(project)).resolves.toBeUndefined();

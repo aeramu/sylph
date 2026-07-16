@@ -25,6 +25,7 @@ interface CustomSelectProps {
   searchable?: boolean;
   searchPlaceholder?: string;
   noOptionsText?: string;
+  disabled?: boolean;
   groupBy?: (option: CustomSelectOption) => string | undefined;
   api?: (api: CustomSelectApi) => void;
 }
@@ -234,9 +235,10 @@ export default function CustomSelect(props: CustomSelectProps) {
       <button
         ref={triggerRef}
         class={`custom-select-trigger ${props.triggerClass || ''}`}
-        onClick={() => setIsOpen(!isOpen())}
+        onClick={() => !props.disabled && setIsOpen(!isOpen())}
         onKeyDown={handleKeyNav}
         type="button"
+        disabled={props.disabled}
       >
         {selectedOption()?.icon && renderIcon(selectedOption()?.icon)}
         <span class="custom-select-label">

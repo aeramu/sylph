@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { randomUUID } from "crypto";
 import { fileURLToPath } from "url";
 import {
   createAgentSessionRuntime,
@@ -12,9 +13,11 @@ import type {
   CreateAgentSessionRuntimeFactory,
   AgentSessionEvent
 } from "@earendil-works/pi-coding-agent";
-import { RUNTIME_IDLE_MS, EVICTION_INTERVAL_MS } from "./config.ts";
+import { RUNTIME_IDLE_MS, EVICTION_INTERVAL_MS, WORKTREES_DIR } from "./config.ts";
 import { authStorage, modelRegistry } from "./auth.ts";
 import { getProjects } from "./projects.ts";
+import { createManagedWorktree, discardManagedWorktree, worktreeBranchName } from "./git.ts";
+import { deleteSessionBinding, getSessionBinding, saveSessionBinding } from "./sessionBindings.ts";
 import { broadcast } from "./sse.ts";
 import { clearSessionStatuses, createExtensionUiContext, rejectPendingForSession } from "./uiBridge.ts";
 
@@ -123,50 +126,160 @@ export function getActiveRuntime(sessionId: string) {
   return activeRuntimes.get(sessionId)?.runtime;
 }
 
+export function disposeRuntime(sessionId: string) {
+  const entry = activeRuntimes.get(sessionId);
+  if (!entry) return;
+  activeRuntimes.delete(sessionId);
+  sessionEventSequences.delete(sessionId);
+  rejectPendingForSession(sessionId, "session worktree removed");
+  clearSessionStatuses(sessionId);
+  try { entry.runtime?.dispose?.(); } catch (error) { console.error(`Failed to dispose runtime ${sessionId}:`, error); }
+}
+
+export async function rollbackNewWorktreeSession(sessionId: string) {
+  const binding = getSessionBinding(sessionId);
+  if (!binding?.worktree || !binding.managedWorktreeRoot || !binding.branch || !binding.baseBranch) return;
+  disposeRuntime(sessionId);
+  const project = getProjects().find((entry) => entry.id === binding.projectId);
+  if (project) {
+    await discardManagedWorktree(project, {
+      path: binding.cwd,
+      worktreeRoot: binding.managedWorktreeRoot,
+      branch: binding.branch,
+      baseBranch: binding.baseBranch,
+    }, WORKTREES_DIR);
+  }
+  if (binding.sessionFile) fs.rmSync(binding.sessionFile, { force: true });
+  deleteSessionBinding(sessionId);
+}
+
 export function getSessionEventSequence(sessionId: string) {
   return sessionEventSequences.get(sessionId) ?? 0;
 }
 
 // Build a runtime and wire up its SSE broadcast. Does not touch activeRuntimes;
 // registration (and dedup) is the caller's responsibility.
+export interface NewSessionOptions {
+  useWorktree?: boolean;
+  baseBranch?: string;
+  branchPrompt?: string;
+}
+
 async function buildSessionRuntime(
   sessionId: string | undefined,
   projectId: string | undefined,
+  options: NewSessionOptions = {},
 ): Promise<{ runtime: any; resolvedSessionId: string }> {
   const projects = getProjects();
   let sessionManager: any;
   let targetCwd = process.cwd();
 
   if (sessionId) {
-    // Resume: locate the session in a known project (or the server cwd).
-    const searchDirs = [
-      ...projects.filter(p => fs.existsSync(p.path)).map(p => p.path),
-      process.cwd(),
-    ];
-    for (const dir of searchDirs) {
-      try {
-        const sessions = await SessionManager.list(dir);
-        const sessionInfo = sessions.find((s) => s.id === sessionId);
-        if (sessionInfo) {
-          sessionManager = SessionManager.open(sessionInfo.path);
-          targetCwd = dir;
-          break;
-        }
-      } catch { /* ignore unreadable dirs */ }
+    // New Sylph sessions have a direct cwd/session-file binding. Legacy
+    // sessions fall back to scanning project roots and are bound on resume.
+    const binding = getSessionBinding(sessionId);
+    if (binding) {
+      if (!fs.existsSync(binding.cwd)) throw new Error(`Session working directory no longer exists: ${binding.cwd}`);
+      targetCwd = binding.cwd;
+      if (binding.sessionFile && fs.existsSync(binding.sessionFile)) {
+        sessionManager = SessionManager.open(binding.sessionFile);
+      } else {
+        const sessionInfo = (await SessionManager.list(targetCwd)).find((entry) => entry.id === sessionId);
+        if (sessionInfo) sessionManager = SessionManager.open(sessionInfo.path);
+      }
     }
+
     if (!sessionManager) {
-      throw new Error(`Session ${sessionId} not found in any project`);
+      const searchDirs = [
+        ...projects.filter(p => fs.existsSync(p.path)).map(p => p.path),
+        process.cwd(),
+      ];
+      for (const dir of searchDirs) {
+        try {
+          const sessions = await SessionManager.list(dir);
+          const sessionInfo = sessions.find((entry) => entry.id === sessionId);
+          if (sessionInfo) {
+            sessionManager = SessionManager.open(sessionInfo.path);
+            targetCwd = dir;
+            const project = projects.find((entry) => path.resolve(entry.path) === path.resolve(dir));
+            if (project) {
+              saveSessionBinding({ sessionId, projectId: project.id, cwd: dir, sessionFile: sessionInfo.path });
+            }
+            break;
+          }
+        } catch { /* ignore unreadable dirs */ }
+      }
     }
+    if (!sessionManager) throw new Error(`Session ${sessionId} not found in any project`);
   } else {
-    // New session.
-    const proj = projectId ? projects.find(p => p.id === projectId) : undefined;
-    if (proj) targetCwd = proj.path;
-    sessionManager = SessionManager.create(targetCwd);
+    const project = projectId ? projects.find((entry) => entry.id === projectId) : undefined;
+    if (project) targetCwd = project.path;
+
+    let worktree: Awaited<ReturnType<typeof createManagedWorktree>> | undefined;
+    if (options.useWorktree) {
+      if (!project) throw new Error("Select a project before creating a worktree");
+      if (!options.baseBranch) throw new Error("Select a base branch for the worktree");
+      const worktreeKey = randomUUID();
+      worktree = await createManagedWorktree(
+        project,
+        path.join(WORKTREES_DIR, project.id, worktreeKey),
+        options.baseBranch,
+        worktreeBranchName(options.branchPrompt || "chat", worktreeKey),
+      );
+      targetCwd = worktree.path;
+    }
+
+    try {
+      sessionManager = SessionManager.create(targetCwd);
+      const resolvedSessionId = sessionManager.getSessionId();
+      if (project) {
+        saveSessionBinding({
+          sessionId: resolvedSessionId,
+          projectId: project.id,
+          cwd: targetCwd,
+          sessionFile: sessionManager.getSessionFile?.(),
+          branch: worktree?.branch,
+          baseBranch: worktree?.baseBranch,
+          worktree: !!worktree,
+          managedWorktreeRoot: worktree?.worktreeRoot,
+        });
+      }
+    } catch (error) {
+      if (project && worktree) await discardManagedWorktree(project, worktree, WORKTREES_DIR);
+      throw error;
+    }
   }
 
-  const runtime = await buildRuntime(sessionManager, targetCwd, {
-    uiContext: createExtensionUiContext(sessionManager.getSessionId()),
-  });
+  let runtime: any;
+  try {
+    runtime = await buildRuntime(sessionManager, targetCwd, {
+      uiContext: createExtensionUiContext(sessionManager.getSessionId()),
+    });
+  } catch (error) {
+    // A newly-created worktree is not useful without a runtime. Roll back its
+    // checkout, generated branch, and Sylph binding atomically.
+    const binding = !sessionId ? getSessionBinding(sessionManager?.getSessionId?.()) : undefined;
+    if (!sessionId && binding?.worktree && binding.managedWorktreeRoot && binding.branch && binding.baseBranch) {
+      const project = projects.find((entry) => entry.id === binding.projectId);
+      if (project) {
+        await discardManagedWorktree(project, {
+          path: binding.cwd,
+          worktreeRoot: binding.managedWorktreeRoot,
+          branch: binding.branch,
+          baseBranch: binding.baseBranch,
+        }, WORKTREES_DIR).catch((rollbackError) => console.error("Failed to roll back worktree:", rollbackError));
+      }
+      if (binding.sessionFile) fs.rmSync(binding.sessionFile, { force: true });
+      deleteSessionBinding(binding.sessionId);
+    }
+    throw error;
+  }
+
+  const resolvedId = sessionManager.getSessionId();
+  const savedBinding = !sessionId ? getSessionBinding(resolvedId) : undefined;
+  if (savedBinding && savedBinding.sessionFile !== sessionManager.getSessionFile?.()) {
+    saveSessionBinding({ ...savedBinding, sessionFile: sessionManager.getSessionFile?.() });
+  }
 
   // Broadcast events to all SSE clients with sessionId attached. Events that
   // land after an assistant message completes also carry a fresh context
@@ -186,7 +299,7 @@ async function buildSessionRuntime(
   return { runtime, resolvedSessionId: sessionManager.getSessionId() };
 }
 
-export function getOrInitRuntime(sessionId?: string, projectId?: string): Promise<any> {
+export function getOrInitRuntime(sessionId?: string, projectId?: string, options: NewSessionOptions = {}): Promise<any> {
   // Known session: dedupe concurrent builds. Registering the in-flight promise
   // synchronously (before the first await) means a second request for the same
   // session shares this build instead of spinning up its own runtime — two
@@ -198,7 +311,7 @@ export function getOrInitRuntime(sessionId?: string, projectId?: string): Promis
       return existing.promise;
     }
     const entry: RuntimeEntry = { lastUsed: Date.now() } as RuntimeEntry;
-    entry.promise = buildSessionRuntime(sessionId, projectId)
+    entry.promise = buildSessionRuntime(sessionId, projectId, options)
       .then(({ runtime }) => {
         entry.runtime = runtime;
         return runtime;
@@ -216,7 +329,7 @@ export function getOrInitRuntime(sessionId?: string, projectId?: string): Promis
   // is no shared key for concurrent callers to race on — each request that
   // omits a sessionId is asking for its own new session. Register under the
   // resolved id after building.
-  return buildSessionRuntime(undefined, projectId).then(({ runtime, resolvedSessionId }) => {
+  return buildSessionRuntime(undefined, projectId, options).then(({ runtime, resolvedSessionId }) => {
     activeRuntimes.set(resolvedSessionId, {
       promise: Promise.resolve(runtime),
       runtime,
