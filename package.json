@@ -40,6 +40,7 @@
     "express": "^5.2.1",
     "http-proxy": "^1.18.1",
     "marked": "^18.0.5",
+    "shell-quote": "^1.10.0",
     "solid-js": "^1.9.13"
   },
   "devDependencies": {
@@ -47,6 +48,7 @@
     "@types/express": "^5.0.6",
     "@types/http-proxy": "^1.17.17",
     "@types/node": "^24.13.2",
+    "@types/shell-quote": "^1.7.5",
     "concurrently": "^10.0.3",
     "tsx": "^4.22.4",
     "typescript": "~6.0.2",

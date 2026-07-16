@@ -53,11 +53,11 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   const [lightboxUrl, setLightboxUrl] = createSignal<string | null>(null);
   const [commandsList, setCommandsList] = createSignal<CommandInfo[]>([]);
   const [projects, setProjects] = createSignal<ProjectInfo[]>([]);
-  const [branches, setBranches] = createSignal<GitBranchOption[]>([]);
-  const [selectedBaseBranch, setSelectedBaseBranch] = createSignal('');
+  const [branchesByDirectory, setBranchesByDirectory] = createSignal<Record<string, GitBranchOption[]>>({});
+  const [selectedBaseBranches, setSelectedBaseBranches] = createSignal<Record<string, string>>({});
   const [useWorktree, setUseWorktree] = createSignal(false);
   const [selectedDirectoryId, setSelectedDirectoryId] = createSignal('');
-  const [branchError, setBranchError] = createSignal('');
+  const [branchErrors, setBranchErrors] = createSignal<Record<string, string>>({});
   const [sessionBinding, setSessionBinding] = createSignal<SessionBindingInfo | null>(null);
   const {
     models,
@@ -96,8 +96,17 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   const [panelTab, setPanelTab] = createSignal<PanelTabId>('changes');
   const [panelWidth, setPanelWidth] = createSignal(420);
   const [gitRefreshTrigger, setGitRefreshTrigger] = createSignal(0);
+  const [gitDirectoryId, setGitDirectoryId] = createSignal('');
   // null = whole session; a number filters the Changes tab to that turn.
   const [diffTurn, setDiffTurn] = createSignal<number | null>(null);
+
+  createEffect(() => {
+    const project = activeProject();
+    if (!project) { setGitDirectoryId(''); return; }
+    if (!project.directories.some((directory) => directory.id === gitDirectoryId())) {
+      setGitDirectoryId(activeDirectory()?.id || project.primaryDirectoryId);
+    }
+  });
 
   // File diffs reconstructed from this session's edit/write tool calls,
   // per turn and for the whole session. Recomputes as tool calls stream in.
@@ -269,42 +278,50 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     }
   });
 
-  // A branch is only used as the base for a new isolated worktree. Leaving
-  // the checkbox off preserves today's behavior and never switches the user's
-  // checkout underneath another session.
+  // Worktree mode is project-wide: discover a base branch independently for
+  // every repository. Creation remains disabled if any root is not Git-ready.
   let branchRequest = 0;
   createEffect(() => {
     const projectId = props.activeProjectId;
     const sessionId = props.activeSessionId;
-    const directoryId = selectedDirectoryId();
-    if (sessionId || !projectId || !directoryId) {
-      setBranches([]);
-      setSelectedBaseBranch('');
-      setBranchError('');
+    const project = activeProject();
+    if (sessionId || !projectId || !project) {
+      setBranchesByDirectory({});
+      setSelectedBaseBranches({});
+      setBranchErrors({});
       return;
     }
     const request = ++branchRequest;
-    setBranchError('');
-    const query = new URLSearchParams({ directoryId });
-    fetch(`/api/projects/${encodeURIComponent(projectId)}/git/branches?${query}`, { cache: 'no-store' })
-      .then(async (res) => {
+    setBranchErrors({});
+    void Promise.all(project.directories.map(async (directory) => {
+      const query = new URLSearchParams({ directoryId: directory.id });
+      try {
+        const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/git/branches?${query}`, { cache: 'no-store' });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Git branches unavailable');
-        if (request !== branchRequest) return;
-        const list = data.branches || [];
-        setBranches(list);
-        const current = list.find((branch: GitBranchOption) => branch.current);
-        setSelectedBaseBranch((previous) => list.some((branch: GitBranchOption) => branch.name === previous)
+        return { directory, branches: (data.branches || []) as GitBranchOption[] };
+      } catch (error) {
+        return { directory, branches: [] as GitBranchOption[], error: error instanceof Error ? error.message : 'Git branches unavailable' };
+      }
+    })).then((results) => {
+      if (request !== branchRequest) return;
+      const nextBranches: Record<string, GitBranchOption[]> = {};
+      const nextSelected: Record<string, string> = {};
+      const nextErrors: Record<string, string> = {};
+      for (const result of results) {
+        nextBranches[result.directory.id] = result.branches;
+        const previous = selectedBaseBranches()[result.directory.id];
+        const current = result.branches.find((branch) => branch.current);
+        nextSelected[result.directory.id] = result.branches.some((branch) => branch.name === previous)
           ? previous
-          : (current?.name || list[0]?.name || ''));
-      })
-      .catch((error) => {
-        if (request !== branchRequest) return;
-        setBranches([]);
-        setSelectedBaseBranch('');
-        setUseWorktree(false);
-        setBranchError(error instanceof Error ? error.message : 'Git branches unavailable');
-      });
+          : (current?.name || result.branches[0]?.name || '');
+        if (result.error || !nextSelected[result.directory.id]) nextErrors[result.directory.id] = result.error || 'No Git branches found';
+      }
+      setBranchesByDirectory(nextBranches);
+      setSelectedBaseBranches(nextSelected);
+      setBranchErrors(nextErrors);
+      if (Object.keys(nextErrors).length) setUseWorktree(false);
+    });
   });
 
   createEffect(() => {
@@ -633,7 +650,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
           thinkingLevel: selectedThinkingLevel(),
           images: images.length ? images : undefined,
           useWorktree: isNewSession && useWorktree(),
-          baseBranch: isNewSession && useWorktree() ? selectedBaseBranch() : undefined,
+          baseBranches: isNewSession && useWorktree() ? selectedBaseBranches() : undefined,
         }),
       });
       const data = await res.json();
@@ -748,8 +765,8 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
         <div class="chat-header">
           <h1 class="chat-header-title" title={activeSessionTitle()}>{activeSessionTitle()}</h1>
           <Show when={activeProject()} keyed>
-            {(project) => <span class="chat-header-project" title={activeDirectory()?.path || project.path}>
-              {project.name}<Show when={project.directories.length > 1 && activeDirectory()}> · {activeDirectory()!.name}</Show>
+            {(project) => <span class="chat-header-project" title={project.directories.map((directory) => directory.path).join('\n')}>
+              {project.name}<Show when={project.directories.length > 1}> · {project.directories.length} roots</Show>
             </span>}
           </Show>
           <Show when={!panelOpen()}>
@@ -907,41 +924,54 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
                   position="bottom"
                 />
               </Show>
-              <Show when={props.activeProjectId && branches().length > 0}>
-                <label class="worktree-toggle" title="Create an isolated Git worktree for this chat">
+              <Show when={activeProject()}>
+                <label class="worktree-toggle" title="Create isolated Git worktrees for every project directory">
                   <input
                     type="checkbox"
                     checked={useWorktree()}
+                    disabled={Object.keys(branchErrors()).length > 0}
                     onChange={(event) => setUseWorktree(event.currentTarget.checked)}
                   />
-                  <span>Worktree</span>
+                  <span>Worktrees</span>
                 </label>
-                <CustomSelect
-                  triggerClass={`branch-selector ${useWorktree() ? '' : 'disabled'}`}
-                  value={selectedBaseBranch()}
-                  onChange={setSelectedBaseBranch}
-                  options={branches().map((branch) => ({
-                    value: branch.name,
-                    label: branch.name,
-                    group: branch.remote ? 'Remote branches' : 'Local branches',
-                  }))}
-                  placeholder="Base branch"
-                  position="bottom"
-                  disabled={!useWorktree()}
-                  searchable
-                  searchPlaceholder="Search branches…"
-                />
               </Show>
-              <Show when={props.activeProjectId && branchError()}>
-                <span class="worktree-unavailable" title={branchError()}>Worktree unavailable</span>
+              <Show when={useWorktree() && activeProject()}>
+                <div class="workspace-branch-selectors">
+                  <For each={activeProject()!.directories}>
+                    {(directory) => (
+                      <div class="workspace-branch-row">
+                        <span>{directory.name}</span>
+                        <CustomSelect
+                          triggerClass="branch-selector"
+                          value={selectedBaseBranches()[directory.id] || ''}
+                          onChange={(value) => setSelectedBaseBranches((previous) => ({ ...previous, [directory.id]: value }))}
+                          options={(branchesByDirectory()[directory.id] || []).map((branch) => ({
+                            value: branch.name,
+                            label: branch.name,
+                            group: branch.remote ? 'Remote branches' : 'Local branches',
+                          }))}
+                          placeholder="Base branch"
+                          position="bottom"
+                          searchable
+                          searchPlaceholder={`Search ${directory.name} branches…`}
+                        />
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </Show>
+              <Show when={activeProject() && Object.keys(branchErrors()).length > 0}>
+                <span class="worktree-unavailable" title={Object.entries(branchErrors()).map(([id, error]) => `${activeProject()!.directories.find((directory) => directory.id === id)?.name}: ${error}`).join('\n')}>
+                  Worktrees unavailable for {Object.keys(branchErrors()).length} root(s)
+                </span>
               </Show>
             </div>
           )}
           <Show when={props.activeSessionId}>
             <div class="composer-session-bar">
               <Show when={activeProject()} keyed>
-                {(project) => <span class="composer-session-project" title={sessionBinding()?.cwd || activeDirectory()?.path || project.path}>
-                  {project.name}<Show when={project.directories.length > 1 && activeDirectory()}> · {activeDirectory()!.name}</Show><Show when={sessionBinding()?.branch}> · {sessionBinding()!.branch}</Show>
+                {(project) => <span class="composer-session-project" title={project.directories.map((directory) => directory.path).join('\n')}>
+                  {project.name}<Show when={project.directories.length > 1}> · {project.directories.length} roots</Show><Show when={sessionBinding()?.branch}> · {sessionBinding()!.branch}</Show>
                 </span>}
               </Show>
               <Show when={diffs().session.files.length > 0}>
@@ -1031,7 +1061,19 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       </Show>
       <Show when={panelOpen() && panelTab() === 'git'}>
         <Suspense>
-          <GitTab projectId={props.activeProjectId} directoryId={activeDirectory()?.id} sessionId={props.activeSessionId} refreshTrigger={gitRefreshTrigger()} />
+          <Show when={activeProject() && activeProject()!.directories.length > 1}>
+            <div class="git-root-selector">
+              <span>Repository</span>
+              <CustomSelect
+                value={gitDirectoryId() || activeProject()!.primaryDirectoryId}
+                onChange={setGitDirectoryId}
+                options={activeProject()!.directories.map((directory) => ({ value: directory.id, label: directory.name, icon: 'folder' }))}
+                placeholder="Select repository"
+                position="bottom"
+              />
+            </div>
+          </Show>
+          <GitTab projectId={props.activeProjectId} directoryId={gitDirectoryId() || activeDirectory()?.id} sessionId={props.activeSessionId} refreshTrigger={gitRefreshTrigger()} />
         </Suspense>
       </Show>
       <Show when={panelOpen() && panelTab() === 'server'}>

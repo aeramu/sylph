@@ -95,10 +95,37 @@
   opacity: 0.4;
 }
 
+.workspace-branch-selectors {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: min(360px, 55vw);
+}
+
+.workspace-branch-row {
+  display: grid;
+  grid-template-columns: minmax(70px, 0.35fr) minmax(150px, 1fr);
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+}
+
 .worktree-unavailable {
   color: var(--text-secondary);
   font-size: 0.72rem;
   opacity: 0.65;
+}
+
+.git-root-selector {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
 }
 
 .session-branch {

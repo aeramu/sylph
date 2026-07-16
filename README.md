@@ -19,7 +19,11 @@ npm run dev   # starts vite + backend concurrently
 
 Open http://localhost:5173, add a project, choose one or more directories on disk, and start chatting.
 
-A project can contain multiple directory roots (for example, separate `frontend` and `api` repositories). Each chat selects one active directory for its shell, Git operations, and optional worktree. The agent can still access every project directory by absolute path, and file mentions are namespaced by directory alias, such as `@frontend/src/App.tsx` or `@api/src/routes.ts`.
+A project can contain multiple first-class directory roots (for example, separate `frontend` and `api` repositories). Each chat has one default directory for relative shell commands, while AI context, mentions, permissions, and Git can address every root. File mentions are namespaced by alias, such as `@frontend/src/App.tsx` or `@api/src/routes.ts`.
+
+Worktree mode is project-wide: Sylph creates one isolated Git worktree per directory, using independently selected base branches and a shared generated task branch name. Creation and rollback are atomic across roots. The Git panel includes a repository selector and always resolves operations through the session-specific checkout.
+
+Sylph embeds a native permission gate for its runtimes. Workspace roots are allowed; sensitive files and external paths require confirmation; catastrophic operations are denied; and persistent session grants are stored with the session and written to an audit log. This is an interactive policy layer, not an OS sandbox—child processes still run with the Sylph server user's operating-system permissions.
 
 ## Scripts
 

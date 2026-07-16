@@ -43,9 +43,11 @@ describe("session bindings", () => {
       cwd: "/tmp/checkout-a-updated",
       worktree: true,
       branch: "sylph/fix-auth-1234",
+      permissionApprovals: ["bash:curl https://example.com"],
     });
 
     expect(bindings.getSessionBinding("session-1")?.cwd).toBe("/tmp/checkout-a-updated");
+    expect(bindings.getSessionBinding("session-1")?.permissionApprovals).toEqual(["bash:curl https://example.com"]);
     expect(bindings.getProjectSessionBindings("project-a").map((entry) => entry.sessionId)).toEqual(["session-1"]);
     expect(JSON.parse(fs.readFileSync(storeFile, "utf-8"))).toHaveLength(2);
 

@@ -2,6 +2,7 @@ import express from "express";
 import { applyToIndex, commit, fetchRemote, getGitDivergence, getGitLog, getGitStatus, pull, push, stageAll, stageFile, unstageAll, unstageFile } from "./git.ts";
 import { getProjectById, projectAtDirectory } from "./projects.ts";
 import { getSessionBinding } from "./sessionBindings.ts";
+import { getSessionDirectory } from "./sessionWorkspace.ts";
 
 function handleError(res: express.Response, error: unknown) {
   console.error(error);
@@ -28,9 +29,14 @@ export function createGitRouter(): express.Router {
       && !project.directories.some((directory) => directory.id === req.query.directoryId)) {
       return res.status(400).json({ error: "Project directory not found" });
     }
-    res.locals.project = binding
-      ? projectAtDirectory(project, binding.directoryId, binding.cwd)
-      : projectAtDirectory(project, req.query.directoryId);
+    if (binding) {
+      const sessionDirectory = getSessionDirectory(project, binding, req.query.directoryId);
+      res.locals.project = projectAtDirectory(project, sessionDirectory.directoryId, sessionDirectory.path);
+      res.locals.directoryId = sessionDirectory.directoryId;
+    } else {
+      res.locals.project = projectAtDirectory(project, req.query.directoryId);
+      res.locals.directoryId = res.locals.project.primaryDirectoryId;
+    }
     next();
   });
 

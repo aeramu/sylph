@@ -22,6 +22,7 @@ export default function UiRequestModal(props: { request: UiRequest; onRespond: (
 
   const displayTitle = () => props.request.title || 'Permission Request';
   const displayBody = () => props.request.body || props.request.message;
+  const isPermissionRequest = () => /permission/i.test(displayTitle());
   const selectOptions = () => props.request.options || [];
   const submitSelected = () => {
     const option = selectOptions()[selectedIndex()];
@@ -101,7 +102,7 @@ export default function UiRequestModal(props: { request: UiRequest; onRespond: (
           </For>
         </div>
         <div class="ui-request-actions">
-          <button class="ui-request-btn" onClick={() => respond({ id: props.request.id, cancelled: true })}>Skip</button>
+          <button class="ui-request-btn" onClick={() => respond({ id: props.request.id, cancelled: true })}>{isPermissionRequest() ? 'Deny' : 'Skip'}</button>
           <button class="ui-request-btn approve" onClick={submitSelected}>Submit ↵</button>
         </div>
       </Show>

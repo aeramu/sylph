@@ -18,6 +18,7 @@ import { findAvailableModel, isSameModel } from "./modelSelection.ts";
 import { getAgentBrowserDashboardStatus, startAgentBrowserDashboard } from "./agentBrowserDashboard.ts";
 import { getManagedWorktreeRemovalStatus, listGitBranches, recreateManagedWorktree, removeManagedWorktree } from "./git.ts";
 import { getProjectSessionBindings, getSessionBinding } from "./sessionBindings.ts";
+import { getRawManagedDirectories, getSessionDirectories, getSessionDirectory, hasManagedWorktrees, projectForSession } from "./sessionWorkspace.ts";
 import { WORKTREES_DIR } from "./config.ts";
 
 function handleError(res: express.Response, err: any) {
@@ -367,7 +368,7 @@ export function createRouter(): express.Router {
         return res.status(400).json({ error: "Project directory not found" });
       }
       const mentionProject = binding
-        ? projectAtDirectory(project, binding.directoryId, binding.cwd)
+        ? projectForSession(project, binding)
         : projectAtDirectory(project, req.query.directoryId);
       if (!fs.existsSync(mentionProject.path)) return res.status(404).json({ error: "Project path not found" });
 
@@ -469,12 +470,18 @@ export function createRouter(): express.Router {
             : getActiveRuntime(session.id)?.session?.isStreaming
               ? "working"
               : undefined;
+          const project = selectedProject;
+          const rootCount = binding && project ? getSessionDirectories(project, binding).length : undefined;
           return {
             ...session,
             ...(status ? { status } : {}),
             ...(binding?.directoryId ? { directoryId: binding.directoryId } : {}),
+            ...(rootCount ? { rootCount } : {}),
             ...(binding?.branch ? { branch: binding.branch } : {}),
-            ...(binding?.worktree ? { worktree: true, worktreeMissing: !fs.existsSync(binding.cwd) } : {}),
+            ...(binding && hasManagedWorktrees(binding) ? {
+              worktree: true,
+              worktreeMissing: getRawManagedDirectories(binding).some((directory) => !fs.existsSync(directory.path)),
+            } : {}),
           };
         })
         .sort((a, b) => new Date(b.modified).getTime() - new Date(a.modified).getTime());
@@ -487,63 +494,73 @@ export function createRouter(): express.Router {
 
   router.get("/api/sessions/:sessionId/worktree", async (req, res) => {
     const binding = getSessionBinding(req.params.sessionId);
-    if (!binding?.worktree || !binding.managedWorktreeRoot || !binding.branch || !binding.baseBranch) {
-      return res.status(404).json({ error: "Managed worktree not found" });
-    }
+    if (!binding || !hasManagedWorktrees(binding)) return res.status(404).json({ error: "Managed worktrees not found" });
     const project = getProjectById(binding.projectId);
     if (!project) return res.status(404).json({ error: "Project not found" });
-    const gitProject = projectAtDirectory(project, binding.directoryId);
     try {
-      const status = await getManagedWorktreeRemovalStatus(
-        gitProject, binding.managedWorktreeRoot, binding.branch, binding.baseBranch, WORKTREES_DIR,
-      );
-      res.json({ ...status, cwd: binding.cwd, worktreeRoot: binding.managedWorktreeRoot, baseBranch: binding.baseBranch });
+      const roots = await Promise.all(getRawManagedDirectories(binding).map(async (directory) => {
+        if (!directory.worktreeRoot || !directory.branch || !directory.baseBranch) throw new Error(`Incomplete worktree binding for ${directory.name}`);
+        const status = await getManagedWorktreeRemovalStatus(
+          projectAtDirectory(project, directory.directoryId), directory.worktreeRoot, directory.branch, directory.baseBranch, WORKTREES_DIR,
+        );
+        return { ...status, directoryId: directory.directoryId, name: directory.name, cwd: directory.path, worktreeRoot: directory.worktreeRoot, baseBranch: directory.baseBranch };
+      }));
+      res.json({ roots, dirty: roots.some((root) => root.dirty), merged: roots.every((root) => root.merged) });
     } catch (err) { handleError(res, err); }
   });
 
   router.delete("/api/sessions/:sessionId/worktree", async (req, res) => {
     const { sessionId } = req.params;
     const binding = getSessionBinding(sessionId);
-    if (!binding?.worktree || !binding.managedWorktreeRoot || !binding.branch || !binding.baseBranch) {
-      return res.status(404).json({ error: "Managed worktree not found" });
-    }
+    if (!binding || !hasManagedWorktrees(binding)) return res.status(404).json({ error: "Managed worktrees not found" });
     const project = getProjectById(binding.projectId);
     if (!project) return res.status(404).json({ error: "Project not found" });
-    const gitProject = projectAtDirectory(project, binding.directoryId);
-    // Wait out an in-flight runtime build; checking only the settled runtime
-    // would let removal race a build that is still reading this checkout.
     const runtime = await getSettledRuntime(sessionId);
-    if (runtime?.session?.isStreaming) return res.status(409).json({ error: "Stop the session before removing its worktree" });
+    if (runtime?.session?.isStreaming) return res.status(409).json({ error: "Stop the session before removing its worktrees" });
     try {
-      const status = await getManagedWorktreeRemovalStatus(
-        gitProject, binding.managedWorktreeRoot, binding.branch, binding.baseBranch, WORKTREES_DIR,
-      );
-      if (status.dirty) return res.status(409).json({ error: "Worktree has uncommitted changes; commit or discard them before removal", code: "dirty" });
-      if (!status.merged && req.query.confirmUnmerged !== "true") {
-        return res.status(409).json({ error: "Branch is not merged into its base branch", code: "unmerged", branch: status.branch });
+      const managed = getRawManagedDirectories(binding);
+      const statuses = await Promise.all(managed.map(async (directory) => {
+        if (!directory.worktreeRoot || !directory.branch || !directory.baseBranch) throw new Error(`Incomplete worktree binding for ${directory.name}`);
+        return { directory, status: await getManagedWorktreeRemovalStatus(
+          projectAtDirectory(project, directory.directoryId), directory.worktreeRoot, directory.branch, directory.baseBranch, WORKTREES_DIR,
+        ) };
+      }));
+      const dirty = statuses.filter((entry) => entry.status.dirty);
+      if (dirty.length) return res.status(409).json({ error: `Worktrees have uncommitted changes: ${dirty.map((entry) => entry.directory.name).join(", ")}`, code: "dirty" });
+      const unmerged = statuses.filter((entry) => !entry.status.merged);
+      if (unmerged.length && req.query.confirmUnmerged !== "true") {
+        return res.status(409).json({ error: `Branches are not merged: ${unmerged.map((entry) => entry.directory.name).join(", ")}`, code: "unmerged", branches: unmerged.map((entry) => entry.directory.branch) });
       }
-      await removeManagedWorktree(
-        gitProject, binding.managedWorktreeRoot, binding.branch, binding.baseBranch, WORKTREES_DIR,
-      );
+      for (const { directory } of [...statuses].reverse()) {
+        await removeManagedWorktree(projectAtDirectory(project, directory.directoryId), directory.worktreeRoot!, directory.branch!, directory.baseBranch!, WORKTREES_DIR);
+      }
       disposeRuntime(sessionId);
-      res.json({ success: true, branch: binding.branch, branchKept: true });
+      res.json({ success: true, branches: managed.map((directory) => directory.branch), branchKept: true });
     } catch (err) { handleError(res, err); }
   });
 
   router.post("/api/sessions/:sessionId/worktree/recreate", async (req, res) => {
     const binding = getSessionBinding(req.params.sessionId);
-    if (!binding?.worktree || !binding.managedWorktreeRoot || !binding.branch) {
-      return res.status(404).json({ error: "Managed worktree not found" });
-    }
+    if (!binding || !hasManagedWorktrees(binding)) return res.status(404).json({ error: "Managed worktrees not found" });
     const project = getProjectById(binding.projectId);
     if (!project) return res.status(404).json({ error: "Project not found" });
-    const gitProject = projectAtDirectory(project, binding.directoryId);
+    const recreated: typeof binding.directories = [];
     try {
-      await recreateManagedWorktree(
-        gitProject, binding.managedWorktreeRoot, binding.cwd, binding.branch, WORKTREES_DIR,
-      );
-      res.json({ success: true, branch: binding.branch, cwd: binding.cwd });
-    } catch (err) { handleError(res, err); }
+      for (const directory of getRawManagedDirectories(binding)) {
+        if (!directory.worktreeRoot || !directory.branch) throw new Error(`Incomplete worktree binding for ${directory.name}`);
+        if (fs.existsSync(directory.path)) continue;
+        await recreateManagedWorktree(projectAtDirectory(project, directory.directoryId), directory.worktreeRoot, directory.path, directory.branch, WORKTREES_DIR);
+        recreated?.push(directory);
+      }
+      res.json({ success: true, roots: getRawManagedDirectories(binding) });
+    } catch (err) {
+      // Recreate is all-or-nothing for roots added by this request.
+      for (const directory of [...(recreated ?? [])].reverse()) {
+        if (!directory.worktreeRoot || !directory.branch || !directory.baseBranch) continue;
+        await removeManagedWorktree(projectAtDirectory(project, directory.directoryId), directory.worktreeRoot, directory.branch, directory.baseBranch, WORKTREES_DIR).catch(() => {});
+      }
+      handleError(res, err);
+    }
   });
 
   router.get("/api/sessions/:sessionId", async (req, res) => {
@@ -700,7 +717,10 @@ export function createRouter(): express.Router {
       return res.status(400).json({ error: "Project directory not found" });
     }
     const gitProject = binding
-      ? projectAtDirectory(project, binding.directoryId, binding.cwd)
+      ? (() => {
+          const directory = getSessionDirectory(project, binding, req.query.directoryId);
+          return projectAtDirectory(project, directory.directoryId, directory.path);
+        })()
       : projectAtDirectory(project, req.query.directoryId);
     try {
       res.json({ branches: await listGitBranches(gitProject) });
@@ -712,19 +732,29 @@ export function createRouter(): express.Router {
   router.use(createGitRouter());
 
   router.post("/api/chat", async (req, res) => {
-    const { sessionId, prompt, mentionText, projectId, directoryId, modelId, thinkingLevel, images, useWorktree, baseBranch } = req.body;
+    const { sessionId, prompt, mentionText, projectId, directoryId, modelId, thinkingLevel, images, useWorktree, baseBranches, baseBranch } = req.body;
     if (!prompt) {
       return res.status(400).json({ error: "prompt is required" });
     }
 
     let newWorktreeSessionId: string | undefined;
     try {
-      if (!sessionId && useWorktree && (typeof baseBranch !== "string" || !baseBranch.trim())) {
-        return res.status(400).json({ error: "baseBranch is required when useWorktree is enabled" });
+      if (!sessionId && useWorktree) {
+        const project = getProjectById(projectId);
+        if (!project) return res.status(400).json({ error: "Select a project before creating worktrees" });
+        const supplied = baseBranches && typeof baseBranches === "object" ? baseBranches as Record<string, unknown> : undefined;
+        const missing = project.directories.filter((directory) => {
+          const value = supplied?.[directory.id] ?? baseBranch;
+          return typeof value !== "string" || !value.trim();
+        });
+        if (missing.length) return res.status(400).json({ error: `Base branch required for: ${missing.map((directory) => directory.name).join(", ")}` });
       }
       const runtime = await getOrInitRuntime(sessionId, projectId, {
         directoryId: typeof directoryId === "string" ? directoryId : undefined,
         useWorktree: !sessionId && useWorktree === true,
+        baseBranches: baseBranches && typeof baseBranches === "object"
+          ? Object.fromEntries(Object.entries(baseBranches).filter((entry): entry is [string, string] => typeof entry[1] === "string" && !!entry[1].trim()).map(([key, value]) => [key, value.trim()]))
+          : undefined,
         baseBranch: typeof baseBranch === "string" ? baseBranch.trim() : undefined,
         branchPrompt: typeof mentionText === "string" ? mentionText : prompt,
       });
@@ -768,7 +798,7 @@ export function createRouter(): express.Router {
       // the saved project's main path here would quietly feed the model stale
       // files while it edits the worktree.
       const mentionProject = resolvedProject
-        ? projectAtDirectory(resolvedProject, binding?.directoryId ?? directoryId, runtime.session.cwd)
+        ? binding ? projectForSession(resolvedProject, binding) : projectAtDirectory(resolvedProject, directoryId, runtime.session.cwd)
         : undefined;
       // Scan only the user-typed text for @mentions when the client provides it,
       // so mentions inside inlined file attachments aren't resolved as well.

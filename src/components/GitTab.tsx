@@ -17,13 +17,14 @@ export default function GitTab(props: { projectId?: string; directoryId?: string
   const [busy, setBusy] = createSignal(false);
   const [syncOperation, setSyncOperation] = createSignal<'pull' | 'push' | null>(null);
   const [error, setError] = createSignal('');
-  const draftId = () => props.sessionId || props.projectId;
+  const draftId = () => `${props.sessionId || props.projectId || 'none'}:${props.directoryId || 'root'}`;
   const [message, setMessage] = createSignal(getGitCommitDraft(draftId()));
-  const scopeQuery = () => props.sessionId
-    ? `sessionId=${encodeURIComponent(props.sessionId)}`
-    : props.directoryId
-      ? `directoryId=${encodeURIComponent(props.directoryId)}`
-      : '';
+  const scopeQuery = () => {
+    const query = new URLSearchParams();
+    if (props.sessionId) query.set('sessionId', props.sessionId);
+    if (props.directoryId) query.set('directoryId', props.directoryId);
+    return query.toString();
+  };
   const withSession = (path: string) => `${path}${path.includes('?') ? '&' : '?'}${scopeQuery()}`.replace(/[?&]$/, '');
   const [expanded, setExpanded] = createSignal<Record<string, boolean>>({});
   const [collapsed, setCollapsed] = createSignal({ branch: true, history: true, staged: false, unstaged: false });
@@ -133,6 +134,7 @@ export default function GitTab(props: { projectId?: string; directoryId?: string
     const projectId = props.projectId;
     setExpanded({});
     void props.sessionId;
+    void props.directoryId;
     setMessage(getGitCommitDraft(draftId()));
     setFiles([]);
     setRepository(undefined);

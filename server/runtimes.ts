@@ -1,13 +1,13 @@
 import fs from "fs";
 import path from "path";
-import { randomUUID } from "crypto";
 import { fileURLToPath } from "url";
 import {
   createAgentSessionRuntime,
   createAgentSessionServices,
   createAgentSessionFromServices,
   getAgentDir,
-  SessionManager
+  SessionManager,
+  loadProjectContextFiles
 } from "@earendil-works/pi-coding-agent";
 import type {
   CreateAgentSessionRuntimeFactory,
@@ -15,11 +15,13 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { RUNTIME_IDLE_MS, EVICTION_INTERVAL_MS, WORKTREES_DIR } from "./config.ts";
 import { authStorage, modelRegistry } from "./auth.ts";
-import { findProjectDirectoryByPath, getProjectDirectory, getProjects, projectAtDirectory, type Project } from "./projects.ts";
-import { createManagedWorktree, discardManagedWorktree, worktreeBranchName } from "./git.ts";
-import { deleteSessionBinding, getSessionBinding, saveSessionBinding } from "./sessionBindings.ts";
+import { findProjectDirectoryByPath, getProjectDirectory, getProjects, type Project } from "./projects.ts";
+import { deleteSessionBinding, getSessionBinding, saveSessionBinding, type SessionDirectoryBinding } from "./sessionBindings.ts";
 import { broadcast } from "./sse.ts";
 import { clearSessionStatuses, createExtensionUiContext, rejectPendingForSession } from "./uiBridge.ts";
+import { createPermissionExtension, isThirdPartyPermissionExtension } from "./permissions.ts";
+import { getRawManagedDirectories, projectForSession } from "./sessionWorkspace.ts";
+import { createProjectWorktrees, discardProjectWorktrees } from "./projectWorktrees.ts";
 
 interface RuntimeEntry {
   // Registered synchronously at the start of a build so concurrent callers for
@@ -34,13 +36,6 @@ const sessionEventSequences = new Map<string, number>();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const askUserQuestionExtensionPath = path.join(__dirname, "askUserQuestion.ts");
-
-function projectForBinding(project: Project, binding: { directoryId?: string; cwd: string }) {
-  const directoryId = binding.directoryId
-    ?? findProjectDirectoryByPath(project, binding.cwd)?.id
-    ?? project.primaryDirectoryId;
-  return projectAtDirectory(project, directoryId);
-}
 
 function workspacePrompt(project: Project | undefined, directoryId: string | undefined, cwd: string) {
   if (!project || project.directories.length < 2) return undefined;
@@ -57,8 +52,17 @@ function workspacePrompt(project: Project | undefined, directoryId: string | und
   ].join("\n");
 }
 
-async function buildRuntime(sessionManager: any, cwd: string, opts?: { uiContext?: any; project?: Project; directoryId?: string }) {
+async function buildRuntime(sessionManager: any, cwd: string, opts?: { uiContext?: any; project?: Project; directoryId?: string; sessionId?: string }) {
   const factory: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
+    const permissionRoots = (opts?.project?.directories ?? [{ id: "cwd", name: "workspace", path: cwd }]).map((directory) => ({
+      id: directory.id,
+      name: directory.name,
+      path: directory.path,
+      access: "read-write" as const,
+    }));
+    const boundSessionId = opts?.sessionId ?? sessionManager.getSessionId?.();
+    const initialApprovals = getSessionBinding(boundSessionId)?.permissionApprovals ?? [];
+    const auditFile = path.join(getAgentDir(), "logs", "sylph-permissions.jsonl");
     const services = await createAgentSessionServices({
       cwd,
       authStorage,
@@ -69,6 +73,53 @@ async function buildRuntime(sessionManager: any, cwd: string, opts?: { uiContext
       // the filename rather than pi's synthetic <inline:1> id.
       resourceLoaderOptions: {
         additionalExtensionPaths: [askUserQuestionExtensionPath],
+        extensionFactories: opts?.project ? [{
+          name: "sylph-permissions",
+          factory: createPermissionExtension(
+            { roots: permissionRoots, externalAccess: "ask" },
+            {
+              initialApprovals,
+              onApproval: (approvalKey) => {
+                const binding = getSessionBinding(boundSessionId);
+                if (!binding) return;
+                const permissionApprovals = Array.from(new Set([...(binding.permissionApprovals ?? []), approvalKey]));
+                saveSessionBinding({ ...binding, permissionApprovals });
+              },
+              audit: (event) => {
+                try {
+                  fs.mkdirSync(path.dirname(auditFile), { recursive: true });
+                  fs.appendFileSync(auditFile, JSON.stringify({ sessionId: boundSessionId, ...event }) + "\n", { mode: 0o600 });
+                  fs.chmodSync(auditFile, 0o600);
+                } catch (error) {
+                  console.error("Failed to write Sylph permission audit:", error);
+                }
+              },
+            },
+          ),
+        }] : [],
+        // Sylph owns authorization for project runtimes. Remove the global
+        // third-party permission extension here to avoid duplicate/conflicting
+        // prompts while leaving the user's normal Pi installation untouched.
+        extensionsOverride: (base) => opts?.project ? ({
+          ...base,
+          extensions: base.extensions.filter((extension) => !isThirdPartyPermissionExtension(extension)),
+        }) : base,
+        // Pi normally loads AGENTS.md/CLAUDE.md from only one cwd. Merge the
+        // context chain from every workspace root and label paths by root.
+        agentsFilesOverride: (base) => {
+          if (!opts?.project || opts.project.directories.length < 2) return base;
+          const files = [...base.agentsFiles];
+          const seen = new Set(files.map((file) => path.resolve(file.path)));
+          for (const directory of opts.project.directories) {
+            for (const file of loadProjectContextFiles({ cwd: directory.path, agentDir: getAgentDir() })) {
+              const resolved = path.resolve(file.path);
+              if (seen.has(resolved)) continue;
+              seen.add(resolved);
+              files.push({ path: `${directory.name}:${file.path}`, content: file.content });
+            }
+          }
+          return { agentsFiles: files };
+        },
         appendSystemPromptOverride: (base) => {
           const workspace = workspacePrompt(opts?.project, opts?.directoryId, cwd);
           return workspace ? [...base, workspace] : base;
@@ -181,17 +232,16 @@ export function disposeRuntime(sessionId: string) {
 
 export async function rollbackNewWorktreeSession(sessionId: string) {
   const binding = getSessionBinding(sessionId);
-  if (!binding?.worktree || !binding.managedWorktreeRoot || !binding.branch || !binding.baseBranch) return;
+  if (!binding) return;
+  const managedDirectories = getRawManagedDirectories(binding);
+  if (managedDirectories.length === 0) return;
   disposeRuntime(sessionId);
   const project = getProjects().find((entry) => entry.id === binding.projectId);
-  if (project) {
-    await discardManagedWorktree(projectForBinding(project, binding), {
-      path: binding.cwd,
-      worktreeRoot: binding.managedWorktreeRoot,
-      branch: binding.branch,
-      baseBranch: binding.baseBranch,
-    }, WORKTREES_DIR);
-  }
+  if (!project) throw new Error(`Project ${binding.projectId} no longer exists`);
+  // discardProjectWorktrees aggregates failures and throws. Do not delete the
+  // binding/session file unless it fully succeeds: they are the recovery
+  // metadata for any checkout that remains.
+  await discardProjectWorktrees(project, managedDirectories, WORKTREES_DIR);
   if (binding.sessionFile) fs.rmSync(binding.sessionFile, { force: true });
   deleteSessionBinding(sessionId);
 }
@@ -205,6 +255,8 @@ export function getSessionEventSequence(sessionId: string) {
 export interface NewSessionOptions {
   directoryId?: string;
   useWorktree?: boolean;
+  /** Base branch per project directory; legacy baseBranch applies to all roots. */
+  baseBranches?: Record<string, string>;
   baseBranch?: string;
   branchPrompt?: string;
 }
@@ -228,6 +280,7 @@ async function buildSessionRuntime(
       if (!fs.existsSync(binding.cwd)) throw new Error(`Session working directory no longer exists: ${binding.cwd}`);
       targetCwd = binding.cwd;
       runtimeProject = projects.find((entry) => entry.id === binding.projectId);
+      if (runtimeProject) runtimeProject = projectForSession(runtimeProject, binding);
       runtimeDirectoryId = binding.directoryId
         ?? (runtimeProject ? findProjectDirectoryByPath(runtimeProject, binding.cwd)?.id : undefined)
         ?? runtimeProject?.primaryDirectoryId;
@@ -277,39 +330,63 @@ async function buildSessionRuntime(
     runtimeDirectoryId = projectDirectory?.id;
     if (projectDirectory) targetCwd = projectDirectory.path;
 
-    let worktree: Awaited<ReturnType<typeof createManagedWorktree>> | undefined;
+    const sessionDirectories: SessionDirectoryBinding[] = project?.directories.map((directory) => ({
+      directoryId: directory.id, name: directory.name, path: directory.path,
+    })) ?? [];
+    let createdWorktrees: SessionDirectoryBinding[] = [];
     if (options.useWorktree) {
-      if (!project) throw new Error("Select a project before creating a worktree");
-      if (!options.baseBranch) throw new Error("Select a base branch for the worktree");
-      const worktreeKey = randomUUID();
-      const gitProject = projectAtDirectory(project, projectDirectory!.id);
-      worktree = await createManagedWorktree(
-        gitProject,
-        path.join(WORKTREES_DIR, project.id, projectDirectory!.id, worktreeKey),
-        options.baseBranch,
-        worktreeBranchName(options.branchPrompt || "chat", worktreeKey),
-      );
-      targetCwd = worktree.path;
+      if (!project) throw new Error("Select a project before creating worktrees");
+      const created = await createProjectWorktrees(project, {
+        managedRoot: WORKTREES_DIR,
+        baseBranches: options.baseBranches,
+        legacyBaseBranch: options.baseBranch,
+        branchPrompt: options.branchPrompt || "chat",
+      });
+      createdWorktrees = created.directories;
+      for (const createdDirectory of created.directories) {
+        const bindingDirectory = sessionDirectories.find((entry) => entry.directoryId === createdDirectory.directoryId)!;
+        Object.assign(bindingDirectory, createdDirectory);
+      }
+      targetCwd = sessionDirectories.find((entry) => entry.directoryId === projectDirectory!.id)!.path;
+      runtimeProject = {
+        ...project,
+        path: targetCwd,
+        directories: project.directories.map((directory) => ({
+          ...directory,
+          path: sessionDirectories.find((entry) => entry.directoryId === directory.id)!.path,
+        })),
+      };
     }
 
     try {
       sessionManager = SessionManager.create(targetCwd);
       const resolvedSessionId = sessionManager.getSessionId();
       if (project) {
+        const active = sessionDirectories.find((entry) => entry.directoryId === projectDirectory!.id)!;
         saveSessionBinding({
           sessionId: resolvedSessionId,
           projectId: project.id,
           directoryId: projectDirectory!.id,
+          directories: sessionDirectories,
           cwd: targetCwd,
           sessionFile: sessionManager.getSessionFile?.(),
-          branch: worktree?.branch,
-          baseBranch: worktree?.baseBranch,
-          worktree: !!worktree,
-          managedWorktreeRoot: worktree?.worktreeRoot,
+          branch: active.branch,
+          baseBranch: active.baseBranch,
+          worktree: createdWorktrees.length > 0,
+          managedWorktreeRoot: active.worktreeRoot,
         });
       }
     } catch (error) {
-      if (project && worktree) await discardManagedWorktree(projectAtDirectory(project, projectDirectory!.id), worktree, WORKTREES_DIR);
+      if (project && createdWorktrees.length) {
+        try {
+          await discardProjectWorktrees(project, createdWorktrees, WORKTREES_DIR);
+        } catch (cleanupError) {
+          throw new AggregateError([
+            error instanceof Error ? error : new Error(String(error)),
+            cleanupError instanceof Error ? cleanupError : new Error(String(cleanupError)),
+          ], "Session creation failed and one or more worktrees could not be rolled back");
+        }
+      }
       throw error;
     }
   }
@@ -320,6 +397,7 @@ async function buildSessionRuntime(
       uiContext: createExtensionUiContext(sessionManager.getSessionId()),
       project: runtimeProject,
       directoryId: runtimeDirectoryId,
+      sessionId: sessionManager.getSessionId(),
     });
   } catch (error) {
     // A newly-created worktree is not useful without a runtime. Roll back its

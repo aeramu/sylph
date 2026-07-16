@@ -13,6 +13,7 @@ interface SessionInfo {
   status?: SessionStatus;
   branch?: string;
   directoryId?: string;
+  rootCount?: number;
   worktree?: boolean;
   worktreeMissing?: boolean;
 }
@@ -231,8 +232,8 @@ function ProjectItem(props: {
                 }}
               >
                 <div class="session-title">
-                  <Show when={props.project.directories.length > 1 && session.directoryId}>
-                    <span>{props.project.directories.find((directory) => directory.id === session.directoryId)?.name || 'root'} · </span>
+                  <Show when={(session.rootCount || props.project.directories.length) > 1}>
+                    <span>{session.rootCount || props.project.directories.length} roots · </span>
                   </Show>
                   {session.name || session.firstMessage || 'Empty Chat'}
                 </div>

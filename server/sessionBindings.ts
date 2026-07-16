@@ -2,17 +2,32 @@ import fs from "fs";
 import path from "path";
 import { SESSION_BINDINGS_FILE, SYLPH_DIR } from "./config.ts";
 
+export interface SessionDirectoryBinding {
+  directoryId: string;
+  name: string;
+  /** Actual checkout used by this session (source checkout or managed worktree). */
+  path: string;
+  branch?: string;
+  baseBranch?: string;
+  worktreeRoot?: string;
+}
+
 export interface SessionBinding {
   sessionId: string;
   projectId: string;
-  /** Project directory selected as this session's cwd/Git root. */
+  /** Default root for relative commands; not the workspace authorization boundary. */
   directoryId?: string;
   cwd: string;
+  /** Every first-class root used by the session. */
+  directories?: SessionDirectoryBinding[];
   sessionFile?: string;
   branch?: string;
   baseBranch?: string;
   worktree?: boolean;
   managedWorktreeRoot?: string;
+  /** Legacy singular worktree metadata above is retained for old session migration. */
+  /** Permission fingerprints approved for the lifetime of this session. */
+  permissionApprovals?: string[];
 }
 
 function ensureStore() {
