@@ -69,7 +69,7 @@ function ProjectItem(props: {
   onSelectSession: (id?: string) => void,
   onSelectProject: (id?: string) => void,
   onNewChat: () => void,
-  onDelete: () => void,
+  onEdit: () => void,
   onSessionDetached: (id: string) => void,
   refreshTrigger: number,
   draftSessions: DraftSession[]
@@ -184,11 +184,10 @@ function ProjectItem(props: {
             class="icon-button"
             onClick={(e) => {
               e.stopPropagation();
-              if (confirm('Are you sure you want to remove this project?')) {
-                props.onDelete();
-              }
+              props.onEdit();
             }}
-            title="Remove Project"
+            title="Edit Project"
+            aria-label={`Edit ${props.project.name}`}
           >
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="3"></circle>
@@ -325,19 +324,26 @@ export default function SessionSidebar(props: {
 }) {
   const [projects, { refetch }] = createResource(fetchProjects);
   const [showAddProject, setShowAddProject] = createSignal(false);
+  const [editingProject, setEditingProject] = createSignal<ProjectInfo | null>(null);
 
   const handleDeleteProject = async (id: string) => {
-    try {
-      await fetch(`/api/projects/${id}`, { method: 'DELETE' });
-      if (props.activeProjectId === id) {
-        props.onSelectProject(undefined);
-        props.onSelectSession(undefined);
-      }
-      refetch();
-      props.onProjectsChanged?.();
-    } catch (e) {
-      console.error(e);
+    const res = await fetch(`/api/projects/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to remove project');
+    if (props.activeProjectId === id) {
+      props.onSelectProject(undefined);
+      props.onSelectSession(undefined);
     }
+    setEditingProject(null);
+    await refetch();
+    props.onProjectsChanged?.();
+  };
+
+  const handleProjectSaved = async () => {
+    setShowAddProject(false);
+    setEditingProject(null);
+    await refetch();
+    props.onProjectsChanged?.();
   };
 
   return (
@@ -377,7 +383,7 @@ export default function SessionSidebar(props: {
                 props.onSelectProject(proj.id);
                 props.onSelectSession(undefined);
               }}
-              onDelete={() => handleDeleteProject(proj.id)}
+              onEdit={() => setEditingProject(proj)}
               onSessionDetached={props.onSessionDetached}
               refreshTrigger={props.refreshTrigger}
               draftSessions={props.draftSessions.filter(d => d.projectId === proj.id)}
@@ -406,13 +412,19 @@ export default function SessionSidebar(props: {
       {showAddProject() && (
         <AddProjectModal
           onClose={() => setShowAddProject(false)}
-          onAdded={() => {
-            setShowAddProject(false);
-            refetch();
-            props.onProjectsChanged?.();
-          }}
+          onSaved={() => void handleProjectSaved()}
         />
       )}
+      <Show when={editingProject()} keyed>
+        {(project) => (
+          <AddProjectModal
+            project={project}
+            onClose={() => setEditingProject(null)}
+            onSaved={() => void handleProjectSaved()}
+            onDelete={() => handleDeleteProject(project.id)}
+          />
+        )}
+      </Show>
     </div>
   );
 }

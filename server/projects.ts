@@ -117,16 +117,24 @@ export function projectAtDirectory(project: Project, directoryId: unknown, overr
   };
 }
 
-export function createProject(input: { name?: unknown; directories: Array<{ name?: unknown; path: string; primary?: boolean }> }): Project {
-  const id = `proj-${randomUUID()}`;
+export interface ProjectDirectoryInput {
+  id?: unknown;
+  name?: unknown;
+  path: string;
+  primary?: boolean;
+}
+
+function buildProject(id: string, input: { name?: unknown; directories: ProjectDirectoryInput[] }, existing?: Project): Project {
   const usedNames = new Set<string>();
+  const existingIds = new Set(existing?.directories.map((directory) => directory.id) ?? []);
   const directories = input.directories.map((entry, index) => {
     const resolvedPath = path.resolve(entry.path);
     const baseName = (typeof entry.name === "string" ? entry.name.trim() : "") || path.basename(resolvedPath) || `root-${index + 1}`;
     let name = baseName;
     for (let suffix = 2; usedNames.has(name.toLowerCase()); suffix++) name = `${baseName}-${suffix}`;
     usedNames.add(name.toLowerCase());
-    return { id: directoryId(id, index), name, path: resolvedPath };
+    const requestedId = typeof entry.id === "string" && existingIds.has(entry.id) ? entry.id : undefined;
+    return { id: requestedId ?? `${id}-dir-${randomUUID()}`, name, path: resolvedPath };
   });
   const primaryIndex = Math.max(0, input.directories.findIndex((entry) => entry.primary));
   const primary = directories[primaryIndex] ?? directories[0];
@@ -137,6 +145,14 @@ export function createProject(input: { name?: unknown; directories: Array<{ name
     directories,
     primaryDirectoryId: primary.id,
   };
+}
+
+export function createProject(input: { name?: unknown; directories: ProjectDirectoryInput[] }): Project {
+  return buildProject(`proj-${randomUUID()}`, input);
+}
+
+export function updateProject(existing: Project, input: { name?: unknown; directories: ProjectDirectoryInput[] }): Project {
+  return buildProject(existing.id, input, existing);
 }
 
 export function saveProjects(projects: Project[]) {

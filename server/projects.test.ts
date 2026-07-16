@@ -48,6 +48,29 @@ describe("multi-directory projects", () => {
     expect(project.path).toBe(path.resolve("/tmp/backend"));
   });
 
+  it("updates a project while preserving existing directory ids", () => {
+    const existing = projects.createProject({
+      name: "Product",
+      directories: [
+        { name: "web", path: "/tmp/web", primary: true },
+        { name: "api", path: "/tmp/api" },
+      ],
+    });
+    const updated = projects.updateProject(existing, {
+      name: "Product 2",
+      directories: [
+        { id: existing.directories[1].id, name: "backend", path: "/tmp/api", primary: true },
+        { name: "docs", path: "/tmp/docs" },
+      ],
+    });
+    expect(updated.name).toBe("Product 2");
+    expect(updated.directories[0].id).toBe(existing.directories[1].id);
+    expect(updated.directories[0].name).toBe("backend");
+    expect(updated.directories[1].id).not.toBe(existing.directories[0].id);
+    expect(updated.primaryDirectoryId).toBe(updated.directories[0].id);
+    expect(updated.path).toBe(path.resolve("/tmp/api"));
+  });
+
   it("creates an active-directory project view without losing other roots", () => {
     const project = projects.createProject({
       directories: [

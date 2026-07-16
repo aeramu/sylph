@@ -4,7 +4,7 @@ import path from "path";
 import os from "os";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
-import { createProject, getProjects, saveProjects, getProjectById, projectAtDirectory } from "./projects.ts";
+import { createProject, getProjects, saveProjects, getProjectById, projectAtDirectory, updateProject, type ProjectDirectoryInput } from "./projects.ts";
 import { addClient, removeClient } from "./sse.ts";
 import { resolveUiRequest, getPendingUiRequests, getSessionStatuses } from "./uiBridge.ts";
 import { disposeRuntime, getActiveRuntime, getOrInitRuntime, getIntrospectionRuntime, getSettledRuntime, rollbackNewWorktreeSession, touchRuntime, getContextInfo, getSessionEventSequence } from "./runtimes.ts";
@@ -315,39 +315,62 @@ export function createRouter(): express.Router {
     res.json({ projects: getProjects() });
   });
 
+  function validateProjectDirectories(requestedDirectories: unknown): { directories: ProjectDirectoryInput[]; paths: Set<string> } | { error: string } {
+    if (!Array.isArray(requestedDirectories) || requestedDirectories.length === 0) return { error: "At least one directory is required" };
+    const directories: ProjectDirectoryInput[] = [];
+    const paths = new Set<string>();
+    for (const entry of requestedDirectories) {
+      if (!entry || typeof entry.path !== "string") return { error: "Invalid directory path" };
+      const normalized = path.resolve(entry.path);
+      let stat: fs.Stats;
+      try { stat = fs.statSync(normalized); } catch { return { error: `Directory not found: ${normalized}` }; }
+      if (!stat.isDirectory()) return { error: `Not a directory: ${normalized}` };
+      if (paths.has(normalized)) return { error: `Duplicate directory: ${normalized}` };
+      paths.add(normalized);
+      directories.push({ id: entry.id, name: entry.name, path: normalized, primary: entry.primary === true });
+    }
+    return { directories, paths };
+  }
+
   router.post("/api/projects", (req, res) => {
     const { path: legacyPath, name } = req.body ?? {};
     const requestedDirectories = Array.isArray(req.body?.directories)
       ? req.body.directories
-      : typeof legacyPath === "string"
-        ? [{ path: legacyPath, primary: true }]
-        : [];
-    if (requestedDirectories.length === 0) {
-      return res.status(400).json({ error: "At least one directory is required" });
-    }
-
-    const directories: Array<{ name?: unknown; path: string; primary?: boolean }> = [];
-    const seen = new Set<string>();
-    for (const entry of requestedDirectories) {
-      if (!entry || typeof entry.path !== "string") return res.status(400).json({ error: "Invalid directory path" });
-      const normalized = path.resolve(entry.path);
-      let stat: fs.Stats;
-      try { stat = fs.statSync(normalized); } catch { return res.status(400).json({ error: `Directory not found: ${normalized}` }); }
-      if (!stat.isDirectory()) return res.status(400).json({ error: `Not a directory: ${normalized}` });
-      if (seen.has(normalized)) return res.status(400).json({ error: `Duplicate directory: ${normalized}` });
-      seen.add(normalized);
-      directories.push({ name: entry.name, path: normalized, primary: entry.primary === true });
-    }
+      : typeof legacyPath === "string" ? [{ path: legacyPath, primary: true }] : [];
+    const validated = validateProjectDirectories(requestedDirectories);
+    if ("error" in validated) return res.status(400).json({ error: validated.error });
 
     const projects = getProjects();
-    const existing = projects.find((project) => project.directories.some((directory) => seen.has(path.resolve(directory.path))));
-    if (existing) {
-      return res.status(409).json({ error: "A directory is already part of another project", project: existing });
-    }
-    const newProject = createProject({ name, directories });
+    const existing = projects.find((project) => project.directories.some((directory) => validated.paths.has(path.resolve(directory.path))));
+    if (existing) return res.status(409).json({ error: "A directory is already part of another project", project: existing });
+    const newProject = createProject({ name, directories: validated.directories });
     projects.push(newProject);
     saveProjects(projects);
     res.json(newProject);
+  });
+
+  router.put("/api/projects/:id", (req, res) => {
+    const projects = getProjects();
+    const index = projects.findIndex((project) => project.id === req.params.id);
+    if (index < 0) return res.status(404).json({ error: "Project not found" });
+    const existing = projects[index];
+    const validated = validateProjectDirectories(req.body?.directories);
+    if ("error" in validated) return res.status(400).json({ error: validated.error });
+    const conflict = projects.find((project) => project.id !== existing.id
+      && project.directories.some((directory) => validated.paths.has(path.resolve(directory.path))));
+    if (conflict) return res.status(409).json({ error: `A directory is already part of ${conflict.name}`, project: conflict });
+
+    const retainedIds = new Set(validated.directories.map((directory) => directory.id).filter((id): id is string => typeof id === "string"));
+    const removedIds = existing.directories.filter((directory) => !retainedIds.has(directory.id)).map((directory) => directory.id);
+    const blocking = getProjectSessionBindings(existing.id).find((binding) =>
+      (binding.directoryId ? removedIds.includes(binding.directoryId) : false)
+      || binding.directories?.some((directory) => removedIds.includes(directory.directoryId)));
+    if (blocking) return res.status(409).json({ error: "Cannot remove a directory while a saved session still references it" });
+
+    const updated = updateProject(existing, { name: req.body?.name, directories: validated.directories });
+    projects[index] = updated;
+    saveProjects(projects);
+    res.json(updated);
   });
 
   router.delete("/api/projects/:id", (req, res) => {
@@ -392,21 +415,31 @@ export function createRouter(): express.Router {
 
   router.get("/api/fs/list", async (req, res) => {
     try {
-      const dirPath = (req.query.path as string) || os.homedir();
-      if (!fs.existsSync(dirPath)) {
+      const requested = typeof req.query.path === "string" && req.query.path.trim()
+        ? path.resolve(req.query.path.trim())
+        : os.homedir();
+      let directoryPath = requested;
+      let prefix = "";
+      try {
+        if (!fs.statSync(requested).isDirectory()) {
+          directoryPath = path.dirname(requested);
+          prefix = path.basename(requested).toLowerCase();
+        }
+      } catch {
+        directoryPath = path.dirname(requested);
+        prefix = path.basename(requested).toLowerCase();
+      }
+      if (!fs.existsSync(directoryPath) || !fs.statSync(directoryPath).isDirectory()) {
         return res.status(404).json({ error: "Directory not found" });
       }
 
-      const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
+      const entries = await fs.promises.readdir(directoryPath, { withFileTypes: true });
       const directories = entries
-        .filter(dirent => dirent.isDirectory() && !dirent.name.startsWith("."))
-        .map(dirent => ({
-          name: dirent.name,
-          path: path.join(dirPath, dirent.name),
-        }))
+        .filter((entry) => entry.isDirectory() && !entry.name.startsWith(".") && (!prefix || entry.name.toLowerCase().startsWith(prefix)))
+        .map((entry) => ({ name: entry.name, path: path.join(directoryPath, entry.name) }))
         .sort((a, b) => a.name.localeCompare(b.name));
 
-      res.json({ directories, currentPath: dirPath });
+      res.json({ directories, currentPath: directoryPath });
     } catch (err) {
       handleError(res, err);
     }
