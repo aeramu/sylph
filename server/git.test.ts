@@ -93,6 +93,49 @@ describe("Git tab backend", () => {
     expect(git(worktree.path, "branch", "--show-current").trim()).toBe(branch);
   });
 
+  it("recreates a worktree whose directory was deleted manually", async () => {
+    const { root, project } = repository();
+    write(root, "file.txt", "base\n");
+    git(root, "add", ".");
+    git(root, "commit", "-qm", "initial");
+    const baseBranch = git(root, "branch", "--show-current").trim();
+    const managedRoot = fs.mkdtempSync(path.join(os.tmpdir(), "sylph-managed-worktrees-"));
+    directories.push(managedRoot);
+    const branch = "sylph/manual-delete-test";
+    const worktree = await createManagedWorktree(project, path.join(managedRoot, "checkout"), baseBranch, branch);
+
+    // Deleting the checkout by hand leaves it registered with Git, which
+    // used to make recreation fail with "missing but already registered".
+    fs.rmSync(worktree.worktreeRoot, { recursive: true, force: true });
+    await recreateManagedWorktree(project, worktree.worktreeRoot, worktree.path, branch, managedRoot);
+    expect(git(worktree.path, "branch", "--show-current").trim()).toBe(branch);
+  });
+
+  it("rolls back recreation when the project subdirectory is missing on the branch", async () => {
+    const { root } = repository();
+    write(root, "sub/file.txt", "sub\n");
+    git(root, "add", ".");
+    git(root, "commit", "-qm", "initial");
+    const baseBranch = git(root, "branch", "--show-current").trim();
+    const project = testProject("sub", path.join(root, "sub"));
+    const managedRoot = fs.mkdtempSync(path.join(os.tmpdir(), "sylph-managed-worktrees-"));
+    directories.push(managedRoot);
+    const branch = "sylph/subdir-gone-test";
+    const worktree = await createManagedWorktree(project, path.join(managedRoot, "checkout"), baseBranch, branch);
+
+    git(worktree.worktreeRoot, "rm", "-rq", "sub");
+    git(worktree.worktreeRoot, "commit", "-qm", "drop subdir");
+    await removeManagedWorktree(project, worktree.worktreeRoot, branch, baseBranch, managedRoot);
+
+    await expect(recreateManagedWorktree(project, worktree.worktreeRoot, worktree.path, branch, managedRoot))
+      .rejects.toThrow(/subdirectory does not exist/);
+    // The failed attempt must not leave a checkout or registration behind
+    // that would turn every retry into "Worktree already exists".
+    expect(fs.existsSync(worktree.worktreeRoot)).toBe(false);
+    await expect(recreateManagedWorktree(project, worktree.worktreeRoot, worktree.path, branch, managedRoot))
+      .rejects.toThrow(/subdirectory does not exist/);
+  });
+
   it("rejects managed worktree operations outside the configured root", async () => {
     const { root, project } = repository();
     write(root, "file.txt", "base\n");

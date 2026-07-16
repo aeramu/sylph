@@ -154,6 +154,15 @@ export function getActiveRuntime(sessionId: string) {
   return activeRuntimes.get(sessionId)?.runtime;
 }
 
+// Waits out any in-flight build for this session; undefined when nothing is
+// registered or the build failed.
+export function getSettledRuntime(sessionId: string): Promise<any> {
+  const entry = activeRuntimes.get(sessionId);
+  if (!entry) return Promise.resolve(undefined);
+  entry.lastUsed = Date.now();
+  return entry.promise.catch(() => undefined);
+}
+
 export function disposeRuntime(sessionId: string) {
   const entry = activeRuntimes.get(sessionId);
   if (!entry) return;
@@ -161,7 +170,13 @@ export function disposeRuntime(sessionId: string) {
   sessionEventSequences.delete(sessionId);
   rejectPendingForSession(sessionId, "session worktree removed");
   clearSessionStatuses(sessionId);
-  try { entry.runtime?.dispose?.(); } catch (error) { console.error(`Failed to dispose runtime ${sessionId}:`, error); }
+  if (entry.runtime) {
+    try { entry.runtime.dispose?.(); } catch (error) { console.error(`Failed to dispose runtime ${sessionId}:`, error); }
+  } else {
+    // Still building: dispose once it settles so an orphaned runtime doesn't
+    // keep its SSE subscription alive after the session was torn down.
+    entry.promise?.then((runtime) => runtime?.dispose?.()).catch(() => {});
+  }
 }
 
 export async function rollbackNewWorktreeSession(sessionId: string) {
@@ -309,19 +324,9 @@ async function buildSessionRuntime(
   } catch (error) {
     // A newly-created worktree is not useful without a runtime. Roll back its
     // checkout, generated branch, and Sylph binding atomically.
-    const binding = !sessionId ? getSessionBinding(sessionManager?.getSessionId?.()) : undefined;
-    if (!sessionId && binding?.worktree && binding.managedWorktreeRoot && binding.branch && binding.baseBranch) {
-      const project = projects.find((entry) => entry.id === binding.projectId);
-      if (project) {
-        await discardManagedWorktree(projectForBinding(project, binding), {
-          path: binding.cwd,
-          worktreeRoot: binding.managedWorktreeRoot,
-          branch: binding.branch,
-          baseBranch: binding.baseBranch,
-        }, WORKTREES_DIR).catch((rollbackError) => console.error("Failed to roll back worktree:", rollbackError));
-      }
-      if (binding.sessionFile) fs.rmSync(binding.sessionFile, { force: true });
-      deleteSessionBinding(binding.sessionId);
+    if (!sessionId && sessionManager?.getSessionId?.()) {
+      await rollbackNewWorktreeSession(sessionManager.getSessionId())
+        .catch((rollbackError) => console.error("Failed to roll back worktree:", rollbackError));
     }
     throw error;
   }
