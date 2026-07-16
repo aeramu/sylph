@@ -238,14 +238,19 @@ export async function recreateManagedWorktree(
   const projectCwd = fs.realpathSync(path.resolve(project.path));
   const repositoryRoot = fs.realpathSync(path.resolve((await runGit(projectCwd, ["rev-parse", "--show-toplevel"])).trim()));
   await runGit(repositoryRoot, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]);
+  // A manually deleted checkout stays registered with Git, which makes
+  // `worktree add` at the same path fail with "missing but already
+  // registered" and keeps the branch marked as checked out.
+  await runGit(repositoryRoot, ["worktree", "prune"]);
   fs.mkdirSync(path.dirname(worktreeRoot), { recursive: true });
   try {
     await runGit(repositoryRoot, ["worktree", "add", worktreeRoot, branch]);
+    if (!fs.existsSync(sessionCwd)) throw new Error("The project subdirectory does not exist on this branch");
   } catch (error) {
     if (fs.existsSync(worktreeRoot)) fs.rmSync(worktreeRoot, { recursive: true, force: true });
+    await runGit(repositoryRoot, ["worktree", "prune"]).catch(() => {});
     throw error;
   }
-  if (!fs.existsSync(sessionCwd)) throw new Error("The project subdirectory does not exist on this branch");
 }
 
 async function getContext(project: Pick<Project, "path">): Promise<GitContext> {

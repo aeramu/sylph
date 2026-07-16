@@ -8,7 +8,7 @@ import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { getProjects, saveProjects, getProjectById, type Project } from "./projects.ts";
 import { addClient, removeClient } from "./sse.ts";
 import { resolveUiRequest, getPendingUiRequests, getSessionStatuses } from "./uiBridge.ts";
-import { disposeRuntime, getActiveRuntime, getOrInitRuntime, getIntrospectionRuntime, rollbackNewWorktreeSession, touchRuntime, getContextInfo, getSessionEventSequence } from "./runtimes.ts";
+import { disposeRuntime, getActiveRuntime, getOrInitRuntime, getIntrospectionRuntime, getSettledRuntime, rollbackNewWorktreeSession, touchRuntime, getContextInfo, getSessionEventSequence } from "./runtimes.ts";
 import { authStorage, modelRegistry, refreshAuthState } from "./auth.ts";
 import { reconstructInterruptedQuestion, resumeInterruptedQuestion } from "./interruptedQuestions.ts";
 import { walkProject, resolveMentionsInPrompt, fuzzyPathScore, MENTION_MAX_RESULTS, type MentionEntry } from "./mentions.ts";
@@ -487,7 +487,9 @@ export function createRouter(): express.Router {
     }
     const project = getProjectById(binding.projectId);
     if (!project) return res.status(404).json({ error: "Project not found" });
-    const runtime = getActiveRuntime(sessionId);
+    // Wait out an in-flight runtime build; checking only the settled runtime
+    // would let removal race a build that is still reading this checkout.
+    const runtime = await getSettledRuntime(sessionId);
     if (runtime?.session?.isStreaming) return res.status(409).json({ error: "Stop the session before removing its worktree" });
     try {
       const status = await getManagedWorktreeRemovalStatus(
