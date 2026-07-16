@@ -368,6 +368,12 @@ export default function Composer(props: {
   });
 
   const highlightedInput = createMemo(() => highlightMentions(input()));
+  // Keep native textarea text visible unless there is actually a mention to
+  // highlight. Besides avoiding an unnecessary mirror for ordinary messages,
+  // this keeps the browser's caret and glyphs on the same rendering surface —
+  // particularly important on iOS, where textarea font metrics can differ
+  // subtly from an identically styled div after a line wraps.
+  const hasMentionHighlights = createMemo(() => /@\{[^}\n]+\}|(^|\s)@[^\s{}]+/.test(input()));
 
   createEffect(() => {
     // Reset selected index when filtered list changes
@@ -734,7 +740,7 @@ export default function Composer(props: {
         />
         <textarea
           ref={textareaRef}
-          class={`input-field ${input() ? 'has-highlight-layer' : ''}`}
+          class={`input-field ${hasMentionHighlights() ? 'has-highlight-layer' : ''}`}
           placeholder="Ask anything, @ to mention, / for actions"
           value={input()}
           onInput={(e) => {
