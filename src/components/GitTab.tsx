@@ -46,10 +46,11 @@ export default function GitTab(props: { projectId?: string; refreshTrigger?: num
         if (!fetchRes.ok) throw new Error(fetchData.error || 'Failed to fetch remote Git state');
         if (generation !== refreshGeneration || props.projectId !== projectId) return false;
       }
+      const requestOptions: RequestInit = { cache: 'no-store' };
       const [statusRes, logRes, divergenceRes] = await Promise.all([
-        fetch(`/api/projects/${encodeURIComponent(projectId)}/git/status`),
-        fetch(`/api/projects/${encodeURIComponent(projectId)}/git/log?limit=30`),
-        fetch(`/api/projects/${encodeURIComponent(projectId)}/git/divergence?limit=30`),
+        fetch(`/api/projects/${encodeURIComponent(projectId)}/git/status`, requestOptions),
+        fetch(`/api/projects/${encodeURIComponent(projectId)}/git/log?limit=30`, requestOptions),
+        fetch(`/api/projects/${encodeURIComponent(projectId)}/git/divergence?limit=30`, requestOptions),
       ]);
       const [data, logData, divergenceData] = await Promise.all([statusRes.json(), logRes.json(), divergenceRes.json()]);
       if (!statusRes.ok) throw new Error(data.error || 'Failed to load git status');
