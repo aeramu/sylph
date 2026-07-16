@@ -54,10 +54,19 @@ export interface ResourceInfo {
   description?: string;
 }
 
-export interface ProjectInfo {
+export interface ProjectDirectoryInfo {
   id: string;
   name: string;
   path: string;
+}
+
+export interface ProjectInfo {
+  id: string;
+  name: string;
+  /** Primary directory path (legacy-compatible convenience field). */
+  path: string;
+  directories: ProjectDirectoryInfo[];
+  primaryDirectoryId: string;
 }
 
 // Live state of a session shown in the sidebar: mid-turn, blocked on a user
@@ -71,6 +80,7 @@ export type SessionStatus = 'working' | 'needsInput' | 'error';
 export interface DraftSession {
   id: string;
   projectId?: string;
+  directoryId?: string;
   branch?: string;
   worktree?: boolean;
   firstMessage: string;

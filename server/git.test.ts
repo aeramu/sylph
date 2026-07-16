@@ -18,14 +18,24 @@ function git(cwd: string, ...args: string[]) {
   return result.stdout;
 }
 
+function testProject(id: string, projectPath: string): Project {
+  const directoryId = `${id}-root`;
+  return {
+    id,
+    name: id,
+    path: projectPath,
+    directories: [{ id: directoryId, name: id, path: projectPath }],
+    primaryDirectoryId: directoryId,
+  };
+}
+
 function repository() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "sylph-git-test-"));
   directories.push(root);
   git(root, "init", "-q");
   git(root, "config", "user.email", "test@example.com");
   git(root, "config", "user.name", "Test User");
-  const project: Project = { id: "test", name: "test", path: root };
-  return { root, project };
+  return { root, project: testProject("test", root) };
 }
 
 function write(root: string, filePath: string, content: string | Buffer) {
@@ -106,7 +116,7 @@ describe("Git tab backend", () => {
     git(root, "commit", "-qm", "initial");
     write(root, "root.txt", "changed outside\n");
     write(root, "sub/file.txt", "changed inside\n");
-    const project: Project = { id: "sub", name: "sub", path: path.join(root, "sub") };
+    const project = testProject("sub", path.join(root, "sub"));
 
     const status = await getGitStatus(project);
     expect(status.files.map((file) => file.path)).toEqual(["file.txt"]);
@@ -123,7 +133,7 @@ describe("Git tab backend", () => {
     write(root, "root.txt", "outside\n");
     write(root, "sub/file.txt", "inside\n");
     git(root, "add", "root.txt", "sub/file.txt");
-    const project: Project = { id: "sub", name: "sub", path: path.join(root, "sub") };
+    const project = testProject("sub", path.join(root, "sub"));
 
     await expect(commit(project, "unsafe commit")).rejects.toThrow(/staged changes outside/);
     expect(git(root, "log", "-1", "--pretty=%s").trim()).toBe("initial");
@@ -184,7 +194,7 @@ describe("Git tab backend", () => {
     write(root, "outside.txt", "outside\n");
     write(root, "sub/one.txt", "one\n");
     write(root, "sub/two.txt", "two\n");
-    const project: Project = { id: "sub", name: "sub", path: path.join(root, "sub") };
+    const project = testProject("sub", path.join(root, "sub"));
 
     await stageAll(project);
     expect(git(root, "diff", "--cached", "--name-only", "-z").split("\0").filter(Boolean).sort())

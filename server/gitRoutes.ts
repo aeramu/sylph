@@ -1,6 +1,6 @@
 import express from "express";
 import { applyToIndex, commit, fetchRemote, getGitDivergence, getGitLog, getGitStatus, pull, push, stageAll, stageFile, unstageAll, unstageFile } from "./git.ts";
-import { getProjectById } from "./projects.ts";
+import { getProjectById, projectAtDirectory } from "./projects.ts";
 import { getSessionBinding } from "./sessionBindings.ts";
 
 function handleError(res: express.Response, error: unknown) {
@@ -24,7 +24,13 @@ export function createGitRouter(): express.Router {
     if (binding && binding.projectId !== project.id) {
       return res.status(400).json({ error: "Session does not belong to this project" });
     }
-    res.locals.project = binding ? { ...project, path: binding.cwd } : project;
+    if (!binding && typeof req.query.directoryId === "string"
+      && !project.directories.some((directory) => directory.id === req.query.directoryId)) {
+      return res.status(400).json({ error: "Project directory not found" });
+    }
+    res.locals.project = binding
+      ? projectAtDirectory(project, binding.directoryId, binding.cwd)
+      : projectAtDirectory(project, req.query.directoryId);
     next();
   });
 

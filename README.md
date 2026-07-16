@@ -17,7 +17,9 @@ npm install
 npm run dev   # starts vite + backend concurrently
 ```
 
-Open http://localhost:5173, add a project (any directory on disk), and start chatting.
+Open http://localhost:5173, add a project, choose one or more directories on disk, and start chatting.
+
+A project can contain multiple directory roots (for example, separate `frontend` and `api` repositories). Each chat selects one active directory for its shell, Git operations, and optional worktree. The agent can still access every project directory by absolute path, and file mentions are namespaced by directory alias, such as `@frontend/src/App.tsx` or `@api/src/routes.ts`.
 
 ## Scripts
 

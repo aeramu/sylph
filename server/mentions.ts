@@ -1,11 +1,11 @@
 import fs from "fs";
 import path from "path";
-import type { Project } from "./projects.ts";
+import type { Project, ProjectDirectory } from "./projects.ts";
+import { getProjectDirectory } from "./projects.ts";
 
-// @mention resolution: the composer lets the user reference project files with
-// @path or @{path with spaces}. On send, those references are expanded inline
-// into the prompt so the model receives the file (or folder) contents. The
-// same walk also powers the /api/fs/files autocomplete.
+// @mention resolution: multi-root projects expose paths as @root-name/path.
+// An unprefixed path remains valid relative to the chat's active directory for
+// backward compatibility and quick references from that root.
 
 const MENTION_IGNORED_DIRS = new Set([".git", "node_modules", "dist", "build", ".next", ".vite", "coverage"]);
 const MENTION_TEXT_EXTENSIONS = new Set([
@@ -14,8 +14,6 @@ const MENTION_TEXT_EXTENSIONS = new Set([
   ".css", ".html", ".xml", ".yml", ".yaml", ".toml", ".ini", ".cfg",
   ".sh", ".bash", ".zsh", ".sql", ".csv", ".log", ".vue", ".svelte",
 ]);
-// Extensionless files that are still plain text and worth mentioning.
-// Note ".env" is deliberately absent everywhere: env files hold secrets.
 const MENTION_TEXT_BASENAMES = new Set([
   "makefile", "dockerfile", "license", "readme", "changelog", "notice",
   "gemfile", "rakefile", "procfile", "justfile",
@@ -29,13 +27,34 @@ const MENTION_WALK_CACHE_TTL_MS = 3000;
 
 export type MentionEntry = { name: string; path: string; kind: "file" | "directory" };
 
-// Resolves a mention path to a real location, rejecting anything that ends up
-// outside the project — both lexical `..` escapes and symlinks pointing out of
-// the root. Returns the realpath'd root too so display names stay consistent
-// on systems where the project path itself goes through a symlink.
-async function resolveInsideProject(project: Project, relPath: string): Promise<{ abs: string; root: string } | undefined> {
-  const root = path.resolve(project.path);
-  const abs = path.resolve(root, relPath || ".");
+type MentionRoot = { directory: ProjectDirectory; path: string; prefix: string };
+
+function mentionRoots(project: Project): MentionRoot[] {
+  const active = getProjectDirectory(project, project.primaryDirectoryId);
+  return project.directories.map((directory) => ({
+    directory,
+    // project.path may be a session worktree checkout for the active root.
+    path: directory.id === active.id ? path.resolve(project.path) : path.resolve(directory.path),
+    prefix: project.directories.length > 1 ? `${directory.name}/` : "",
+  }));
+}
+
+function parseMentionRoot(project: Project, mentionPath: string): { root: MentionRoot; relPath: string } {
+  const roots = mentionRoots(project);
+  if (project.directories.length > 1) {
+    const slash = mentionPath.indexOf("/");
+    const alias = slash < 0 ? mentionPath : mentionPath.slice(0, slash);
+    const matched = roots.find((entry) => entry.directory.name.toLowerCase() === alias.toLowerCase());
+    if (matched) return { root: matched, relPath: slash < 0 ? "" : mentionPath.slice(slash + 1) };
+  }
+  const active = roots.find((entry) => entry.directory.id === project.primaryDirectoryId) ?? roots[0];
+  return { root: active, relPath: mentionPath };
+}
+
+async function resolveInsideProject(project: Project, mentionPath: string): Promise<{ abs: string; root: string } | undefined> {
+  const parsed = parseMentionRoot(project, mentionPath);
+  const root = path.resolve(parsed.root.path);
+  const abs = path.resolve(root, parsed.relPath || ".");
   if (abs !== root && !abs.startsWith(root + path.sep)) return undefined;
   let realAbs: string;
   let realRoot: string;
@@ -70,40 +89,41 @@ export function fuzzyPathScore(query: string, target: string): number | null {
   return qi === q.length ? score - t.length * 0.01 : null;
 }
 
-// The walk runs on every autocomplete keystroke, so cache it briefly.
 const mentionWalkCache = new Map<string, { at: number; entries: MentionEntry[] }>();
 
 export async function walkProject(project: Project): Promise<MentionEntry[]> {
-  const root = path.resolve(project.path);
-  const cacheKey = `${project.id}:${root}`;
+  const roots = mentionRoots(project);
+  const cacheKey = `${project.id}:${roots.map((entry) => `${entry.directory.id}:${entry.path}`).join("|")}`;
   const cached = mentionWalkCache.get(cacheKey);
   if (cached && Date.now() - cached.at < MENTION_WALK_CACHE_TTL_MS) return cached.entries;
 
   const out: MentionEntry[] = [];
-  const queue = [root];
-  for (let qi = 0; qi < queue.length && out.length < MENTION_MAX_SCAN_ENTRIES; qi++) {
-    const dir = queue[qi];
-    let entries: fs.Dirent[];
-    try {
-      entries = await fs.promises.readdir(dir, { withFileTypes: true });
-    } catch {
-      continue;
+  for (const mentionRoot of roots) {
+    if (out.length >= MENTION_MAX_SCAN_ENTRIES) break;
+    const root = mentionRoot.path;
+    if (mentionRoot.prefix) {
+      out.push({ name: mentionRoot.directory.name, path: mentionRoot.prefix.slice(0, -1), kind: "directory" });
     }
-    entries.sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name));
-    for (const entry of entries) {
-      if (entry.name.startsWith(".")) continue;
-      if (entry.isDirectory() && MENTION_IGNORED_DIRS.has(entry.name)) continue;
-      const abs = path.join(dir, entry.name);
-      const rel = path.relative(root, abs).split(path.sep).join("/");
-      if (entry.isDirectory()) {
-        out.push({ name: entry.name, path: rel, kind: "directory" });
-        queue.push(abs);
-      } else if (entry.isFile() && isProbablyTextFile(abs)) {
-        // Only offer entries the mention resolver will actually inline, so the
-        // dropdown never suggests a file that would silently drop from the prompt.
-        out.push({ name: entry.name, path: rel, kind: "file" });
+    const queue = [root];
+    for (let qi = 0; qi < queue.length && out.length < MENTION_MAX_SCAN_ENTRIES; qi++) {
+      const dir = queue[qi];
+      let entries: fs.Dirent[];
+      try { entries = await fs.promises.readdir(dir, { withFileTypes: true }); } catch { continue; }
+      entries.sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name));
+      for (const entry of entries) {
+        if (entry.name.startsWith(".")) continue;
+        if (entry.isDirectory() && MENTION_IGNORED_DIRS.has(entry.name)) continue;
+        const abs = path.join(dir, entry.name);
+        const relative = path.relative(root, abs).split(path.sep).join("/");
+        const displayPath = `${mentionRoot.prefix}${relative}`;
+        if (entry.isDirectory()) {
+          out.push({ name: entry.name, path: displayPath, kind: "directory" });
+          queue.push(abs);
+        } else if (entry.isFile() && isProbablyTextFile(abs)) {
+          out.push({ name: entry.name, path: displayPath, kind: "file" });
+        }
+        if (out.length >= MENTION_MAX_SCAN_ENTRIES) break;
       }
-      if (out.length >= MENTION_MAX_SCAN_ENTRIES) break;
     }
   }
   mentionWalkCache.set(cacheKey, { at: Date.now(), entries: out });
@@ -114,23 +134,14 @@ function extractMentionPaths(text: string): string[] {
   const found = new Set<string>();
   const braced = /@\{([^}\n]+)\}/g;
   let match: RegExpExecArray | null;
-  // Braced mentions carry an explicit boundary, so keep their content verbatim.
   while ((match = braced.exec(text))) found.add(match[1].trim());
-
   const bare = /(^|\s)@([^\s{}]+)/g;
   while ((match = bare.exec(text))) {
-    // A bare mention that ends a sentence picks up trailing punctuation
-    // ("see @src/app.ts.") that isn't part of the path; strip it so the file
-    // still resolves. Keep a trailing slash — it's a meaningful directory hint.
     found.add(match[2].replace(/[.,;:!?)\]}'"]+$/, "").trim());
   }
   return [...found].filter(Boolean);
 }
 
-// Resolves @mentions found in `source` and appends their contents to `prompt`.
-// `source` defaults to `prompt` but is passed separately when the prompt has
-// extra machine-appended content (e.g. inlined file attachments) that must not
-// be scanned for mentions.
 export async function resolveMentionsInPrompt(project: Project | undefined, prompt: string, source: string = prompt): Promise<string> {
   if (!project || !/(^|\s)@(?:\{|[^\s{])/.test(source)) return prompt;
   const paths = extractMentionPaths(source);
@@ -138,21 +149,19 @@ export async function resolveMentionsInPrompt(project: Project | undefined, prom
 
   const budget = { remaining: MENTION_MAX_TOTAL_BYTES };
   const blocks: string[] = [];
-  for (const relPath of paths) {
-    const block = await buildMentionBlock(project, relPath, budget);
+  for (const mentionPath of paths) {
+    const block = await buildMentionBlock(project, mentionPath, budget);
     if (block) blocks.push(block);
   }
-
   return blocks.length ? `${prompt}\n\n${blocks.join("\n\n")}` : prompt;
 }
 
-// XML-escape a path for use in a name="" attribute of the mention wrapper tags.
 function xmlAttr(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-async function buildMentionBlock(project: Project, relPath: string, budget: { remaining: number }): Promise<string | null> {
-  const resolved = await resolveInsideProject(project, relPath);
+async function buildMentionBlock(project: Project, mentionPath: string, budget: { remaining: number }): Promise<string | null> {
+  const resolved = await resolveInsideProject(project, mentionPath);
   if (!resolved) return null;
   const { abs, root } = resolved;
   let stat: fs.Stats;
@@ -162,7 +171,7 @@ async function buildMentionBlock(project: Project, relPath: string, budget: { re
     if (!isProbablyTextFile(abs) || stat.size > MENTION_MAX_FILE_BYTES || stat.size > budget.remaining) return null;
     const text = await fs.promises.readFile(abs, "utf8");
     budget.remaining -= Buffer.byteLength(text, "utf8");
-    return `<file name="${xmlAttr(relPath)}">\n${text}\n</file>`;
+    return `<file name="${xmlAttr(mentionPath)}">\n${text}\n</file>`;
   }
 
   if (!stat.isDirectory()) return null;
@@ -186,16 +195,17 @@ async function buildMentionBlock(project: Project, relPath: string, budget: { re
     }
   }
 
-  const rel = (file: string) => path.relative(root, file).split(path.sep).join("/");
-  const parts: string[] = [`<folder name="${xmlAttr(relPath)}">`];
-  parts.push("<tree>");
+  const parsed = parseMentionRoot(project, mentionPath);
+  const prefix = project.directories.length > 1 ? `${parsed.root.directory.name}/` : "";
+  const rel = (file: string) => `${prefix}${path.relative(root, file).split(path.sep).join("/")}`;
+  const parts: string[] = [`<folder name="${xmlAttr(mentionPath)}">`, "<tree>"];
   for (const file of files) parts.push(rel(file));
   if (truncated) parts.push("… (listing truncated)");
   parts.push("</tree>");
   for (const file of files) {
-    let s: fs.Stats;
-    try { s = await fs.promises.stat(file); } catch { continue; }
-    if (s.size > MENTION_MAX_FILE_BYTES || s.size > budget.remaining) continue;
+    let fileStat: fs.Stats;
+    try { fileStat = await fs.promises.stat(file); } catch { continue; }
+    if (fileStat.size > MENTION_MAX_FILE_BYTES || fileStat.size > budget.remaining) continue;
     const text = await fs.promises.readFile(file, "utf8");
     budget.remaining -= Buffer.byteLength(text, "utf8");
     parts.push(`<file name="${xmlAttr(rel(file))}">\n${text}\n</file>`);

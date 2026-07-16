@@ -7,7 +7,7 @@ import GitSourceSection from './GitSourceSection';
 import GitToolbar from './GitToolbar';
 import './GitTab.css';
 
-export default function GitTab(props: { projectId?: string; sessionId?: string; refreshTrigger?: number }) {
+export default function GitTab(props: { projectId?: string; directoryId?: string; sessionId?: string; refreshTrigger?: number }) {
   const [files, setFiles] = createSignal<GitFile[]>([]);
   const [repository, setRepository] = createSignal<GitRepositoryInfo>();
   const [commits, setCommits] = createSignal<GitCommit[]>([]);
@@ -19,8 +19,12 @@ export default function GitTab(props: { projectId?: string; sessionId?: string; 
   const [error, setError] = createSignal('');
   const draftId = () => props.sessionId || props.projectId;
   const [message, setMessage] = createSignal(getGitCommitDraft(draftId()));
-  const sessionQuery = () => props.sessionId ? `?sessionId=${encodeURIComponent(props.sessionId)}` : '';
-  const withSession = (path: string) => `${path}${path.includes('?') ? '&' : '?'}${sessionQuery().slice(1)}`.replace(/[?&]$/, '');
+  const scopeQuery = () => props.sessionId
+    ? `sessionId=${encodeURIComponent(props.sessionId)}`
+    : props.directoryId
+      ? `directoryId=${encodeURIComponent(props.directoryId)}`
+      : '';
+  const withSession = (path: string) => `${path}${path.includes('?') ? '&' : '?'}${scopeQuery()}`.replace(/[?&]$/, '');
   const [expanded, setExpanded] = createSignal<Record<string, boolean>>({});
   const [collapsed, setCollapsed] = createSignal({ branch: true, history: true, staged: false, unstaged: false });
   const stagedFiles = createMemo(() => files().filter((file) => file.index !== ' ' && file.index !== '?'));

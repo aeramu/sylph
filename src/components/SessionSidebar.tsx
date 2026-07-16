@@ -1,14 +1,8 @@
 import { createResource, createSignal, For, createEffect, Show, Switch, Match } from 'solid-js';
-import type { DraftSession, SessionStatus } from '../types';
+import type { DraftSession, ProjectInfo, SessionStatus } from '../types';
 import { sessionStatuses, setSessionStatus } from '../lib/sessionStatus';
 import AddProjectModal from './AddProjectModal';
 import './SessionSidebar.css';
-
-interface ProjectInfo {
-  id: string;
-  name: string;
-  path: string;
-}
 
 interface SessionInfo {
   id: string;
@@ -18,6 +12,7 @@ interface SessionInfo {
   firstMessage: string;
   status?: SessionStatus;
   branch?: string;
+  directoryId?: string;
   worktree?: boolean;
   worktreeMissing?: boolean;
 }
@@ -131,6 +126,7 @@ function ProjectItem(props: {
           messageCount: 1,
           firstMessage: draft.firstMessage,
           branch: draft.branch,
+          directoryId: draft.directoryId,
           worktree: draft.worktree,
         });
       }
@@ -177,7 +173,9 @@ function ProjectItem(props: {
       <div class="project-header" onClick={() => setExpanded(!expanded())}>
         <div class="project-header-title">
           <span class="project-header-icon"><FolderIcon open={expanded()} /></span>
-          <span class="project-header-name" title={props.project.path}>{props.project.name}</span>
+          <span class="project-header-name" title={props.project.directories.map((directory) => directory.path).join('\n')}>
+            {props.project.name}<Show when={props.project.directories.length > 1}> · {props.project.directories.length}</Show>
+          </span>
         </div>
 
         <div class="project-header-actions">
@@ -233,6 +231,9 @@ function ProjectItem(props: {
                 }}
               >
                 <div class="session-title">
+                  <Show when={props.project.directories.length > 1 && session.directoryId}>
+                    <span>{props.project.directories.find((directory) => directory.id === session.directoryId)?.name || 'root'} · </span>
+                  </Show>
                   {session.name || session.firstMessage || 'Empty Chat'}
                 </div>
                 <div class="session-meta">

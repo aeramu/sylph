@@ -5,6 +5,8 @@ import { SESSION_BINDINGS_FILE, SYLPH_DIR } from "./config.ts";
 export interface SessionBinding {
   sessionId: string;
   projectId: string;
+  /** Project directory selected as this session's cwd/Git root. */
+  directoryId?: string;
   cwd: string;
   sessionFile?: string;
   branch?: string;

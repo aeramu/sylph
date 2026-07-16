@@ -2,10 +2,9 @@ import express from "express";
 import fs from "fs";
 import path from "path";
 import os from "os";
-import { randomUUID } from "crypto";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
-import { getProjects, saveProjects, getProjectById, type Project } from "./projects.ts";
+import { createProject, getProjects, saveProjects, getProjectById, projectAtDirectory } from "./projects.ts";
 import { addClient, removeClient } from "./sse.ts";
 import { resolveUiRequest, getPendingUiRequests, getSessionStatuses } from "./uiBridge.ts";
 import { disposeRuntime, getActiveRuntime, getOrInitRuntime, getIntrospectionRuntime, rollbackNewWorktreeSession, touchRuntime, getContextInfo, getSessionEventSequence } from "./runtimes.ts";
@@ -316,24 +315,38 @@ export function createRouter(): express.Router {
   });
 
   router.post("/api/projects", (req, res) => {
-    const { path: dirPath, name } = req.body;
-    if (!dirPath || typeof dirPath !== "string" || !fs.existsSync(dirPath)) {
-      return res.status(400).json({ error: "Invalid path" });
+    const { path: legacyPath, name } = req.body ?? {};
+    const requestedDirectories = Array.isArray(req.body?.directories)
+      ? req.body.directories
+      : typeof legacyPath === "string"
+        ? [{ path: legacyPath, primary: true }]
+        : [];
+    if (requestedDirectories.length === 0) {
+      return res.status(400).json({ error: "At least one directory is required" });
     }
-    const normalized = path.resolve(dirPath);
+
+    const directories: Array<{ name?: unknown; path: string; primary?: boolean }> = [];
+    const seen = new Set<string>();
+    for (const entry of requestedDirectories) {
+      if (!entry || typeof entry.path !== "string") return res.status(400).json({ error: "Invalid directory path" });
+      const normalized = path.resolve(entry.path);
+      let stat: fs.Stats;
+      try { stat = fs.statSync(normalized); } catch { return res.status(400).json({ error: `Directory not found: ${normalized}` }); }
+      if (!stat.isDirectory()) return res.status(400).json({ error: `Not a directory: ${normalized}` });
+      if (seen.has(normalized)) return res.status(400).json({ error: `Duplicate directory: ${normalized}` });
+      seen.add(normalized);
+      directories.push({ name: entry.name, path: normalized, primary: entry.primary === true });
+    }
+
     const projects = getProjects();
-    const existing = projects.find(p => path.resolve(p.path) === normalized);
+    const existing = projects.find((project) => project.directories.some((directory) => seen.has(path.resolve(directory.path))));
     if (existing) {
-      return res.status(409).json({ error: "Project already added", project: existing });
+      return res.status(409).json({ error: "A directory is already part of another project", project: existing });
     }
-    const newProj: Project = {
-      id: "proj-" + randomUUID(),
-      name: name || path.basename(normalized),
-      path: normalized,
-    };
-    projects.push(newProj);
+    const newProject = createProject({ name, directories });
+    projects.push(newProject);
     saveProjects(projects);
-    res.json(newProj);
+    res.json(newProject);
   });
 
   router.delete("/api/projects/:id", (req, res) => {
@@ -349,7 +362,13 @@ export function createRouter(): express.Router {
       if (binding && binding.projectId !== project.id) {
         return res.status(400).json({ error: "Session does not belong to this project" });
       }
-      const mentionProject = binding ? { ...project, path: binding.cwd } : project;
+      if (!binding && typeof req.query.directoryId === "string"
+        && !project.directories.some((directory) => directory.id === req.query.directoryId)) {
+        return res.status(400).json({ error: "Project directory not found" });
+      }
+      const mentionProject = binding
+        ? projectAtDirectory(project, binding.directoryId, binding.cwd)
+        : projectAtDirectory(project, req.query.directoryId);
       if (!fs.existsSync(mentionProject.path)) return res.status(404).json({ error: "Project path not found" });
 
       const query = typeof req.query.q === "string" ? req.query.q : "";
@@ -405,7 +424,8 @@ export function createRouter(): express.Router {
         bindings = getProjectSessionBindings(projectId);
       }
 
-      const directories = new Set<string>([targetDir]);
+      const selectedProject = projectId ? getProjectById(projectId) : undefined;
+      const directories = new Set<string>(selectedProject ? selectedProject.directories.map((entry) => entry.path) : [targetDir]);
       for (const binding of bindings) if (fs.existsSync(binding.cwd)) directories.add(binding.cwd);
       const byId = new Map<string, any>();
       for (const directory of directories) {
@@ -452,6 +472,7 @@ export function createRouter(): express.Router {
           return {
             ...session,
             ...(status ? { status } : {}),
+            ...(binding?.directoryId ? { directoryId: binding.directoryId } : {}),
             ...(binding?.branch ? { branch: binding.branch } : {}),
             ...(binding?.worktree ? { worktree: true, worktreeMissing: !fs.existsSync(binding.cwd) } : {}),
           };
@@ -471,9 +492,10 @@ export function createRouter(): express.Router {
     }
     const project = getProjectById(binding.projectId);
     if (!project) return res.status(404).json({ error: "Project not found" });
+    const gitProject = projectAtDirectory(project, binding.directoryId);
     try {
       const status = await getManagedWorktreeRemovalStatus(
-        project, binding.managedWorktreeRoot, binding.branch, binding.baseBranch, WORKTREES_DIR,
+        gitProject, binding.managedWorktreeRoot, binding.branch, binding.baseBranch, WORKTREES_DIR,
       );
       res.json({ ...status, cwd: binding.cwd, worktreeRoot: binding.managedWorktreeRoot, baseBranch: binding.baseBranch });
     } catch (err) { handleError(res, err); }
@@ -487,18 +509,19 @@ export function createRouter(): express.Router {
     }
     const project = getProjectById(binding.projectId);
     if (!project) return res.status(404).json({ error: "Project not found" });
+    const gitProject = projectAtDirectory(project, binding.directoryId);
     const runtime = getActiveRuntime(sessionId);
     if (runtime?.session?.isStreaming) return res.status(409).json({ error: "Stop the session before removing its worktree" });
     try {
       const status = await getManagedWorktreeRemovalStatus(
-        project, binding.managedWorktreeRoot, binding.branch, binding.baseBranch, WORKTREES_DIR,
+        gitProject, binding.managedWorktreeRoot, binding.branch, binding.baseBranch, WORKTREES_DIR,
       );
       if (status.dirty) return res.status(409).json({ error: "Worktree has uncommitted changes; commit or discard them before removal", code: "dirty" });
       if (!status.merged && req.query.confirmUnmerged !== "true") {
         return res.status(409).json({ error: "Branch is not merged into its base branch", code: "unmerged", branch: status.branch });
       }
       await removeManagedWorktree(
-        project, binding.managedWorktreeRoot, binding.branch, binding.baseBranch, WORKTREES_DIR,
+        gitProject, binding.managedWorktreeRoot, binding.branch, binding.baseBranch, WORKTREES_DIR,
       );
       disposeRuntime(sessionId);
       res.json({ success: true, branch: binding.branch, branchKept: true });
@@ -512,9 +535,10 @@ export function createRouter(): express.Router {
     }
     const project = getProjectById(binding.projectId);
     if (!project) return res.status(404).json({ error: "Project not found" });
+    const gitProject = projectAtDirectory(project, binding.directoryId);
     try {
       await recreateManagedWorktree(
-        project, binding.managedWorktreeRoot, binding.cwd, binding.branch, WORKTREES_DIR,
+        gitProject, binding.managedWorktreeRoot, binding.cwd, binding.branch, WORKTREES_DIR,
       );
       res.json({ success: true, branch: binding.branch, cwd: binding.cwd });
     } catch (err) { handleError(res, err); }
@@ -667,8 +691,17 @@ export function createRouter(): express.Router {
   router.get("/api/projects/:id/git/branches", async (req, res) => {
     const project = getProjectById(req.params.id);
     if (!project) return res.status(404).json({ error: "Project not found" });
+    const binding = getSessionBinding(req.query.sessionId);
+    if (binding && binding.projectId !== project.id) return res.status(400).json({ error: "Session does not belong to this project" });
+    if (!binding && typeof req.query.directoryId === "string"
+      && !project.directories.some((directory) => directory.id === req.query.directoryId)) {
+      return res.status(400).json({ error: "Project directory not found" });
+    }
+    const gitProject = binding
+      ? projectAtDirectory(project, binding.directoryId, binding.cwd)
+      : projectAtDirectory(project, req.query.directoryId);
     try {
-      res.json({ branches: await listGitBranches(project) });
+      res.json({ branches: await listGitBranches(gitProject) });
     } catch (err) {
       handleError(res, err);
     }
@@ -677,7 +710,7 @@ export function createRouter(): express.Router {
   router.use(createGitRouter());
 
   router.post("/api/chat", async (req, res) => {
-    const { sessionId, prompt, mentionText, projectId, modelId, thinkingLevel, images, useWorktree, baseBranch } = req.body;
+    const { sessionId, prompt, mentionText, projectId, directoryId, modelId, thinkingLevel, images, useWorktree, baseBranch } = req.body;
     if (!prompt) {
       return res.status(400).json({ error: "prompt is required" });
     }
@@ -688,6 +721,7 @@ export function createRouter(): express.Router {
         return res.status(400).json({ error: "baseBranch is required when useWorktree is enabled" });
       }
       const runtime = await getOrInitRuntime(sessionId, projectId, {
+        directoryId: typeof directoryId === "string" ? directoryId : undefined,
         useWorktree: !sessionId && useWorktree === true,
         baseBranch: typeof baseBranch === "string" ? baseBranch.trim() : undefined,
         branchPrompt: typeof mentionText === "string" ? mentionText : prompt,
@@ -727,12 +761,12 @@ export function createRouter(): express.Router {
       const projects = getProjects();
       const binding = getSessionBinding(resolvedSessionId);
       const resolvedProject = (binding ? projects.find((entry) => entry.id === binding.projectId) : undefined)
-        || projects.find((entry) => path.resolve(entry.path) === path.resolve(runtime.session.cwd));
+        || projects.find((entry) => entry.directories.some((directory) => path.resolve(directory.path) === path.resolve(runtime.session.cwd)));
       // Mentions must resolve inside the checkout used by this session. Using
       // the saved project's main path here would quietly feed the model stale
       // files while it edits the worktree.
       const mentionProject = resolvedProject
-        ? { ...resolvedProject, path: runtime.session.cwd }
+        ? projectAtDirectory(resolvedProject, binding?.directoryId ?? directoryId, runtime.session.cwd)
         : undefined;
       // Scan only the user-typed text for @mentions when the client provides it,
       // so mentions inside inlined file attachments aren't resolved as well.
@@ -755,6 +789,7 @@ export function createRouter(): express.Router {
         success: true,
         sessionId: resolvedSessionId,
         projectId: resolvedProject?.id,
+        directoryId: binding?.directoryId,
         branch: binding?.branch,
         worktree: binding?.worktree,
       });

@@ -104,6 +104,7 @@ function App() {
           setDraftSessions((prev) => [...prev, {
             id: newId,
             projectId: newProjectId,
+            directoryId: sessionMeta?.directoryId,
             branch: sessionMeta?.branch,
             worktree: sessionMeta?.worktree,
             firstMessage: firstMessage || '',

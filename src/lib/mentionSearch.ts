@@ -16,6 +16,7 @@ export function createMentionSearch(
   mention: Accessor<ActiveMention | null>,
   projectId: Accessor<string | undefined>,
   sessionId: Accessor<string | undefined> = () => undefined,
+  directoryId: Accessor<string | undefined> = () => undefined,
 ) {
   const [results, setResults] = createSignal<FileMentionInfo[]>([]);
   const [loading, setLoading] = createSignal(false);
@@ -25,6 +26,7 @@ export function createMentionSearch(
     const activeMention = mention();
     const activeProjectId = projectId();
     const activeSessionId = sessionId();
+    const activeDirectoryId = directoryId();
     if (!activeMention || !activeProjectId) {
       setResults([]);
       setLoading(false);
@@ -40,6 +42,7 @@ export function createMentionSearch(
     const timer = window.setTimeout(() => {
       const query = new URLSearchParams({ projectId: activeProjectId, q: activeMention.query });
       if (activeSessionId) query.set('sessionId', activeSessionId);
+      else if (activeDirectoryId) query.set('directoryId', activeDirectoryId);
       api<MentionResponse>(`/api/fs/files?${query}`, { signal: controller.signal })
         .then((data) => setResults(data.files || []))
         .catch((error) => {

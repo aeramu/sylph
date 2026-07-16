@@ -33,12 +33,13 @@ interface GitBranchOption {
 
 interface SessionBindingInfo {
   cwd: string;
+  directoryId?: string;
   branch?: string;
   baseBranch?: string;
   worktree?: boolean;
 }
 
-export default function ChatInterface(props: { activeSessionId?: string, activeProjectId?: string, onSelectProject?: (id: string) => void, onSessionCreated: (id: string, projectId?: string, firstMessage?: string, meta?: { branch?: string; worktree?: boolean }) => void, onTurnComplete?: () => void, projectRefreshTrigger?: number }) {
+export default function ChatInterface(props: { activeSessionId?: string, activeProjectId?: string, onSelectProject?: (id: string) => void, onSessionCreated: (id: string, projectId?: string, firstMessage?: string, meta?: { directoryId?: string; branch?: string; worktree?: boolean }) => void, onTurnComplete?: () => void, projectRefreshTrigger?: number }) {
   const [messages, setMessages] = createStore<ChatMessage[]>([]);
   // Only needed during the brief new-chat window before /api/chat returns a
   // session id. Existing sessions derive processing from sessionStatuses.
@@ -55,6 +56,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   const [branches, setBranches] = createSignal<GitBranchOption[]>([]);
   const [selectedBaseBranch, setSelectedBaseBranch] = createSignal('');
   const [useWorktree, setUseWorktree] = createSignal(false);
+  const [selectedDirectoryId, setSelectedDirectoryId] = createSignal('');
   const [branchError, setBranchError] = createSignal('');
   const [sessionBinding, setSessionBinding] = createSignal<SessionBindingInfo | null>(null);
   const {
@@ -71,6 +73,12 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   const [statusEntries, setStatusEntries] = createStore<Record<string, string>>({});
   const [widgets, setWidgets] = createSignal<Record<string, ExtWidget>>({});
   const activeProject = () => projects().find((p) => p.id === props.activeProjectId);
+  const activeDirectory = () => {
+    const project = activeProject();
+    if (!project) return undefined;
+    const directoryId = sessionBinding()?.directoryId || selectedDirectoryId() || project.primaryDirectoryId;
+    return project.directories.find((directory) => directory.id === directoryId) || project.directories[0];
+  };
   const chatDraftKey = () => props.activeSessionId
     ? `session:${props.activeSessionId}`
     : `project:${props.activeProjectId ?? 'none'}:new`;
@@ -179,6 +187,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       // already exist.
       if (!props.activeProjectId && list.length > 0 && props.onSelectProject) {
         props.onSelectProject(list[0].id);
+        setSelectedDirectoryId(list[0].primaryDirectoryId);
       }
     });
   };
@@ -246,6 +255,20 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     fetchProjects();
   });
 
+  // Keep the new-chat directory selection valid when the user switches
+  // projects from the sidebar or project dropdown.
+  createEffect(() => {
+    if (props.activeSessionId) return;
+    const project = activeProject();
+    if (!project) {
+      setSelectedDirectoryId('');
+      return;
+    }
+    if (!project.directories.some((directory) => directory.id === selectedDirectoryId())) {
+      setSelectedDirectoryId(project.primaryDirectoryId);
+    }
+  });
+
   // A branch is only used as the base for a new isolated worktree. Leaving
   // the checkbox off preserves today's behavior and never switches the user's
   // checkout underneath another session.
@@ -253,7 +276,8 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   createEffect(() => {
     const projectId = props.activeProjectId;
     const sessionId = props.activeSessionId;
-    if (sessionId || !projectId) {
+    const directoryId = selectedDirectoryId();
+    if (sessionId || !projectId || !directoryId) {
       setBranches([]);
       setSelectedBaseBranch('');
       setBranchError('');
@@ -261,7 +285,8 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     }
     const request = ++branchRequest;
     setBranchError('');
-    fetch(`/api/projects/${encodeURIComponent(projectId)}/git/branches`, { cache: 'no-store' })
+    const query = new URLSearchParams({ directoryId });
+    fetch(`/api/projects/${encodeURIComponent(projectId)}/git/branches?${query}`, { cache: 'no-store' })
       .then(async (res) => {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Git branches unavailable');
@@ -349,6 +374,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       setMessages(mapHistoryToMessages(data.messages || []));
       setContextInfo(data.context || null);
       setSessionBinding(data.binding || null);
+      if (data.binding?.directoryId) setSelectedDirectoryId(data.binding.directoryId);
       // Replace extension statuses with the snapshot's. Their live SSE
       // broadcasts are one-shot: any fired while this session wasn't active
       // (background turn, other tab) were dropped by the session gate, so the
@@ -602,6 +628,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
           mentionText: userMessage,
           sessionId: props.activeSessionId,
           projectId: props.activeProjectId,
+          directoryId: selectedDirectoryId() || activeProject()?.primaryDirectoryId,
           modelId: selectedModel() || undefined,
           thinkingLevel: selectedThinkingLevel(),
           images: images.length ? images : undefined,
@@ -632,7 +659,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
           data.sessionId,
           data.projectId ?? props.activeProjectId,
           userMessage.slice(0, 200),
-          { branch: data.branch, worktree: data.worktree },
+          { directoryId: data.directoryId, branch: data.branch, worktree: data.worktree },
         );
       } else {
         stopBuffering();
@@ -721,7 +748,9 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
         <div class="chat-header">
           <h1 class="chat-header-title" title={activeSessionTitle()}>{activeSessionTitle()}</h1>
           <Show when={activeProject()} keyed>
-            {(project) => <span class="chat-header-project" title={project.path}>{project.name}</span>}
+            {(project) => <span class="chat-header-project" title={activeDirectory()?.path || project.path}>
+              {project.name}<Show when={project.directories.length > 1 && activeDirectory()}> · {activeDirectory()!.name}</Show>
+            </span>}
           </Show>
           <Show when={!panelOpen()}>
             <div class="chat-header-panel-tabs" aria-label="Right sidebar tabs">
@@ -860,12 +889,24 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
                 value={props.activeProjectId || ''}
                 onChange={(val) => {
                   setUseWorktree(false);
+                  const project = projects().find((entry) => entry.id === val);
+                  setSelectedDirectoryId(project?.primaryDirectoryId || '');
                   if (props.onSelectProject) props.onSelectProject(val);
                 }}
                 options={projects().map(p => ({ value: p.id, label: p.name, icon: 'folder' }))}
                 placeholder="Select a Project"
                 position="bottom"
               />
+              <Show when={activeProject() && activeProject()!.directories.length > 1}>
+                <CustomSelect
+                  triggerClass="project-selector"
+                  value={selectedDirectoryId() || activeProject()!.primaryDirectoryId}
+                  onChange={(value) => { setUseWorktree(false); setSelectedDirectoryId(value); }}
+                  options={activeProject()!.directories.map((directory) => ({ value: directory.id, label: directory.name, icon: 'folder' }))}
+                  placeholder="Select a Directory"
+                  position="bottom"
+                />
+              </Show>
               <Show when={props.activeProjectId && branches().length > 0}>
                 <label class="worktree-toggle" title="Create an isolated Git worktree for this chat">
                   <input
@@ -899,8 +940,8 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
           <Show when={props.activeSessionId}>
             <div class="composer-session-bar">
               <Show when={activeProject()} keyed>
-                {(project) => <span class="composer-session-project" title={sessionBinding()?.cwd || project.path}>
-                  {project.name}<Show when={sessionBinding()?.branch}> · {sessionBinding()!.branch}</Show>
+                {(project) => <span class="composer-session-project" title={sessionBinding()?.cwd || activeDirectory()?.path || project.path}>
+                  {project.name}<Show when={project.directories.length > 1 && activeDirectory()}> · {activeDirectory()!.name}</Show><Show when={sessionBinding()?.branch}> · {sessionBinding()!.branch}</Show>
                 </span>}
               </Show>
               <Show when={diffs().session.files.length > 0}>
@@ -924,6 +965,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
             disabled={!!uiRequest() || !!questionsRequest()}
             commands={commandsList()}
             projectId={props.activeProjectId}
+            directoryId={activeDirectory()?.id}
             sessionId={props.activeSessionId}
             draftKey={chatDraftKey()}
             draftText={getChatDraft(chatDraftKey())}
@@ -989,7 +1031,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       </Show>
       <Show when={panelOpen() && panelTab() === 'git'}>
         <Suspense>
-          <GitTab projectId={props.activeProjectId} sessionId={props.activeSessionId} refreshTrigger={gitRefreshTrigger()} />
+          <GitTab projectId={props.activeProjectId} directoryId={activeDirectory()?.id} sessionId={props.activeSessionId} refreshTrigger={gitRefreshTrigger()} />
         </Suspense>
       </Show>
       <Show when={panelOpen() && panelTab() === 'server'}>
