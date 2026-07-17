@@ -1,6 +1,6 @@
-import { createSignal, createEffect, createMemo, For, Show, on, onCleanup, onMount } from 'solid-js';
+import { createSignal, createEffect, createMemo, Show, on, onCleanup, onMount } from 'solid-js';
 import type { Attachment, CommandInfo, ContextInfo, FileMentionInfo, ModelOption, ThinkingLevel, ThinkingLevelOption } from '../../types';
-import { ACCEPT_ATTR, readFile } from '../../lib/attachments';
+import { ACCEPT_ATTR } from '../../lib/attachments';
 import CustomSelect, { type CustomSelectApi } from '../../shared/ui/CustomSelect';
 import ContextIndicator from './ContextIndicator';
 import { escapeHtml } from '../../lib/html';
@@ -13,6 +13,10 @@ import {
   speechRecognitionErrorMessage,
   type SpeechRecognitionLike,
 } from '../../lib/speechRecognition';
+import AttachmentList from './components/AttachmentList';
+import AutocompletePopup from './components/AutocompletePopup';
+import ThinkingSelector from './components/ThinkingSelector';
+import { createAttachments } from './createAttachments';
 import './Composer.css';
 
 // Built-in slash commands handled locally by the composer (they run a UI
@@ -82,8 +86,10 @@ export default function Composer(props: {
   api?: (api: ComposerApi) => void;
 }) {
   const [input, setInput] = createSignal(props.draftText);
-  const [attachments, setAttachments] = createSignal<Attachment[]>([]);
-  const [isDragOver, setIsDragOver] = createSignal(false);
+  const {
+    attachments, isDragOver, addFiles, remove: removeAttachment, reset: resetAttachments, take: takeAttachments,
+    handleFileInput, handlePaste, handleDrop, handleDragEnter, handleDragLeave,
+  } = createAttachments();
   const [isListening, setIsListening] = createSignal(false);
   const [isStartingVoice, setIsStartingVoice] = createSignal(false);
   const [voiceError, setVoiceError] = createSignal<string | null>(null);
@@ -107,7 +113,6 @@ export default function Composer(props: {
   let thinkingSliderInputRef: HTMLInputElement | undefined;
   let modelSelectApi: CustomSelectApi | undefined;
   let speechRecognition: SpeechRecognitionLike | undefined;
-  let dragCounter = 0;
   let skipNextMentionSync = false;
 
   const updateInput = (text: string) => {
@@ -136,7 +141,7 @@ export default function Composer(props: {
       setVoiceError(null);
       const text = props.draftText;
       setInput(text);
-      setAttachments([]);
+      resetAttachments();
       if (textareaRef) textareaRef.value = text;
     },
   ));
@@ -174,16 +179,6 @@ export default function Composer(props: {
   };
 
   const [draggedThinkingIndex, setDraggedThinkingIndex] = createSignal<number | null>(null);
-  const displayedThinkingIndex = () => draggedThinkingIndex() ?? selectedThinkingIndex();
-
-  const thinkingSliderProgress = (index = displayedThinkingIndex()) => {
-    const lastIndex = Math.max(props.thinkingLevels.length - 1, 1);
-    return (index / lastIndex) * 100;
-  };
-
-  const thinkingSliderPosition = (index = displayedThinkingIndex()) =>
-    `${thinkingSliderProgress(index)}%`;
-
   const nearestThinkingIndex = (rawIndex: number) => {
     const lastIndex = Math.max(props.thinkingLevels.length - 1, 0);
     return Math.max(0, Math.min(lastIndex, Math.round(rawIndex)));
@@ -231,13 +226,6 @@ export default function Composer(props: {
     requestAnimationFrame(() => thinkingSliderInputRef?.focus());
   });
 
-  const addFiles = async (fileList: FileList | File[]) => {
-    const files = Array.from(fileList);
-    const read = await Promise.all(files.map(readFile));
-    const valid = read.filter((a): a is Attachment => !!a);
-    if (valid.length) setAttachments((prev) => [...prev, ...valid]);
-  };
-
   props.api?.({
     setText: (text) => {
       if (textareaRef) textareaRef.value = text;
@@ -255,56 +243,6 @@ export default function Composer(props: {
     focus: () => textareaRef?.focus(),
     addFiles,
   });
-
-  const removeAttachment = (id: string) => {
-    setAttachments((prev) => prev.filter((a) => a.id !== id));
-  };
-
-  const handleFileInput = (e: Event) => {
-    const input = e.target as HTMLInputElement;
-    if (input.files?.length) addFiles(input.files);
-    input.value = '';
-  };
-
-  const handlePaste = (e: ClipboardEvent) => {
-    const items = e.clipboardData?.items;
-    if (!items) return;
-    const files: File[] = [];
-    for (const item of items) {
-      if (item.kind === 'file') {
-        const f = item.getAsFile();
-        if (f) files.push(f);
-      }
-    }
-    if (files.length) {
-      e.preventDefault();
-      addFiles(files);
-    }
-  };
-
-  const handleDrop = (e: DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dragCounter = 0;
-    setIsDragOver(false);
-    if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files);
-  };
-
-  const handleDragEnter = (e: DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.dataTransfer?.types?.includes('Files')) {
-      dragCounter++;
-      setIsDragOver(true);
-    }
-  };
-
-  const handleDragLeave = (e: DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dragCounter = Math.max(0, dragCounter - 1);
-    if (dragCounter === 0) setIsDragOver(false);
-  };
 
   const updateActiveMention = (text = input(), rawPos = textareaRef?.selectionStart ?? caretPos() ?? text.length) => {
     const pos = Math.min(rawPos, text.length);
@@ -359,16 +297,6 @@ export default function Composer(props: {
   // Drop-up render order (best match nearest the input). Kept null-safe so the
   // reactive `each` below never spreads null during the truthy -> null
   // transition, which would throw and freeze the composer's reactivity.
-  const reversedCommands = createMemo(() => {
-    const cmds = filteredCommands();
-    return cmds ? [...cmds].reverse() : [];
-  });
-
-  const reversedMentions = createMemo(() => {
-    const files = filteredMentions();
-    return files ? [...files].reverse() : [];
-  });
-
   const highlightedInput = createMemo(() => highlightMentions(input()));
   // Keep native textarea text visible unless there is actually a mention to
   // highlight. Besides avoiding an unnecessary mirror for ordinary messages,
@@ -558,9 +486,8 @@ export default function Composer(props: {
     }
     if (!input().trim() && attachments().length === 0) return;
     const text = input();
-    const pending = attachments();
+    const pending = takeAttachments();
     updateInput('');
-    setAttachments([]);
     setActiveMention(null);
     clearMentionResults();
     setSelectedIndex(0);
@@ -648,91 +575,17 @@ export default function Composer(props: {
 
   return (
     <div class={`input-area relative ${isDragOver() ? 'drag-over' : ''}`} onDrop={handleDrop} onDragOver={(e) => e.preventDefault()} onDragEnter={handleDragEnter} onDragLeave={handleDragLeave}>
-      <Show when={attachments().length > 0}>
-        <div class="attachment-previews">
-          <For each={attachments()}>
-            {(att) => (
-              <div class={`attachment-chip ${att.kind === 'image' ? 'is-image' : 'is-file'}`}>
-                <Show when={att.kind === 'image' && att.previewUrl} fallback={
-                  <span class="attachment-file-icon">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                      <polyline points="14 2 14 8 20 8"></polyline>
-                    </svg>
-                  </span>
-                }>
-                  <img src={att.previewUrl} alt={att.name} class="attachment-thumb" />
-                </Show>
-                <span class="attachment-chip-name" title={att.name}>{att.name}</span>
-                <button class="attachment-chip-remove" onClick={() => removeAttachment(att.id)} title="Remove">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <line x1="18" y1="6" x2="6" y2="18"></line>
-                    <line x1="6" y1="6" x2="18" y2="18"></line>
-                  </svg>
-                </button>
-              </div>
-            )}
-          </For>
-        </div>
-      </Show>
-      <Show when={filteredMentions()}>
-        <div class="autocomplete-popup">
-          <div class="autocomplete-header">
-            Mentions {!props.projectId ? '• No project selected' : isMentionLoading() ? '• Searching…' : ''}
-          </div>
-          <div class="autocomplete-list" ref={commandListRef}>
-            <Show when={reversedMentions().length > 0} fallback={<div class="autocomplete-empty">{mentionEmptyText()}</div>}>
-              <For each={reversedMentions()}>
-                {(file, index) => {
-                  const originalIndex = () => reversedMentions().length - 1 - index();
-                  return (
-                    <div
-                      class={`autocomplete-item ${originalIndex() === selectedIndex() ? 'selected' : ''}`}
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => applyMention(file, { trailingSpace: true, keepOpen: false })}
-                    >
-                      <div class="autocomplete-item-title">
-                        <span class="autocomplete-item-name">{file.kind === 'directory' ? '📁' : '📄'} {file.path}</span>
-                        <span class="autocomplete-item-source">{file.kind}</span>
-                      </div>
-                    </div>
-                  );
-                }}
-              </For>
-            </Show>
-          </div>
-        </div>
-      </Show>
-      <Show when={filteredCommands()}>
-        <div class="autocomplete-popup">
-          <div class="autocomplete-header">
-            Slash Commands
-          </div>
-          <div class="autocomplete-list" ref={commandListRef}>
-            <For each={reversedCommands()}>
-              {(cmd, index) => {
-                const originalIndex = () => reversedCommands().length - 1 - index();
-                return (
-                  <div
-                    class={`autocomplete-item ${originalIndex() === selectedIndex() ? 'selected' : ''}`}
-                    // Keep focus in the textarea: without this, mousedown blurs
-                    // the field and the reflow can swallow the click so the
-                    // command is never applied and the popup stays open.
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => applyCommand(cmd)}
-                  >
-                    <div class="autocomplete-item-title">
-                      <span class="autocomplete-item-name">/{cmd.name}</span>
-                      <span class="autocomplete-item-source">{cmd.source}</span>
-                    </div>
-                    {cmd.description && <span class="autocomplete-item-desc">{cmd.description}</span>}
-                  </div>
-                );
-              }}
-            </For>
-          </div>
-        </div>
-      </Show>
+      <AttachmentList attachments={attachments()} onRemove={removeAttachment} />
+      <AutocompletePopup
+        mentions={filteredMentions()}
+        commands={filteredCommands()}
+        selectedIndex={selectedIndex()}
+        mentionHeader={`Mentions ${!props.projectId ? '• No project selected' : isMentionLoading() ? '• Searching…' : ''}`}
+        mentionEmpty={mentionEmptyText()}
+        listRef={(element) => { commandListRef = element; }}
+        onMention={(file) => applyMention(file, { trailingSpace: true, keepOpen: false })}
+        onCommand={applyCommand}
+      />
       <div class="input-field-shell">
         <div
           ref={highlightRef}
@@ -800,91 +653,20 @@ export default function Composer(props: {
             groupBy={(opt) => opt.provider}
             api={(a) => { modelSelectApi = a; }}
           />
-          <div class="thinking-slider" ref={thinkingSliderRef}>
-            <button
-              class="thinking-selector thinking-slider-trigger"
-              type="button"
-              aria-haspopup="dialog"
-              aria-expanded={isThinkingSliderOpen()}
-              title={`Thinking: ${selectedThinkingLabel()}`}
-              disabled={props.thinkingLevels.length === 0}
-              onClick={() => setIsThinkingSliderOpen((open) => !open)}
-            >
-              <span class="thinking-slider-trigger-value">{selectedThinkingLabel()}</span>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class={`custom-select-chevron ${isThinkingSliderOpen() ? 'open' : ''}`}>
-                <polyline points="6 9 12 15 18 9"></polyline>
-              </svg>
-            </button>
-            <Show when={isThinkingSliderOpen()}>
-              <div class="thinking-slider-popover" role="dialog" aria-label="Thinking level">
-                <div class="thinking-slider-popover-header">
-                  <span>Thinking level</span>
-                  <strong>{selectedThinkingLabel()}</strong>
-                </div>
-                <div class="thinking-slider-scale" aria-hidden="true">
-                  <span>Faster</span>
-                  <span>Smarter</span>
-                </div>
-                <div class="thinking-slider-control">
-                  <div class="thinking-slider-track" aria-hidden="true">
-                    <div class="thinking-slider-points">
-                      <span
-                        class="thinking-slider-fill"
-                        style={`width: calc(${thinkingSliderPosition()} + 11px)`}
-                      />
-                      <For each={props.thinkingLevels}>
-                        {(_, index) => (
-                          <span
-                            class="thinking-slider-dot"
-                            style={`left: ${thinkingSliderPosition(index())}`}
-                          />
-                        )}
-                      </For>
-                      <span
-                        class="thinking-slider-thumb"
-                        style={`left: ${thinkingSliderPosition()}`}
-                      />
-                    </div>
-                  </div>
-                  <input
-                    ref={thinkingSliderInputRef}
-                    class="thinking-slider-input"
-                    type="range"
-                    min="0"
-                    max={Math.max(props.thinkingLevels.length - 1, 0)}
-                    step="any"
-                    value={displayedThinkingIndex()}
-                    aria-label="Thinking level"
-                    aria-valuetext={selectedThinkingLabel()}
-                    disabled={props.thinkingLevels.length < 2}
-                    onInput={(e) => updateThinkingSlider(Number(e.currentTarget.value))}
-                    onChange={(e) => commitThinkingSlider(Number(e.currentTarget.value))}
-                    onKeyDown={(e) => {
-                      const lastIndex = Math.max(props.thinkingLevels.length - 1, 0);
-                      if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
-                        e.preventDefault();
-                        commitThinkingSlider(Math.round(displayedThinkingIndex()) - 1);
-                      } else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
-                        e.preventDefault();
-                        commitThinkingSlider(Math.round(displayedThinkingIndex()) + 1);
-                      } else if (e.key === 'Home') {
-                        e.preventDefault();
-                        commitThinkingSlider(0);
-                      } else if (e.key === 'End') {
-                        e.preventDefault();
-                        commitThinkingSlider(lastIndex);
-                      } else if (e.key === 'Enter') {
-                        e.preventDefault();
-                        commitThinkingSlider(Number(e.currentTarget.value));
-                        setIsThinkingSliderOpen(false);
-                        requestAnimationFrame(() => textareaRef?.focus());
-                      }
-                    }}
-                  />
-                </div>
-              </div>
-            </Show>
-          </div>
+          <ThinkingSelector
+            levels={props.thinkingLevels}
+            selectedIndex={selectedThinkingIndex()}
+            selectedLabel={selectedThinkingLabel()}
+            open={isThinkingSliderOpen()}
+            draggedIndex={draggedThinkingIndex()}
+            containerRef={(element) => { thinkingSliderRef = element; }}
+            inputRef={(element) => { thinkingSliderInputRef = element; }}
+            onToggle={() => setIsThinkingSliderOpen((open) => !open)}
+            onUpdate={updateThinkingSlider}
+            onCommit={commitThinkingSlider}
+            onClose={() => setIsThinkingSliderOpen(false)}
+            onReturnFocus={() => requestAnimationFrame(() => textareaRef?.focus())}
+          />
         </div>
 
         <div class="input-toolbar-right">
