@@ -1,8 +1,13 @@
 import express from "express";
+import { ApplicationError } from "../services/errors.ts";
 
-export function handleError(res: express.Response, err: any) {
-  console.error(err);
-  res.status(500).json({ error: err?.message || "Internal error" });
+export function handleError(res: express.Response, error: unknown) {
+  if (error instanceof ApplicationError) {
+    return res.status(error.status).json({ error: error.message, ...error.details });
+  }
+  console.error(error);
+  const message = error instanceof Error ? error.message : "Internal error";
+  return res.status(500).json({ error: message });
 }
 
 export function extensionDisplayName(extensionOrPath: string | {
