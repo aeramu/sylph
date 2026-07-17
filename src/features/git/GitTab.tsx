@@ -1,6 +1,7 @@
 import { createEffect, createMemo, createSignal, on, Show } from 'solid-js';
 import type { GitCommit, GitDivergence, GitFile, GitRepositoryInfo } from '../../lib/gitPatch';
 import { getGitCommitDraft, setGitCommitDraft } from '../../lib/gitCommitDraft';
+import { generateCommitMessage as requestCommitMessage, refreshGit, runGitOperation, type GitScope } from './api';
 import GitCommitBox from './GitCommitBox';
 import { GitBranchSection, GitCommitHistory } from './GitRepositorySection';
 import GitSourceSection from './GitSourceSection';
@@ -20,13 +21,7 @@ export default function GitTab(props: { projectId?: string; directoryId?: string
   const [error, setError] = createSignal('');
   const draftId = () => `${props.sessionId || props.projectId || 'none'}:${props.directoryId || 'root'}`;
   const [message, setMessage] = createSignal(getGitCommitDraft(draftId()));
-  const scopeQuery = () => {
-    const query = new URLSearchParams();
-    if (props.sessionId) query.set('sessionId', props.sessionId);
-    if (props.directoryId) query.set('directoryId', props.directoryId);
-    return query.toString();
-  };
-  const withSession = (path: string) => `${path}${path.includes('?') ? '&' : '?'}${scopeQuery()}`.replace(/[?&]$/, '');
+  const gitScope = (projectId: string): GitScope => ({ projectId, sessionId: props.sessionId, directoryId: props.directoryId });
   const [expanded, setExpanded] = createSignal<Record<string, boolean>>({});
   const [collapsed, setCollapsed] = createSignal({ branch: true, history: true, staged: false, unstaged: false });
   const stagedFiles = createMemo(() => files().filter((file) => file.index !== ' ' && file.index !== '?'));
@@ -48,31 +43,12 @@ export default function GitTab(props: { projectId?: string; directoryId?: string
     setLoading(true);
     setError('');
     try {
-      if (fetchRemote) {
-        const fetchRes = await fetch(withSession(`/api/projects/${encodeURIComponent(projectId)}/git/fetch`), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: '{}',
-        });
-        const fetchData = await fetchRes.json();
-        if (!fetchRes.ok) throw new Error(fetchData.error || 'Failed to fetch remote Git state');
-        if (generation !== refreshGeneration || (props.projectId || (props.sessionId ? '__session__' : undefined)) !== projectId) return false;
-      }
-      const requestOptions: RequestInit = { cache: 'no-store' };
-      const [statusRes, logRes, divergenceRes] = await Promise.all([
-        fetch(withSession(`/api/projects/${encodeURIComponent(projectId)}/git/status`), requestOptions),
-        fetch(withSession(`/api/projects/${encodeURIComponent(projectId)}/git/log?limit=30`), requestOptions),
-        fetch(withSession(`/api/projects/${encodeURIComponent(projectId)}/git/divergence?limit=30`), requestOptions),
-      ]);
-      const [data, logData, divergenceData] = await Promise.all([statusRes.json(), logRes.json(), divergenceRes.json()]);
-      if (!statusRes.ok) throw new Error(data.error || 'Failed to load git status');
-      if (!logRes.ok) throw new Error(logData.error || 'Failed to load commit history');
-      if (!divergenceRes.ok) throw new Error(divergenceData.error || 'Failed to load branch divergence');
+      const data = await refreshGit(gitScope(projectId), fetchRemote);
       if (generation !== refreshGeneration || (props.projectId || (props.sessionId ? '__session__' : undefined)) !== projectId) return false;
-      const nextFiles: GitFile[] = data.files || [];
+      const nextFiles = data.files;
       setRepository(data.repository);
-      setCommits(logData.commits || []);
-      setDivergence(divergenceData);
+      setCommits(data.commits);
+      setDivergence(data.divergence);
       setFiles((previous) => {
         const previousByPath = new Map(previous.map((file) => [file.path, file]));
         return nextFiles.map((file) => {
@@ -107,13 +83,7 @@ export default function GitTab(props: { projectId?: string; directoryId?: string
     setBusy(true);
     setError('');
     try {
-      const res = await fetch(withSession(`/api/projects/${encodeURIComponent(projectId)}/git/${url}`), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Git operation failed');
+      await runGitOperation(gitScope(projectId), url, body);
       if ((props.projectId || (props.sessionId ? '__session__' : undefined)) === projectId) await refresh(projectId);
       return true;
     } catch (err: any) {
@@ -136,18 +106,11 @@ export default function GitTab(props: { projectId?: string; directoryId?: string
     const requestDraftId = draftId();
     const generation = ++commitMessageGeneration;
     const isCurrentRequest = () => generation === commitMessageGeneration && draftId() === requestDraftId;
-    const requestUrl = withSession(`/api/projects/${encodeURIComponent(projectId)}/git/generate-commit-message`);
     setGenerating(true);
     setError('');
     try {
-      const res = await fetch(requestUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: '{}',
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Failed to generate commit message');
-      if (isCurrentRequest()) updateMessage(data.message || '');
+      const generated = await requestCommitMessage(gitScope(projectId));
+      if (isCurrentRequest()) updateMessage(generated);
     } catch (err) {
       if (isCurrentRequest()) setError(err instanceof Error ? err.message : 'Failed to generate commit message');
     } finally {

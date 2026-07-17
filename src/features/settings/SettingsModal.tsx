@@ -1,90 +1,20 @@
 import { createEffect, createResource, createSignal, For, onCleanup, Show } from 'solid-js';
-import type { ModelOption, ResourceInfo, ThinkingLevel } from '../../types';
+import type { ModelOption, ThinkingLevel } from '../../types';
 import { THINKING_LEVELS } from '../../types';
 import { renderMarkdown } from '../../lib/markdown';
 import CodeView from '../../shared/ui/CodeView';
 import CustomSelect from '../../shared/ui/CustomSelect';
+import {
+  cancelOAuthFlow, createProvider as createProviderRequest, getExtension, getModels, getOAuthFlow, getProviders,
+  getSettings, getSkill, listResources, logoutProvider as logoutProviderRequest, respondOAuthFlow,
+  saveProviderKey, startOAuth, updateSettings, type ModelsResponse, type OAuthFlowInfo, type ProviderInfo,
+} from './api';
 import './SettingsModal.css';
 
 type SettingsSection = 'provider' | 'git' | 'skills' | 'extensions';
 
-interface SkillDetail {
-  name: string;
-  description?: string;
-  content: string;
-  path: string;
-}
-
-interface ExtensionDetail {
-  name: string;
-  path: string;
-  resolvedPath?: string;
-  sourceInfo?: Record<string, unknown>;
-  tools: Array<{ name: string; label?: string; description?: string; promptSnippet?: string; promptGuidelines?: string[]; parameters?: unknown }>;
-  commands: Array<{ name: string; description?: string }>;
-  flags: Array<{ name: string; description?: string; type?: string; default?: unknown }>;
-  shortcuts: Array<{ shortcut: string; description?: string }>;
-  events: Array<{ name: string; count: number }>;
-  messageRenderers: string[];
-}
-
-interface AppSettings {
-  commitMessageModel: string;
-  commitMessageThinkingLevel: ThinkingLevel;
-  commitMessagePrompt: string;
-}
-
-interface ModelsResponse {
-  models?: Array<{ id: string; provider?: string; value?: string; thinkingLevels?: unknown[] }>;
-}
-
-interface ProviderInfo {
-  id: string;
-  name: string;
-  authType: 'api_key' | 'oauth';
-  configured: boolean;
-  source?: string;
-  label?: string;
-  stored: boolean;
-  storedType?: 'api_key' | 'oauth';
-}
-
-type OAuthStep =
-  | { type: 'auth_url'; url: string; instructions?: string; progress: string[] }
-  | { type: 'device_code'; userCode: string; verificationUri: string; intervalSeconds?: number; expiresInSeconds?: number; progress: string[] }
-  | { type: 'prompt'; message: string; placeholder?: string; allowEmpty?: boolean; progress: string[] }
-  | { type: 'manual_code'; message: string; progress: string[] }
-  | { type: 'select'; message: string; options: Array<{ id: string; label: string }>; progress: string[] }
-  | { type: 'waiting'; message: string; progress: string[] };
-
-interface OAuthFlowInfo {
-  id: string;
-  provider: string;
-  status: 'pending' | 'success' | 'error' | 'cancelled';
-  step?: OAuthStep;
-  authUrl?: string;
-  authInstructions?: string;
-  error?: string;
-  progress: string[];
-}
-
-const fetchResources = async (kind: 'skills' | 'extensions') => {
-  const res = await fetch(`/api/resources/${kind}`);
-  if (!res.ok) return [];
-  const data = await res.json();
-  return (data.resources || []) as ResourceInfo[];
-};
-
-const fetchAppSettings = async () => {
-  const res = await fetch('/api/settings');
-  if (!res.ok) throw new Error('Failed to load settings');
-  return await res.json() as AppSettings;
-};
-
 const fetchModels = async () => {
-  const res = await fetch('/api/models');
-  if (!res.ok) return [];
-  const data = await res.json() as ModelsResponse;
+  const data = await getModels().catch((): ModelsResponse => ({ models: [] }));
   return (data.models || []).map((model): ModelOption => {
     const value = model.value || `${model.provider}/${model.id}`;
     const provider = model.provider || value.split('/')[0] || 'Other';
@@ -94,25 +24,6 @@ const fetchModels = async () => {
       : undefined;
     return { value, label: model.id, provider, searchText: `${provider} ${model.id} ${value}`, thinkingLevels };
   });
-};
-
-const fetchProviders = async () => {
-  const res = await fetch('/api/auth/providers');
-  if (!res.ok) return [];
-  const data = await res.json();
-  return (data.providers || []) as ProviderInfo[];
-};
-
-const fetchSkillDetail = async (name: string) => {
-  const res = await fetch(`/api/resources/skills/${encodeURIComponent(name)}`);
-  if (!res.ok) throw new Error('Failed to load skill');
-  return await res.json() as SkillDetail;
-};
-
-const fetchExtensionDetail = async (name: string) => {
-  const res = await fetch(`/api/resources/extensions/${encodeURIComponent(name)}`);
-  if (!res.ok) throw new Error('Failed to load extension');
-  return await res.json() as ExtensionDetail;
 };
 
 const stripFrontmatter = (content: string) =>
@@ -188,13 +99,13 @@ export default function SettingsModal(props: { onClose: () => void }) {
   const [oauthInput, setOauthInput] = createSignal('');
   let oauthPoll: ReturnType<typeof setInterval> | undefined;
 
-  const [appSettings] = createResource(fetchAppSettings);
+  const [appSettings] = createResource(getSettings);
   const [models] = createResource(fetchModels);
-  const [providers, { refetch: refetchProviders }] = createResource(fetchProviders);
-  const [skills] = createResource(() => fetchResources('skills'));
-  const [extensions] = createResource(() => fetchResources('extensions'));
-  const [skillDetail] = createResource(selectedSkill, fetchSkillDetail);
-  const [extensionDetail] = createResource(selectedExtension, fetchExtensionDetail);
+  const [providers, { refetch: refetchProviders }] = createResource(getProviders);
+  const [skills] = createResource(() => listResources('skills'));
+  const [extensions] = createResource(() => listResources('extensions'));
+  const [skillDetail] = createResource(selectedSkill, getSkill);
+  const [extensionDetail] = createResource(selectedExtension, getExtension);
 
   const currentResources = () => activeSection() === 'skills' ? (skills() || []) : (extensions() || []);
   const currentResourcesLoading = () => activeSection() === 'skills' ? skills.loading : extensions.loading;
@@ -221,16 +132,7 @@ export default function SettingsModal(props: { onClose: () => void }) {
       .map((option) => ({ value: option.value, label: option.label }));
   };
 
-  const patchSettings = async (patch: Partial<AppSettings>) => {
-    const res = await fetch('/api/settings', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(patch),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || 'Failed to save settings');
-    return data as AppSettings;
-  };
+  const patchSettings = updateSettings;
 
   const saveCommitMessageModel = async (value: string) => {
     const previous = commitMessageModel();
@@ -297,7 +199,7 @@ export default function SettingsModal(props: { onClose: () => void }) {
     stopOAuthPolling();
     const flow = oauthFlow();
     if (flow && flow.status === 'pending') {
-      fetch(`/api/auth/oauth/flows/${encodeURIComponent(flow.id)}/cancel`, { method: 'POST' }).catch(() => {});
+      cancelOAuthFlow(flow.id).catch(() => {});
     }
     setOauthFlow(null);
     setOauthInput('');
@@ -332,20 +234,10 @@ export default function SettingsModal(props: { onClose: () => void }) {
     setProviderBusy(true);
     setProviderMessage(null);
     try {
-      const res = await fetch('/api/auth/providers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          providerId: newProviderId(),
-          name: newProviderName(),
-          baseUrl: newProviderBaseUrl(),
-          modelId: newProviderModelId(),
-          modelName: newProviderModelName(),
-          apiKey: newProviderApiKey(),
-        }),
+      const data = await createProviderRequest({
+        providerId: newProviderId(), name: newProviderName(), baseUrl: newProviderBaseUrl(),
+        modelId: newProviderModelId(), modelName: newProviderModelName(), apiKey: newProviderApiKey(),
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Failed to create provider');
       const created = data.provider || newProviderId().trim();
       resetCreateProviderForm();
       setCreatingProvider(false);
@@ -365,13 +257,7 @@ export default function SettingsModal(props: { onClose: () => void }) {
     setProviderBusy(true);
     setProviderMessage(null);
     try {
-      const res = await fetch(`/api/auth/${encodeURIComponent(provider.id)}/api-key`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey: apiKey() }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Failed to save API key');
+      await saveProviderKey(provider.id, apiKey());
       setApiKey('');
       setProviderMessage('API key saved. Models from this provider are now available.');
       await refetchProviders();
@@ -388,9 +274,7 @@ export default function SettingsModal(props: { onClose: () => void }) {
     setProviderBusy(true);
     setProviderMessage(null);
     try {
-      const res = await fetch(`/api/auth/${encodeURIComponent(provider.id)}/logout`, { method: 'POST' });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Failed to remove credentials');
+      await logoutProviderRequest(provider.id);
       setProviderMessage('Credentials removed.');
       await refetchProviders();
     } catch (err) {
@@ -406,10 +290,8 @@ export default function SettingsModal(props: { onClose: () => void }) {
   let autoOpenedUrl: string | undefined;
 
   const pollOAuthFlow = async (id: string) => {
-    const res = await fetch(`/api/auth/oauth/flows/${encodeURIComponent(id)}`);
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || 'Failed to read OAuth flow');
-    setOauthFlow(data as OAuthFlowInfo);
+    const data = await getOAuthFlow<OAuthFlowInfo>(id);
+    setOauthFlow(data);
     if (data.status === 'pending' && data.authUrl && autoOpenedUrl !== data.authUrl) {
       autoOpenedUrl = data.authUrl;
       const opened = window.open(data.authUrl, '_blank', 'noopener,noreferrer');
@@ -435,9 +317,7 @@ export default function SettingsModal(props: { onClose: () => void }) {
     stopOAuthPolling();
     autoOpenedUrl = undefined;
     try {
-      const res = await fetch(`/api/auth/${encodeURIComponent(provider.id)}/oauth/start`, { method: 'POST' });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Failed to start OAuth login');
+      const data = await startOAuth(provider.id);
       await pollOAuthFlow(data.id);
       oauthPoll = setInterval(() => pollOAuthFlow(data.id).catch((err) => {
         stopOAuthPolling();
@@ -455,13 +335,7 @@ export default function SettingsModal(props: { onClose: () => void }) {
     if (!flow) return;
     setProviderBusy(true);
     try {
-      const res = await fetch(`/api/auth/oauth/flows/${encodeURIComponent(flow.id)}/respond`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ value, cancelled }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Failed to continue OAuth login');
+      await respondOAuthFlow(flow.id, value, cancelled);
       setOauthInput('');
       await pollOAuthFlow(flow.id);
     } catch (err) {
@@ -476,7 +350,7 @@ export default function SettingsModal(props: { onClose: () => void }) {
     if (!flow) return;
     setProviderBusy(true);
     try {
-      await fetch(`/api/auth/oauth/flows/${encodeURIComponent(flow.id)}/cancel`, { method: 'POST' });
+      await cancelOAuthFlow(flow.id);
       stopOAuthPolling();
       setOauthFlow(null);
       setProviderMessage('OAuth login cancelled.');

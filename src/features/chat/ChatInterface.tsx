@@ -20,25 +20,15 @@ import { SessionEventBuffer } from '../../lib/sessionEventBuffer';
 import { createModelPreferences } from '../../lib/modelPreferences';
 import { getRightPanelState, setRightPanelState } from '../../lib/rightPanelState';
 import { createId } from '../../lib/id';
+import { ApiError } from '../../lib/api';
+import {
+  abortSession, getSession, listBranches, listCommands, listDirectories, listProjects, recreateWorktree,
+  removeWorktree, respondToUi, sendChat, type GitBranchOption, type SessionBindingInfo,
+} from './api';
 
 const BrowserTab = lazy(() => import('../browser/BrowserTab'));
 const ChangesTab = lazy(() => import('../changes/ChangesTab'));
 const GitTab = lazy(() => import('../git/GitTab'));
-
-interface GitBranchOption {
-  name: string;
-  current: boolean;
-  remote: boolean;
-}
-
-interface SessionBindingInfo {
-  cwd: string;
-  directoryId?: string;
-  branch?: string;
-  baseBranch?: string;
-  worktree?: boolean;
-  worktreeMissing?: boolean;
-}
 
 export default function ChatInterface(props: { activeSessionId?: string, activeProjectId?: string, onSelectProject?: (id?: string) => void, newSessionRequest?: { id: number; standalonePath?: string }, onSessionCreated: (id: string, projectId?: string, firstMessage?: string, meta?: { directoryId?: string; branch?: string; worktree?: boolean }) => void, onTurnComplete?: () => void, onSessionRemoved?: (id: string) => void, projectRefreshTrigger?: number }) {
   const [messages, setMessages] = createStore<ChatMessage[]>([]);
@@ -189,10 +179,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     standaloneSuggestionController = controller;
     setStandaloneSuggestionsLoading(true);
     try {
-      const query = value.trim() ? `?path=${encodeURIComponent(value.trim())}` : '';
-      const res = await fetch(`/api/fs/list${query}`, { signal: controller.signal });
-      if (!res.ok) throw new Error('Directory unavailable');
-      const data = await res.json();
+      const data = await listDirectories(value, controller.signal);
       if (controller.signal.aborted) return;
       setStandaloneSuggestions(data.directories || []);
       setStandaloneSuggestionIndex(0);
@@ -260,8 +247,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   const historyEventBuffer = new SessionEventBuffer<any>();
 
   const fetchProjects = () => {
-    fetch(`/api/projects`).then(res => res.json()).then(data => {
-      const list = data.projects || [];
+    listProjects().then((list) => {
       setProjects(list);
       // No Project is a first-class choice; never replace it implicitly with
       // the first configured project.
@@ -373,12 +359,9 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     const request = ++branchRequest;
     setBranchErrors({});
     void Promise.all(project.directories.map(async (directory) => {
-      const query = new URLSearchParams({ directoryId: directory.id });
       try {
-        const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/git/branches?${query}`, { cache: 'no-store' });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Git branches unavailable');
-        return { directory, branches: (data.branches || []) as GitBranchOption[] };
+        const branches = await listBranches(projectId, directory.id);
+        return { directory, branches };
       } catch (error) {
         return { directory, branches: [] as GitBranchOption[], error: error instanceof Error ? error.message : 'Git branches unavailable' };
       }
@@ -441,11 +424,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
 
   const fetchCommands = async () => {
     try {
-      const res = await fetch('/api/commands');
-      if (res.ok) {
-        const data = await res.json();
-        setCommandsList(data.commands || []);
-      }
+      setCommandsList(await listCommands());
     } catch (e) {
       console.error('Failed to fetch commands', e);
     }
@@ -463,9 +442,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     const sessionId = props.activeSessionId;
     historyEventBuffer.begin(sessionId);
     try {
-      const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`);
-      if (!res.ok) throw new Error(`Failed to load history (${res.status})`);
-      const data = await res.json();
+      const data = await getSession(sessionId);
       if (seq !== historyRequestSeq) return;
       setMessages(mapHistoryToMessages(data.messages || []));
       setContextInfo(data.context || null);
@@ -659,11 +636,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     setQuestionsRequest(null);
     try {
       if (!answeredSession) throw new Error('No session for UI response');
-      await fetch(`/api/sessions/${encodeURIComponent(answeredSession)}/ui-response`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(response),
-      });
+      await respondToUi(answeredSession, response);
     } catch (err) {
       console.error('Failed to send UI response:', err);
     }
@@ -714,10 +687,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     };
 
     try {
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      const data = await sendChat({
           prompt: promptText,
           // The typed message only — mentions live here, not in the appended
           // file attachments the server must not scan.
@@ -731,22 +701,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
           images: images.length ? images : undefined,
           useWorktree: isNewSession && useWorktree(),
           baseBranches: isNewSession && useWorktree() ? selectedBaseBranches() : undefined,
-        }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        stopBuffering();
-        // Server-side error (unknown model, no auth, provider error, etc.).
-        // Render it as an assistant error bubble so the user sees what went
-        // wrong instead of a silent hang.
-        setMessages(messages.length, {
-          id: createId(),
-          role: 'assistant',
-          content: '',
-          errorMessage: data.error || `Request failed (${res.status})`,
-        });
-        return;
-      }
       if (data.sessionId && data.sessionId !== props.activeSessionId) {
         // The session-switch effect replays the buffer and clears the flag.
         // Fall back to the locally selected project if the server couldn't
@@ -776,9 +731,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   const handleStop = async () => {
     if (!props.activeSessionId) return;
     try {
-      await fetch(`/api/sessions/${encodeURIComponent(props.activeSessionId)}/abort`, {
-        method: 'POST'
-      });
+      await abortSession(props.activeSessionId);
     } catch (err) {
       console.error('Failed to abort:', err);
     }
@@ -788,9 +741,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     const sessionId = props.activeSessionId;
     if (!sessionId || !sessionBinding()?.worktreeMissing) return;
     try {
-      const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/worktree/recreate`, { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to restore worktree');
+      await recreateWorktree(sessionId);
       setSessionBinding((binding) => binding ? { ...binding, worktreeMissing: false } : binding);
       props.onTurnComplete?.();
     } catch (error) {
@@ -803,14 +754,13 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     if (!sessionId || !sessionBinding()?.worktree || sessionBinding()?.worktreeMissing) return;
     if (!confirm(`Remove the worktree for ${sessionBinding()?.branch || 'this session'}?\n\nThe chat history and branch will be kept.`)) return;
     try {
-      let res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/worktree`, { method: 'DELETE' });
-      let data = await res.json();
-      if (res.status === 409 && data.code === 'unmerged') {
+      try {
+        await removeWorktree(sessionId);
+      } catch (error) {
+        if (!(error instanceof ApiError) || error.status !== 409 || error.details.code !== 'unmerged') throw error;
         if (!confirm(`This branch is not merged into its base branch.\n\nRemove the clean worktree anyway?`)) return;
-        res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/worktree?confirmUnmerged=true`, { method: 'DELETE' });
-        data = await res.json();
+        await removeWorktree(sessionId, true);
       }
-      if (!res.ok) throw new Error(data.error || 'Failed to remove worktree');
       // Removing a checkout does not remove the chat. Keep the session open in
       // detached/read-only mode and expose Restore worktree in the session bar.
       setSessionBinding((binding) => binding ? { ...binding, worktreeMissing: true } : binding);

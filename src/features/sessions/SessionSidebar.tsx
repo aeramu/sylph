@@ -1,31 +1,11 @@
 import { createMemo, createResource, createSignal, For, Show, Switch, Match, createEffect, onCleanup } from 'solid-js';
 import { Portal } from 'solid-js/web';
-import type { DraftSession, ProjectInfo, SessionStatus } from '../../types';
+import type { DraftSession, ProjectInfo } from '../../types';
 import { sessionStatuses, setSessionStatus } from '../../lib/sessionStatus';
 import AddProjectModal from '../projects/AddProjectModal';
+import { deleteProject, listProjects } from '../projects/api';
+import { listSessions, type SessionInfo } from './api';
 import './SessionSidebar.css';
-
-interface SessionInfo {
-  id: string;
-  name?: string;
-  modified: string;
-  created?: string;
-  messageCount: number;
-  firstMessage: string;
-  status?: SessionStatus;
-  projectId?: string;
-  projectName?: string;
-  directoryId?: string;
-  directoryName?: string;
-  /** Original configured checkout, used for directory grouping. */
-  sourcePath?: string;
-  /** Actual session checkout; for worktree chats this is the managed worktree. */
-  cwd?: string;
-  branch?: string;
-  directoryNames?: string[];
-  worktree?: boolean;
-  worktreeMissing?: boolean;
-}
 
 type GroupMode = 'project' | 'directory' | 'status' | 'none';
 type SortMode = 'updated' | 'alphabetical' | 'created';
@@ -47,12 +27,6 @@ function loadViewPreference<T extends string>(key: string, allowed: readonly T[]
   const stored = localStorage.getItem(key);
   return allowed.includes(stored as T) ? (stored as T) : fallback;
 }
-
-const fetchProjects = async () => {
-  const res = await fetch('/api/projects');
-  const data = await res.json();
-  return data.projects as ProjectInfo[];
-};
 
 function formatRelativeTime(dateStr: string) {
   const diffSecs = Math.max(0, Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000));
@@ -133,7 +107,7 @@ export default function SessionSidebar(props: {
   onOpenSettings: () => void,
   onToggleSidebar: () => void,
 }) {
-  const [projects, { refetch: refetchProjects }] = createResource(fetchProjects);
+  const [projects, { refetch: refetchProjects }] = createResource(listProjects);
   const [groupMode, setGroupMode] = createSignal<GroupMode>(loadViewPreference('sylph:session-group-mode', ['project', 'directory', 'status', 'none'] as const, 'project'));
   const [sortMode, setSortMode] = createSignal<SortMode>(loadViewPreference('sylph:session-sort-mode', ['updated', 'alphabetical', 'created'] as const, 'updated'));
   const [subtitleMode, setSubtitleMode] = createSignal<SubtitleMode>(loadViewPreference('sylph:session-subtitle-mode', ['directory', 'project', 'worktree', 'none'] as const, 'none'));
@@ -176,14 +150,12 @@ export default function SessionSidebar(props: {
   document.addEventListener('mousedown', closeViewMenu);
   onCleanup(() => document.removeEventListener('mousedown', closeViewMenu));
 
-  const fetchSessions = async () => {
-    const res = await fetch(`/api/sessions?t=${Date.now()}`, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } });
-    const data = await res.json();
-    const list = (data.sessions || []) as SessionInfo[];
+  const fetchSessionList = async () => {
+    const list = await listSessions();
     for (const session of list) if (session.status) setSessionStatus(session.id, session.status);
     return list;
   };
-  const [sessions, { refetch: refetchSessions }] = createResource(fetchSessions);
+  const [sessions, { refetch: refetchSessions }] = createResource(fetchSessionList);
 
   createEffect(() => {
     void props.refreshTrigger;
@@ -323,9 +295,7 @@ export default function SessionSidebar(props: {
   };
 
   const handleDeleteProject = async (id: string) => {
-    const res = await fetch(`/api/projects/${encodeURIComponent(id)}`, { method: 'DELETE' });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed to remove project');
+    await deleteProject(id);
     if (props.activeProjectId === id) props.onSelectProject(undefined);
     setEditingProject(null);
     await Promise.all([refetchProjects(), refetchSessions()]);

@@ -1,14 +1,10 @@
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from 'solid-js';
 import type { ProjectInfo } from '../../types';
+import { listDirectories, saveProject, type DirectorySuggestion } from './api';
 import './ProjectModal.css';
 
 interface DirectoryDraft {
   id?: string;
-  name: string;
-  path: string;
-}
-
-interface DirectorySuggestion {
   name: string;
   path: string;
 }
@@ -48,10 +44,7 @@ function DirectoryRow(props: {
     controller = new AbortController();
     setLoading(true);
     try {
-      const query = value.trim() ? `?path=${encodeURIComponent(value.trim())}` : '';
-      const res = await fetch(`/api/fs/list${query}`, { signal: controller.signal });
-      if (!res.ok) throw new Error('Directory unavailable');
-      const data = await res.json();
+      const data = await listDirectories(value, controller.signal);
       setSuggestions(data.directories || []);
       setHighlightedSuggestion(0);
       setSuggestionsOpen(true);
@@ -216,20 +209,15 @@ export default function AddProjectModal(props: {
     setSaving(true);
     setErrorMsg('');
     try {
-      const res = await fetch(editing() ? `/api/projects/${encodeURIComponent(props.project!.id)}` : '/api/projects', {
-        method: editing() ? 'PUT' : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: projectName().trim() || undefined,
-          directories: directories().map((directory) => ({
-            id: directory.id,
-            name: directory.name.trim() || undefined,
-            path: directory.path.trim(),
-          })).filter((directory) => directory.path),
-        }),
+      await saveProject({
+        id: props.project?.id,
+        name: projectName().trim() || undefined,
+        directories: directories().map((directory) => ({
+          id: directory.id,
+          name: directory.name.trim() || undefined,
+          path: directory.path.trim(),
+        })).filter((directory) => directory.path),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || `Failed to ${editing() ? 'update' : 'add'} project`);
       props.onSaved();
     } catch (error) {
       setErrorMsg(error instanceof Error ? error.message : 'Error connecting to server');
@@ -249,9 +237,8 @@ export default function AddProjectModal(props: {
   onMount(() => {
     document.querySelector<HTMLInputElement>('.project-modal input')?.focus();
     if (!editing()) {
-      void fetch('/api/fs/list').then(async (res) => {
-        if (!res.ok || directories()[0].path) return;
-        const data = await res.json();
+      void listDirectories().then((data) => {
+        if (directories()[0].path) return;
         setDirectories([{ name: '', path: `${data.currentPath}${data.currentPath.endsWith('/') ? '' : '/'}` }]);
       }).catch(() => {});
     }
