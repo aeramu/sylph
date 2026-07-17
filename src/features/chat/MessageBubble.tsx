@@ -4,6 +4,7 @@ import { renderMarkdown } from '../../lib/markdown';
 import { highlightMarkdownCodeBlocks } from '../../lib/codeHighlight';
 import ThinkingSection from './ThinkingSection';
 import ToolExecution from './ToolExecution';
+import './MessageBubble.css';
 
 export default function MessageBubble(props: { msg: ChatMessage; onImageClick: (url: string) => void }) {
   let contentRef: HTMLDivElement | undefined;

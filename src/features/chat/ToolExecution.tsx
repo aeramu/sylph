@@ -7,6 +7,7 @@ import { toolSummary, formatToolArgs, getEdits } from '../../lib/toolFormat';
 import { diffLines } from '../../lib/diff';
 import DiffView from '../changes/DiffView';
 import CodeView from '../../shared/ui/CodeView';
+import './ToolExecution.css';
 
 function fencedMarkdown(code: string, language = ''): string {
   const longestBacktickRun = Math.max(0, ...Array.from(code.matchAll(/`+/g), (m) => m[0].length));

@@ -1,4 +1,5 @@
 import { createSignal, Show, For, onMount } from 'solid-js';
+import './ExtensionUi.css';
 
 export interface UiRequest {
   id: string;

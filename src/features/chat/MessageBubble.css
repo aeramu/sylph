@@ -1,0 +1,307 @@
+.message {
+  display: flex;
+  flex-direction: column;
+  animation: fadeIn 0.4s ease-out;
+  width: 100%;
+  padding: 0;
+}
+
+.message.user {
+  margin-top: 0.5rem;
+}
+
+.message.user .message-bubble {
+  background: rgba(30, 34, 42, 0.7);
+  padding: 1rem 1.2rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.message-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.message-image {
+  max-width: 400px;
+  max-height: 400px;
+  border-radius: 8px;
+  object-fit: contain;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.message-image:hover {
+  opacity: 0.9;
+}
+
+.lightbox-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  cursor: zoom-out;
+  animation: dropdownFadeIn 0.15s ease-out;
+}
+
+.lightbox-image {
+  max-width: 90vw;
+  max-height: 90vh;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
+.message.assistant .message-bubble {
+  padding: 0;
+}
+
+.message-content {
+  font-size: 0.95rem;
+  line-height: 1.65;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.message-content > :first-child {
+  margin-top: 0;
+}
+
+.message-content > :last-child {
+  margin-bottom: 0;
+}
+
+.message-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #fca5a5;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.message-content p {
+  margin: 0 0 0.85rem;
+}
+
+.message-content h1,
+.message-content h2,
+.message-content h3,
+.message-content h4,
+.message-content h5,
+.message-content h6 {
+  color: var(--text-primary);
+  font-weight: 600;
+  line-height: 1.25;
+  margin: 1.4rem 0 0.65rem;
+}
+
+.message-content h1 { font-size: 1.35rem; }
+.message-content h2 { font-size: 1.2rem; }
+.message-content h3 { font-size: 1.08rem; }
+.message-content h4,
+.message-content h5,
+.message-content h6 { font-size: 1rem; }
+
+.message-content ul,
+.message-content ol {
+  margin: 0.35rem 0 0.9rem 1.35rem;
+  padding: 0;
+}
+
+.message-content li {
+  margin: 0.25rem 0;
+  padding-left: 0.15rem;
+}
+
+.message-content li > p {
+  margin: 0.25rem 0;
+}
+
+.message-content li > ul,
+.message-content li > ol {
+  margin-top: 0.25rem;
+  margin-bottom: 0.35rem;
+}
+
+.message-content code {
+  font-family: var(--font-mono);
+  background: rgba(0, 0, 0, 0.32);
+  padding: 0.16rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.86em;
+}
+
+.message-content pre {
+  background: rgba(10, 12, 16, 0.86) !important;
+  border: 1px solid var(--border-color);
+  padding: 0.9rem 1rem;
+  border-radius: 10px;
+  overflow-x: auto;
+  margin: 0.95rem 0;
+  line-height: 1.55;
+}
+
+.message-content pre code {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  font-size: 0.85rem;
+}
+
+.message-content .code-block {
+  margin: 0.95rem 0;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: rgba(10, 12, 16, 0.86);
+}
+
+.message-content .code-block-header {
+  display: flex;
+  align-items: center;
+  min-height: 2rem;
+  padding: 0.35rem 0.8rem;
+  border-bottom: 1px solid var(--border-color);
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.message-content .code-block pre {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent !important;
+}
+
+.cm-highlighted .tok-comment,
+.cm-highlighted .tok-meta {
+  color: #7f8ea3;
+  font-style: italic;
+}
+
+.cm-highlighted .tok-keyword,
+.cm-highlighted .tok-operator {
+  color: #c4b5fd;
+}
+
+.cm-highlighted .tok-string,
+.cm-highlighted .tok-string2,
+.cm-highlighted .tok-url {
+  color: #86efac;
+}
+
+.cm-highlighted .tok-number,
+.cm-highlighted .tok-bool,
+.cm-highlighted .tok-atom,
+.cm-highlighted .tok-literal {
+  color: #fbbf24;
+}
+
+.cm-highlighted .tok-variableName,
+.cm-highlighted .tok-propertyName,
+.cm-highlighted .tok-labelName {
+  color: #bfdbfe;
+}
+
+.cm-highlighted .tok-definition {
+  color: #f9a8d4;
+}
+
+.cm-highlighted .tok-variableName2,
+.cm-highlighted .tok-typeName,
+.cm-highlighted .tok-className,
+.cm-highlighted .tok-namespace {
+  color: #67e8f9;
+}
+
+.cm-highlighted .tok-function,
+.cm-highlighted .tok-macroName {
+  color: #f9a8d4;
+}
+
+.cm-highlighted .tok-heading,
+.cm-highlighted .tok-strong {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.cm-highlighted .tok-emphasis {
+  font-style: italic;
+}
+
+.cm-highlighted .tok-link {
+  color: #a5b4fc;
+  text-decoration: underline;
+}
+
+.cm-highlighted .tok-invalid {
+  color: #fecaca;
+  background: rgba(239, 68, 68, 0.18);
+}
+
+.message-content blockquote {
+  margin: 0.9rem 0;
+  padding: 0.15rem 0 0.15rem 0.9rem;
+  border-left: 3px solid rgba(99, 102, 241, 0.5);
+  color: var(--text-secondary);
+}
+
+.message-content blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+.message-content hr {
+  border: 0;
+  border-top: 1px solid var(--border-color);
+  margin: 1.3rem 0;
+}
+
+.message-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+  font-size: 0.9rem;
+  overflow: hidden;
+}
+
+.message-content th,
+.message-content td {
+  border: 1px solid var(--border-color);
+  padding: 0.5rem 0.65rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.message-content th {
+  background: rgba(255, 255, 255, 0.045);
+  font-weight: 600;
+}
+
+.message-content a {
+  color: #a5b4fc;
+  text-decoration: none;
+}
+
+.message-content a:hover {
+  text-decoration: underline;
+}
+
+.message-content img {
+  max-width: 100%;
+  border-radius: 8px;
+}

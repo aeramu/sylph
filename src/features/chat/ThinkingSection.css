@@ -1,0 +1,74 @@
+.thinking-block {
+  margin: 0 0 0.85rem 0;
+}
+
+/* Fallback: providers that emit reasoning inline as <thinking> text render
+   through renderMarkdown into a native <details> block. */
+.thinking-block summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  user-select: none;
+  outline: none;
+}
+
+.thinking-block summary:hover {
+  color: var(--text-primary);
+}
+
+.thinking-summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  font-weight: 400;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  user-select: none;
+  outline: none;
+  transition: color 0.15s ease;
+}
+
+.thinking-summary:hover {
+  color: var(--text-primary);
+}
+
+.thinking-chevron {
+  transition: transform 0.15s ease;
+  opacity: 0.6;
+  transform: rotate(-90deg);
+}
+
+.thinking-chevron.expanded {
+  transform: rotate(0deg);
+}
+
+.thinking-content {
+  margin-top: 0.6rem;
+  padding-left: 1.1rem;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.6;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+/* Softly fade the tail of the reasoning while it is still streaming in. */
+.thinking-content.active {
+  -webkit-mask-image: linear-gradient(to bottom, #000 82%, transparent);
+  mask-image: linear-gradient(to bottom, #000 82%, transparent);
+}
+
+.thinking-content :is(h1, h2, h3, h4, strong) {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.thinking-content :is(h1, h2, h3, h4) {
+  font-size: 0.95rem;
+  margin: 0.9rem 0 0.35rem;
+}
+
+.thinking-content > :first-child {
+  margin-top: 0;
+}

@@ -9,9 +9,9 @@ import {
   getSettings, getSkill, listResources, logoutProvider as logoutProviderRequest, respondOAuthFlow,
   saveProviderKey, startOAuth, updateSettings, type ModelsResponse, type OAuthFlowInfo, type ProviderInfo,
 } from './api';
+import SettingsNavigation, { type SettingsSection } from './components/SettingsNavigation';
+import ResourceList from './components/ResourceList';
 import './SettingsModal.css';
-
-type SettingsSection = 'provider' | 'git' | 'skills' | 'extensions';
 
 const fetchModels = async () => {
   const data = await getModels().catch((): ModelsResponse => ({ models: [] }));
@@ -28,41 +28,6 @@ const fetchModels = async () => {
 
 const stripFrontmatter = (content: string) =>
   content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '');
-
-function SettingsMenuIcon(props: { kind: SettingsSection }) {
-  return (
-    <span class={`settings-menu-icon ${props.kind}`} aria-hidden="true">
-      <Show when={props.kind === 'provider'} fallback={
-        <Show when={props.kind === 'git'} fallback={
-          <Show when={props.kind === 'skills'} fallback={
-            <svg viewBox="0 0 24 24" fill="none">
-              <path d="M8 3.75h8A4.25 4.25 0 0 1 20.25 8v8A4.25 4.25 0 0 1 16 20.25H8A4.25 4.25 0 0 1 3.75 16V8A4.25 4.25 0 0 1 8 3.75Z" />
-              <path d="M8.25 9.25h7.5M8.25 14.75h7.5M9.25 7.25v9.5M14.75 7.25v9.5" />
-            </svg>
-          }>
-            <svg viewBox="0 0 24 24" fill="none">
-              <path d="M12 3.75v3.5M12 16.75v3.5M3.75 12h3.5M16.75 12h3.5" />
-              <path d="m6.55 6.55 2.47 2.47M14.98 14.98l2.47 2.47M17.45 6.55l-2.47 2.47M9.02 14.98l-2.47 2.47" />
-              <circle cx="12" cy="12" r="2.75" />
-            </svg>
-          </Show>
-        }>
-          <svg viewBox="0 0 24 24" fill="none">
-            <circle cx="6" cy="5" r="2" />
-            <circle cx="6" cy="19" r="2" />
-            <circle cx="18" cy="12" r="2" />
-            <path d="M6 7v10M8 6.5c5 0 3 5.5 8 5.5" />
-          </svg>
-        </Show>
-      }>
-        <svg viewBox="0 0 24 24" fill="none">
-          <path d="M12 3.75 5.75 6.5v5.25c0 4.15 2.62 7.22 6.25 8.5 3.63-1.28 6.25-4.35 6.25-8.5V6.5L12 3.75Z" />
-          <path d="M9.25 12.25 11.1 14l3.65-4" />
-        </svg>
-      </Show>
-    </span>
-  );
-}
 
 function statusText(provider: ProviderInfo) {
   if (provider.source === 'environment') return `Environment${provider.label ? ` · ${provider.label}` : ''}`;
@@ -373,20 +338,7 @@ export default function SettingsModal(props: { onClose: () => void }) {
   return (
     <div class="settings-modal-overlay" onClick={props.onClose}>
       <div class={`settings-modal ${mobileMenuOpen() ? 'menu-view' : ''}`} onClick={(e) => e.stopPropagation()}>
-        <div class="settings-modal-sidebar">
-          <div class="settings-modal-title-row">
-            <div class="settings-modal-title">Settings</div>
-            <button onClick={props.onClose} class="settings-modal-close settings-sidebar-close">✕</button>
-          </div>
-          <For each={(['provider', 'git', 'skills', 'extensions'] as SettingsSection[])}>
-            {(section) => (
-              <button class={`settings-menu-item ${activeSection() === section ? 'active' : ''}`} onClick={() => switchSection(section)}>
-                <SettingsMenuIcon kind={section} />
-                <span>{section === 'provider' ? 'Provider' : section === 'git' ? 'Git' : section === 'skills' ? 'Skills' : 'Extensions'}</span>
-              </button>
-            )}
-          </For>
-        </div>
+        <SettingsNavigation active={activeSection()} onSelect={switchSection} onClose={props.onClose} />
 
         <div class="settings-modal-content">
           <div class="settings-modal-header">
@@ -713,20 +665,12 @@ export default function SettingsModal(props: { onClose: () => void }) {
                   </Show>
                 </Show>
               }>
-                <Show when={!currentResourcesLoading()} fallback={<div class="settings-modal-empty">Loading...</div>}>
-                  <Show when={currentResources().length > 0} fallback={<div class="settings-modal-empty">No {emptyLabel()} loaded.</div>}>
-                    <div class="settings-resource-list">
-                      <For each={currentResources()}>
-                        {(resource) => (
-                          <button class="settings-resource-card clickable" type="button" onClick={() => activeSection() === 'skills' ? setSelectedSkill(resource.name) : setSelectedExtension(resource.name)}>
-                            <div class="settings-resource-card-header"><span class="settings-resource-card-name">{resource.name}</span></div>
-                            <Show when={resource.description}><div class="settings-resource-card-desc">{resource.description}</div></Show>
-                          </button>
-                        )}
-                      </For>
-                    </div>
-                  </Show>
-                </Show>
+                <ResourceList
+                  resources={currentResources()}
+                  loading={currentResourcesLoading()}
+                  label={emptyLabel()}
+                  onSelect={(name) => activeSection() === 'skills' ? setSelectedSkill(name) : setSelectedExtension(name)}
+                />
               </Show>
               </Show>
             </Show>

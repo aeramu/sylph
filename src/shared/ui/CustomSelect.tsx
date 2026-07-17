@@ -1,4 +1,5 @@
 import { createEffect, createMemo, createSignal, onCleanup, onMount, For, Show } from 'solid-js';
+import './CustomSelect.css';
 
 export interface CustomSelectOption {
   value: string;
