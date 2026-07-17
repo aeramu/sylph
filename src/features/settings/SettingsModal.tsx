@@ -1,16 +1,17 @@
-import { createEffect, createResource, createSignal, For, onCleanup, Show } from 'solid-js';
+import { createEffect, createResource, createSignal, For, Show } from 'solid-js';
 import type { ModelOption, ThinkingLevel } from '../../types';
 import { THINKING_LEVELS } from '../../types';
 import { renderMarkdown } from '../../lib/markdown';
 import CodeView from '../../shared/ui/CodeView';
 import CustomSelect from '../../shared/ui/CustomSelect';
 import {
-  cancelOAuthFlow, createProvider as createProviderRequest, getExtension, getModels, getOAuthFlow, getProviders,
-  getSettings, getSkill, listResources, logoutProvider as logoutProviderRequest, respondOAuthFlow,
-  saveProviderKey, startOAuth, updateSettings, type ModelsResponse, type OAuthFlowInfo, type ProviderInfo,
+  createProvider as createProviderRequest, getExtension, getModels, getProviders,
+  getSettings, getSkill, listResources, logoutProvider as logoutProviderRequest,
+  saveProviderKey, updateSettings, type ModelsResponse, type ProviderInfo,
 } from './api';
 import SettingsNavigation, { type SettingsSection } from './components/SettingsNavigation';
 import ResourceList from './components/ResourceList';
+import { createOAuthFlow } from './createOAuthFlow';
 import './SettingsModal.css';
 
 const fetchModels = async () => {
@@ -60,9 +61,6 @@ export default function SettingsModal(props: { onClose: () => void }) {
   const [savedCommitMessagePrompt, setSavedCommitMessagePrompt] = createSignal('');
   const [settingsMessage, setSettingsMessage] = createSignal<string | null>(null);
   const [settingsBusy, setSettingsBusy] = createSignal(false);
-  const [oauthFlow, setOauthFlow] = createSignal<OAuthFlowInfo | null>(null);
-  const [oauthInput, setOauthInput] = createSignal('');
-  let oauthPoll: ReturnType<typeof setInterval> | undefined;
 
   const [appSettings] = createResource(getSettings);
   const [models] = createResource(fetchModels);
@@ -78,6 +76,7 @@ export default function SettingsModal(props: { onClose: () => void }) {
   const sectionTitle = () => activeSection() === 'provider' ? 'Provider' : activeSection() === 'git' ? 'Git' : activeSection() === 'skills' ? 'Skills' : 'Extensions';
   const emptyLabel = () => activeSection() === 'skills' ? 'skills' : 'extensions';
   const selectedProviderInfo = () => (providers() || []).find((p) => p.id === selectedProvider()) || null;
+  const providerOperationBusy = () => providerBusy() || oauthBusy();
   const canCreateProvider = () => !!newProviderId().trim() && !!newProviderBaseUrl().trim() && !!newProviderModelId().trim();
 
   createEffect(() => {
@@ -153,24 +152,12 @@ export default function SettingsModal(props: { onClose: () => void }) {
     }
   };
 
-  const stopOAuthPolling = () => {
-    if (oauthPoll) clearInterval(oauthPoll);
-    oauthPoll = undefined;
-  };
-
-  // Stop polling and cancel a still-pending flow server-side, so navigating
-  // away (or closing the modal) doesn't leave the login hanging on input.
-  const abandonOAuthFlow = () => {
-    stopOAuthPolling();
-    const flow = oauthFlow();
-    if (flow && flow.status === 'pending') {
-      cancelOAuthFlow(flow.id).catch(() => {});
-    }
-    setOauthFlow(null);
-    setOauthInput('');
-  };
-
-  onCleanup(abandonOAuthFlow);
+  const oauth = createOAuthFlow({
+    provider: selectedProviderInfo,
+    onMessage: setProviderMessage,
+    onProvidersChanged: async () => { await refetchProviders(); },
+  });
+  const { flow: oauthFlow, input: oauthInput, setInput: setOauthInput, busy: oauthBusy, start: startOAuthLogin, respond: respondOAuth, cancel: cancelOAuth, abandon: abandonOAuthFlow } = oauth;
 
   const switchSection = (section: SettingsSection) => {
     setActiveSection(section);
@@ -249,81 +236,6 @@ export default function SettingsModal(props: { onClose: () => void }) {
     }
   };
 
-  // Auto-open the auth URL the first time a poll delivers it. window.open from
-  // a poll callback is outside a user gesture, so popup blockers may veto it —
-  // the visible "Open browser" button stays as the fallback.
-  let autoOpenedUrl: string | undefined;
-
-  const pollOAuthFlow = async (id: string) => {
-    const data = await getOAuthFlow<OAuthFlowInfo>(id);
-    setOauthFlow(data);
-    if (data.status === 'pending' && data.authUrl && autoOpenedUrl !== data.authUrl) {
-      autoOpenedUrl = data.authUrl;
-      const opened = window.open(data.authUrl, '_blank', 'noopener,noreferrer');
-      if (!opened) setProviderMessage('Popup blocked — use the Open browser button below.');
-    }
-    if (data.status === 'success') {
-      stopOAuthPolling();
-      setProviderMessage('OAuth login complete. Models from this provider are now available.');
-      await refetchProviders();
-    } else if (data.status === 'error' || data.status === 'cancelled') {
-      stopOAuthPolling();
-      setProviderMessage(data.error || `OAuth login ${data.status}.`);
-    }
-  };
-
-  const startOAuthLogin = async () => {
-    const provider = selectedProviderInfo();
-    if (!provider) return;
-    setProviderBusy(true);
-    setProviderMessage(null);
-    setOauthFlow(null);
-    setOauthInput('');
-    stopOAuthPolling();
-    autoOpenedUrl = undefined;
-    try {
-      const data = await startOAuth(provider.id);
-      await pollOAuthFlow(data.id);
-      oauthPoll = setInterval(() => pollOAuthFlow(data.id).catch((err) => {
-        stopOAuthPolling();
-        setProviderMessage(err instanceof Error ? err.message : String(err));
-      }), 1000);
-    } catch (err) {
-      setProviderMessage(err instanceof Error ? err.message : String(err));
-    } finally {
-      setProviderBusy(false);
-    }
-  };
-
-  const respondOAuth = async (value?: string, cancelled = false) => {
-    const flow = oauthFlow();
-    if (!flow) return;
-    setProviderBusy(true);
-    try {
-      await respondOAuthFlow(flow.id, value, cancelled);
-      setOauthInput('');
-      await pollOAuthFlow(flow.id);
-    } catch (err) {
-      setProviderMessage(err instanceof Error ? err.message : String(err));
-    } finally {
-      setProviderBusy(false);
-    }
-  };
-
-  const cancelOAuth = async () => {
-    const flow = oauthFlow();
-    if (!flow) return;
-    setProviderBusy(true);
-    try {
-      await cancelOAuthFlow(flow.id);
-      stopOAuthPolling();
-      setOauthFlow(null);
-      setProviderMessage('OAuth login cancelled.');
-    } finally {
-      setProviderBusy(false);
-    }
-  };
-
   const openOAuthUrl = (url: string) => window.open(url, '_blank', 'noopener,noreferrer');
 
   const copyToClipboard = async (text: string) => {
@@ -377,9 +289,9 @@ export default function SettingsModal(props: { onClose: () => void }) {
                       <Show when={provider.authType === 'api_key'} fallback={
                         <div class="settings-provider-form">
                           <div class="settings-provider-actions">
-                            <button class="settings-provider-button primary" disabled={providerBusy() || oauthFlow()?.status === 'pending'} onClick={startOAuthLogin}>Login with OAuth</button>
+                            <button class="settings-provider-button primary" disabled={providerOperationBusy() || oauthFlow()?.status === 'pending'} onClick={startOAuthLogin}>Login with OAuth</button>
                             <Show when={provider.stored}>
-                              <button class="settings-provider-button" disabled={providerBusy()} onClick={logoutProvider}>Remove stored credentials</button>
+                              <button class="settings-provider-button" disabled={providerOperationBusy()} onClick={logoutProvider}>Remove stored credentials</button>
                             </Show>
                           </div>
 
@@ -400,7 +312,7 @@ export default function SettingsModal(props: { onClose: () => void }) {
                                 </Show>
 
                                 <Show when={step.type === 'auth_url'}>
-                                  <button class="settings-provider-button" disabled={providerBusy()} onClick={cancelOAuth}>Cancel</button>
+                                  <button class="settings-provider-button" disabled={providerOperationBusy()} onClick={cancelOAuth}>Cancel</button>
                                 </Show>
 
                                 <Show when={step.type === 'device_code'}>
@@ -433,11 +345,11 @@ export default function SettingsModal(props: { onClose: () => void }) {
                                     placeholder={step.type === 'prompt' ? step.placeholder || '' : ''}
                                     value={oauthInput()}
                                     onInput={(e) => setOauthInput(e.currentTarget.value)}
-                                    disabled={providerBusy()}
+                                    disabled={providerOperationBusy()}
                                   />
                                   <div class="settings-provider-actions">
-                                    <button class="settings-provider-button primary" disabled={providerBusy() || (!oauthInput().trim() && !(step.type === 'prompt' && step.allowEmpty))} onClick={() => respondOAuth(oauthInput())}>Continue</button>
-                                    <button class="settings-provider-button" disabled={providerBusy()} onClick={cancelOAuth}>Cancel</button>
+                                    <button class="settings-provider-button primary" disabled={providerOperationBusy() || (!oauthInput().trim() && !(step.type === 'prompt' && step.allowEmpty))} onClick={() => respondOAuth(oauthInput())}>Continue</button>
+                                    <button class="settings-provider-button" disabled={providerOperationBusy()} onClick={cancelOAuth}>Cancel</button>
                                   </div>
                                 </Show>
 
@@ -445,15 +357,15 @@ export default function SettingsModal(props: { onClose: () => void }) {
                                   <p>{step.type === 'select' ? step.message : ''}</p>
                                   <div class="settings-provider-actions">
                                     <For each={step.type === 'select' ? step.options : []}>
-                                      {(option) => <button class="settings-provider-button primary" disabled={providerBusy()} onClick={() => respondOAuth(option.id)}>{option.label}</button>}
+                                      {(option) => <button class="settings-provider-button primary" disabled={providerOperationBusy()} onClick={() => respondOAuth(option.id)}>{option.label}</button>}
                                     </For>
-                                    <button class="settings-provider-button" disabled={providerBusy()} onClick={() => respondOAuth(undefined, true)}>Cancel</button>
+                                    <button class="settings-provider-button" disabled={providerOperationBusy()} onClick={() => respondOAuth(undefined, true)}>Cancel</button>
                                   </div>
                                 </Show>
 
                                 <Show when={step.type === 'waiting'}>
                                   <p>{step.type === 'waiting' ? step.message : 'Waiting...'}</p>
-                                  <button class="settings-provider-button" disabled={providerBusy()} onClick={cancelOAuth}>Cancel</button>
+                                  <button class="settings-provider-button" disabled={providerOperationBusy()} onClick={cancelOAuth}>Cancel</button>
                                 </Show>
 
                                 <Show when={step.progress.length > 0}>
@@ -475,12 +387,12 @@ export default function SettingsModal(props: { onClose: () => void }) {
                             placeholder={`Paste ${provider.name} API key`}
                             value={apiKey()}
                             onInput={(e) => setApiKey(e.currentTarget.value)}
-                            disabled={providerBusy()}
+                            disabled={providerOperationBusy()}
                           />
                           <div class="settings-provider-actions">
-                            <button class="settings-provider-button primary" disabled={providerBusy() || !apiKey().trim()} onClick={saveApiKey}>Save API key</button>
+                            <button class="settings-provider-button primary" disabled={providerOperationBusy() || !apiKey().trim()} onClick={saveApiKey}>Save API key</button>
                             <Show when={provider.stored}>
-                              <button class="settings-provider-button" disabled={providerBusy()} onClick={logoutProvider}>Remove stored credentials</button>
+                              <button class="settings-provider-button" disabled={providerOperationBusy()} onClick={logoutProvider}>Remove stored credentials</button>
                             </Show>
                           </div>
                         </div>
@@ -500,26 +412,26 @@ export default function SettingsModal(props: { onClose: () => void }) {
                     </div>
                     <div class="settings-provider-form">
                       <label class="settings-provider-label" for="new-provider-id">Provider ID *</label>
-                      <input id="new-provider-id" class="settings-provider-input" value={newProviderId()} placeholder="local-openai" onInput={(e) => setNewProviderId(e.currentTarget.value)} disabled={providerBusy()} />
+                      <input id="new-provider-id" class="settings-provider-input" value={newProviderId()} placeholder="local-openai" onInput={(e) => setNewProviderId(e.currentTarget.value)} disabled={providerOperationBusy()} />
 
                       <label class="settings-provider-label" for="new-provider-name">Display name</label>
-                      <input id="new-provider-name" class="settings-provider-input" value={newProviderName()} placeholder="Local OpenAI" onInput={(e) => setNewProviderName(e.currentTarget.value)} disabled={providerBusy()} />
+                      <input id="new-provider-name" class="settings-provider-input" value={newProviderName()} placeholder="Local OpenAI" onInput={(e) => setNewProviderName(e.currentTarget.value)} disabled={providerOperationBusy()} />
 
                       <label class="settings-provider-label" for="new-provider-base-url">Base URL *</label>
-                      <input id="new-provider-base-url" class="settings-provider-input" value={newProviderBaseUrl()} placeholder="http://localhost:1234/v1" onInput={(e) => setNewProviderBaseUrl(e.currentTarget.value)} disabled={providerBusy()} />
+                      <input id="new-provider-base-url" class="settings-provider-input" value={newProviderBaseUrl()} placeholder="http://localhost:1234/v1" onInput={(e) => setNewProviderBaseUrl(e.currentTarget.value)} disabled={providerOperationBusy()} />
 
                       <label class="settings-provider-label" for="new-provider-model-id">Model ID *</label>
-                      <input id="new-provider-model-id" class="settings-provider-input" value={newProviderModelId()} placeholder="qwen3-coder" onInput={(e) => setNewProviderModelId(e.currentTarget.value)} disabled={providerBusy()} />
+                      <input id="new-provider-model-id" class="settings-provider-input" value={newProviderModelId()} placeholder="qwen3-coder" onInput={(e) => setNewProviderModelId(e.currentTarget.value)} disabled={providerOperationBusy()} />
 
                       <label class="settings-provider-label" for="new-provider-model-name">Model display name</label>
-                      <input id="new-provider-model-name" class="settings-provider-input" value={newProviderModelName()} placeholder="Qwen3 Coder" onInput={(e) => setNewProviderModelName(e.currentTarget.value)} disabled={providerBusy()} />
+                      <input id="new-provider-model-name" class="settings-provider-input" value={newProviderModelName()} placeholder="Qwen3 Coder" onInput={(e) => setNewProviderModelName(e.currentTarget.value)} disabled={providerOperationBusy()} />
 
                       <label class="settings-provider-label" for="new-provider-api-key">API key optional</label>
-                      <input id="new-provider-api-key" class="settings-provider-input" type="password" value={newProviderApiKey()} placeholder="Stored in ~/.pi/agent/auth.json" onInput={(e) => setNewProviderApiKey(e.currentTarget.value)} disabled={providerBusy()} />
+                      <input id="new-provider-api-key" class="settings-provider-input" type="password" value={newProviderApiKey()} placeholder="Stored in ~/.pi/agent/auth.json" onInput={(e) => setNewProviderApiKey(e.currentTarget.value)} disabled={providerOperationBusy()} />
 
                       <div class="settings-provider-actions">
-                        <button class="settings-provider-button primary" disabled={providerBusy() || !canCreateProvider()} onClick={createProvider}>Create Provider</button>
-                        <button class="settings-provider-button" disabled={providerBusy()} onClick={() => { setCreatingProvider(false); resetCreateProviderForm(); }}>Cancel</button>
+                        <button class="settings-provider-button primary" disabled={providerOperationBusy() || !canCreateProvider()} onClick={createProvider}>Create Provider</button>
+                        <button class="settings-provider-button" disabled={providerOperationBusy()} onClick={() => { setCreatingProvider(false); resetCreateProviderForm(); }}>Cancel</button>
                       </div>
                     </div>
                     <Show when={providerMessage()}><div class="settings-provider-message">{providerMessage()}</div></Show>
@@ -528,7 +440,7 @@ export default function SettingsModal(props: { onClose: () => void }) {
               }>
                 <Show when={!providers.loading} fallback={<div class="settings-modal-empty">Loading providers...</div>}>
                   <div class="settings-provider-actions settings-provider-create-row">
-                    <button class="settings-provider-button primary" disabled={providerBusy()} onClick={() => { setCreatingProvider(true); setProviderMessage(null); }}>Create Provider</button>
+                    <button class="settings-provider-button primary" disabled={providerOperationBusy()} onClick={() => { setCreatingProvider(true); setProviderMessage(null); }}>Create Provider</button>
                   </div>
                   <Show when={(providers() || []).length > 0} fallback={<div class="settings-modal-empty">No providers found.</div>}>
                     <div class="settings-resource-list">

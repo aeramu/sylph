@@ -18,18 +18,19 @@ import type { UiRequest } from './UiRequestModal';
 import type { QuestionsRequest } from './QuestionsModal';
 import type { PanelTabId } from '../../shared/ui/RightPanel';
 import { startPointerResize } from '../../lib/resize';
-import { SessionEventBuffer } from '../../lib/sessionEventBuffer';
 import { createModelPreferences } from '../../lib/modelPreferences';
 import { getRightPanelState, setRightPanelState } from '../../lib/rightPanelState';
 import { createId } from '../../lib/id';
 import { ApiError } from '../../lib/api';
 import {
-  abortSession, getSession, listCommands, listProjects, recreateWorktree,
+  abortSession, listCommands, listProjects, recreateWorktree,
   removeWorktree, respondToUi, sendChat, type SessionBindingInfo,
 } from './api';
 import { connectSessionStream, PendingSessionEvents, type SessionScopedEvent } from './createSessionStream';
 import { createNewChatSetup } from './createNewChatSetup';
 import { createChatSession } from './createChatSession';
+import { prepareChatSubmission } from './createChatSubmission';
+import { ChatHistoryController } from './createChatHistory';
 
 export default function ChatInterface(props: { activeSessionId?: string, activeProjectId?: string, onSelectProject?: (id?: string) => void, newSessionRequest?: { id: number; standalonePath?: string }, onSessionCreated: (id: string, projectId?: string, firstMessage?: string, meta?: { directoryId?: string; branch?: string; worktree?: boolean }) => void, onTurnComplete?: () => void, onSessionRemoved?: (id: string) => void, projectRefreshTrigger?: number }) {
   const [messages, setMessages] = createStore<ChatMessage[]>([]);
@@ -191,9 +192,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   // commits (or the request fails). Buffering is gated on it so an idle
   // new-chat screen doesn't accumulate events from unrelated sessions.
   const pendingSessionEvents = new PendingSessionEvents<SessionScopedEvent>();
-  // Guards fetchHistory against stale responses when switching sessions fast.
-  let historyRequestSeq = 0;
-  const historyEventBuffer = new SessionEventBuffer<any>();
+  const chatHistory = new ChatHistoryController<any>();
 
   const fetchProjects = () => {
     listProjects().then((list) => {
@@ -328,19 +327,18 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   };
 
   const fetchHistory = async () => {
-    const seq = ++historyRequestSeq;
     if (!props.activeSessionId) {
-      historyEventBuffer.cancel();
+      chatHistory.cancel();
       setMessages([]);
       setUiRequest(null);
       setQuestionsRequest(null);
       return;
     }
     const sessionId = props.activeSessionId;
-    historyEventBuffer.begin(sessionId);
     try {
-      const data = await getSession(sessionId);
-      if (seq !== historyRequestSeq) return;
+      const loaded = await chatHistory.load(sessionId);
+      if (!loaded) return;
+      const { snapshot: data, events } = loaded;
       setMessages(mapHistoryToMessages(data.messages || []));
       setContextInfo(data.context || null);
       setSessionBinding(data.binding || null);
@@ -373,9 +371,8 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
         if (pendingUi.method === 'questions') setQuestionsRequest(pendingUi);
         else setUiRequest(pendingUi);
       }
-      for (const event of historyEventBuffer.finish(sessionId, data.eventSeq)) dispatchSessionEvent(event);
+      for (const event of events) dispatchSessionEvent(event);
     } catch (err) {
-      if (seq === historyRequestSeq) historyEventBuffer.cancel();
       console.error('Failed to load history:', err);
     }
   };
@@ -416,7 +413,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     if (event.sessionId) {
       if (props.activeSessionId) {
         if (event.sessionId !== props.activeSessionId) return;
-        if (historyEventBuffer.capture(event)) return;
+        if (chatHistory.capture(event)) return;
       } else if (pendingSessionEvents.capture(event)) {
         return;
       } else {
@@ -520,31 +517,14 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   };
 
   const handleSubmit = async (userMessage: string, pendingAttachments: Attachment[]) => {
-    // Attach real image previews to the optimistic bubble; text files stay
-    // inlined in the prompt text (not shown as separate UI elements).
-    const messageImages = pendingAttachments
-      .filter(a => a.kind === 'image' && a.previewUrl)
-      .map(a => ({ url: a.previewUrl!, mimeType: a.mimeType }));
-
+    const prepared = prepareChatSubmission(userMessage, pendingAttachments);
     setMessages(messages.length, {
       id: createId(),
       role: 'user',
       content: userMessage,
-      images: messageImages.length ? messageImages : undefined,
+      images: prepared.messageImages,
     });
     setPinnedToBottom(true); // user just sent — follow the reply
-
-    // Images go through the SDK's images option; text files and @mentions are
-    // inlined into the prompt so the model receives their contents.
-    const images = pendingAttachments
-      .filter(a => a.kind === 'image' && a.data)
-      .map(a => ({ type: 'image' as const, data: a.data!, mimeType: a.mimeType }));
-    const fileTexts = pendingAttachments.filter(a => a.kind === 'file' && a.text);
-    let promptText = userMessage;
-    if (fileTexts.length) {
-      const inlined = fileTexts.map(f => `<file name="${f.name}">\n${f.text}\n</file>`).join('\n\n');
-      promptText = promptText ? `${promptText}\n\n${inlined}` : inlined;
-    }
 
     // For a brand-new chat the session id only arrives with the /api/chat
     // response; buffer this session's SSE events until then.
@@ -562,7 +542,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
 
     try {
       const data = await sendChat({
-          prompt: promptText,
+          prompt: prepared.prompt,
           // The typed message only — mentions live here, not in the appended
           // file attachments the server must not scan.
           mentionText: userMessage,
@@ -572,7 +552,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
           standalonePath: props.activeProjectId ? undefined : standalonePath().trim() || undefined,
           modelId: selectedModel() || undefined,
           thinkingLevel: selectedThinkingLevel(),
-          images: images.length ? images : undefined,
+          images: prepared.images,
           useWorktree: isNewSession && useWorktree(),
           baseBranches: isNewSession && useWorktree() ? selectedBaseBranches() : undefined,
       });
