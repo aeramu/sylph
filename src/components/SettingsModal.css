@@ -341,8 +341,27 @@
   line-height: 1.5;
 }
 
+.settings-description code {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
 .settings-git-form {
   overflow: visible;
+}
+
+.settings-git-select-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(8rem, 0.42fr);
+  gap: 0.65rem;
+  align-items: end;
+}
+
+.settings-git-select-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.45rem;
 }
 
 .settings-git-form .custom-select-container {
@@ -364,6 +383,13 @@
   width: 100%;
   min-width: 0;
   max-height: min(380px, 50vh);
+}
+
+.settings-prompt-input {
+  min-height: 12rem;
+  resize: vertical;
+  line-height: 1.5;
+  white-space: pre-wrap;
 }
 
 .settings-provider-input:focus {
@@ -672,6 +698,10 @@
 }
 
 @media (max-width: 768px) {
+  .settings-git-select-row {
+    grid-template-columns: 1fr;
+  }
+
   .settings-modal {
     grid-template-columns: 1fr;
     height: min(640px, calc(100vh - 2rem));

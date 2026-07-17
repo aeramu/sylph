@@ -116,10 +116,14 @@ export function createGitRouter(): express.Router {
     try {
       const stagedDiff = await getStagedDiff(res.locals.project);
       if (!stagedDiff.trim()) return res.status(400).json({ error: "Stage changes before generating a commit message" });
-      const selectedModel = getSettings().commitMessageModel;
-      if (!selectedModel) return res.status(400).json({ error: "Select a commit message model in Settings" });
+      const settings = getSettings();
+      if (!settings.commitMessageModel) return res.status(400).json({ error: "Select a commit message model in Settings" });
       const runtime = await getIntrospectionRuntime();
-      const message = await generateCommitMessage(runtime.session.modelRegistry, selectedModel, stagedDiff);
+      const message = await generateCommitMessage(runtime.session.modelRegistry, {
+        model: settings.commitMessageModel,
+        thinkingLevel: settings.commitMessageThinkingLevel,
+        prompt: settings.commitMessagePrompt,
+      }, stagedDiff);
       res.json({ message });
     } catch (error) {
       handleError(res, error);
