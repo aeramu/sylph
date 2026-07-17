@@ -32,6 +32,9 @@ export default function GitTab(props: { projectId?: string; directoryId?: string
   const stagedFiles = createMemo(() => files().filter((file) => file.index !== ' ' && file.index !== '?'));
   const unstagedFiles = createMemo(() => files().filter((file) => file.workingTree !== ' '));
   let refreshGeneration = 0;
+  // Invalidated whenever the selected repository changes so a response from
+  // one root cannot update another root's message, error, or loading state.
+  let commitMessageGeneration = 0;
 
   const refresh = async (projectId = props.projectId, fetchRemote = false) => {
     const generation = ++refreshGeneration;
@@ -130,21 +133,25 @@ export default function GitTab(props: { projectId?: string; directoryId?: string
   const generateCommitMessage = async () => {
     const projectId = props.projectId;
     if (!projectId || stagedFiles().length === 0) return;
+    const requestDraftId = draftId();
+    const generation = ++commitMessageGeneration;
+    const isCurrentRequest = () => generation === commitMessageGeneration && draftId() === requestDraftId;
+    const requestUrl = withSession(`/api/projects/${encodeURIComponent(projectId)}/git/generate-commit-message`);
     setGenerating(true);
     setError('');
     try {
-      const res = await fetch(withSession(`/api/projects/${encodeURIComponent(projectId)}/git/generate-commit-message`), {
+      const res = await fetch(requestUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: '{}',
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Failed to generate commit message');
-      if (props.projectId === projectId) updateMessage(data.message || '');
+      if (isCurrentRequest()) updateMessage(data.message || '');
     } catch (err) {
-      if (props.projectId === projectId) setError(err instanceof Error ? err.message : 'Failed to generate commit message');
+      if (isCurrentRequest()) setError(err instanceof Error ? err.message : 'Failed to generate commit message');
     } finally {
-      setGenerating(false);
+      if (isCurrentRequest()) setGenerating(false);
     }
   };
 
@@ -157,6 +164,10 @@ export default function GitTab(props: { projectId?: string; directoryId?: string
     setExpanded({});
     void props.sessionId;
     void props.directoryId;
+    // Cancel ownership of any in-flight generation before loading this root's
+    // draft. The HTTP request may finish, but its response is now stale.
+    commitMessageGeneration++;
+    setGenerating(false);
     setMessage(getGitCommitDraft(draftId()));
     setFiles([]);
     setRepository(undefined);

@@ -1,22 +1,22 @@
-import { completeSimple, type AssistantMessage, type Model } from "@earendil-works/pi-ai/compat";
+import { completeSimple, getSupportedThinkingLevels, type AssistantMessage, type Model } from "@earendil-works/pi-ai/compat";
 import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { findAvailableModel } from "./modelSelection.ts";
+import type { CommitMessageThinkingLevel } from "./settings.ts";
 
 const MAX_DIFF_CHARS = 120_000;
+const DIFF_PLACEHOLDER = "{{diff}}";
 
-export function commitMessagePrompt(diff: string) {
-  const clipped = diff.length > MAX_DIFF_CHARS
+function clippedDiff(diff: string) {
+  return diff.length > MAX_DIFF_CHARS
     ? `${diff.slice(0, MAX_DIFF_CHARS)}\n\n[Diff truncated after ${MAX_DIFF_CHARS.toLocaleString()} characters]`
     : diff;
-  return [
-    "Write a Git commit message for the staged changes below.",
-    "Return only the commit message: no Markdown, quotes, commentary, or code fences.",
-    "Use an imperative subject no longer than 72 characters. Add a short body only when it explains important context not obvious from the subject.",
-    "Describe only changes supported by the diff.",
-    "",
-    "STAGED DIFF:",
-    clipped,
-  ].join("\n");
+}
+
+export function commitMessagePrompt(template: string, diff: string) {
+  const clipped = clippedDiff(diff);
+  return template.includes(DIFF_PLACEHOLDER)
+    ? template.split(DIFF_PLACEHOLDER).join(clipped)
+    : `${template.trimEnd()}\n\nSTAGED DIFF:\n${clipped}`;
 }
 
 export function textFromAssistantMessage(message: AssistantMessage) {
@@ -37,25 +37,35 @@ export function textFromAssistantMessage(message: AssistantMessage) {
 
 export async function generateCommitMessage(
   registry: ModelRegistry,
-  modelValue: string,
+  settings: {
+    model: string;
+    thinkingLevel: CommitMessageThinkingLevel;
+    prompt: string;
+  },
   stagedDiff: string,
 ) {
-  if (!modelValue) throw new Error("Select a commit message model in Settings");
+  if (!settings.model) throw new Error("Select a commit message model in Settings");
+  if (!settings.prompt.trim()) throw new Error("Enter a commit message prompt in Settings");
   if (!stagedDiff.trim()) throw new Error("Stage changes before generating a commit message");
 
-  const model = findAvailableModel(registry.getAvailable(), modelValue) as Model<any> | undefined;
-  if (!model) throw new Error(`Unknown or unavailable model: ${modelValue}`);
+  const model = findAvailableModel(registry.getAvailable(), settings.model) as Model<any> | undefined;
+  if (!model) throw new Error(`Unknown or unavailable model: ${settings.model}`);
+  const supportedThinkingLevels = getSupportedThinkingLevels(model);
+  if (!supportedThinkingLevels.includes(settings.thinkingLevel)) {
+    throw new Error(`Thinking level ${settings.thinkingLevel} is not supported by ${model.id}`);
+  }
   const auth = await registry.getApiKeyAndHeaders(model);
   if (!auth.ok) throw new Error(auth.error);
 
   const response = await completeSimple(model, {
-    systemPrompt: "You write accurate, concise Git commit messages from staged diffs.",
-    messages: [{ role: "user", content: commitMessagePrompt(stagedDiff), timestamp: Date.now() }],
+    systemPrompt: "You write accurate Git commit messages from staged diffs and follow the user's requested format exactly.",
+    messages: [{ role: "user", content: commitMessagePrompt(settings.prompt, stagedDiff), timestamp: Date.now() }],
   }, {
     apiKey: auth.apiKey,
     headers: auth.headers,
     env: auth.env,
     maxTokens: 256,
+    ...(settings.thinkingLevel === "off" ? {} : { reasoning: settings.thinkingLevel }),
   });
   return textFromAssistantMessage(response);
 }

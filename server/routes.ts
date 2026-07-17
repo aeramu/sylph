@@ -12,7 +12,7 @@ import { authStorage, modelRegistry, refreshAuthState } from "./auth.ts";
 import { reconstructInterruptedQuestion, resumeInterruptedQuestion } from "./interruptedQuestions.ts";
 import { walkProject, resolveMentionsInPrompt, fuzzyPathScore, MENTION_MAX_RESULTS, type MentionEntry } from "./mentions.ts";
 import { readModelsJson, writeModelsJson } from "./modelsConfig.ts";
-import { getSettings, updateSettings } from "./settings.ts";
+import { COMMIT_MESSAGE_THINKING_LEVELS, getSettings, updateSettings, type CommitMessageThinkingLevel } from "./settings.ts";
 import { startOAuthLogin, getSerializedOAuthFlow, respondToOAuthFlow, cancelOAuthFlow } from "./oauthFlows.ts";
 import { createGitRouter } from "./gitRoutes.ts";
 import { findAvailableModel, isSameModel } from "./modelSelection.ts";
@@ -104,22 +104,44 @@ export function createRouter(): express.Router {
   });
 
   router.patch("/api/settings", async (req, res) => {
-    const { commitMessageModel } = req.body ?? {};
+    const { commitMessageModel, commitMessageThinkingLevel, commitMessagePrompt } = req.body ?? {};
     if (commitMessageModel !== undefined && typeof commitMessageModel !== "string") {
       return res.status(400).json({ error: "commitMessageModel must be a string" });
     }
-    if (commitMessageModel) {
+    if (commitMessageThinkingLevel !== undefined
+      && (typeof commitMessageThinkingLevel !== "string"
+        || !COMMIT_MESSAGE_THINKING_LEVELS.includes(commitMessageThinkingLevel as CommitMessageThinkingLevel))) {
+      return res.status(400).json({ error: "Invalid commitMessageThinkingLevel" });
+    }
+    if (commitMessagePrompt !== undefined && (typeof commitMessagePrompt !== "string" || !commitMessagePrompt.trim())) {
+      return res.status(400).json({ error: "commitMessagePrompt must be a non-empty string" });
+    }
+
+    const current = getSettings();
+    const requestedModel = commitMessageModel ?? current.commitMessageModel;
+    const requestedThinkingLevel = (commitMessageThinkingLevel ?? current.commitMessageThinkingLevel) as CommitMessageThinkingLevel;
+    if (requestedModel) {
       try {
         const runtime = await getIntrospectionRuntime();
         const available = runtime.session.modelRegistry.getAvailable();
-        if (!findAvailableModel(available, commitMessageModel)) {
-          return res.status(400).json({ error: `Unknown or unavailable model: ${commitMessageModel}` });
+        const model = findAvailableModel(available, requestedModel);
+        if (!model) return res.status(400).json({ error: `Unknown or unavailable model: ${requestedModel}` });
+        const thinkingLevels = getSupportedThinkingLevels(model as any);
+        if (!thinkingLevels.includes(requestedThinkingLevel)) {
+          return res.status(400).json({
+            error: `Thinking level ${requestedThinkingLevel} is not supported by ${model.id}`,
+            availableThinkingLevels: thinkingLevels,
+          });
         }
       } catch (err) {
         return handleError(res, err);
       }
     }
-    res.json(updateSettings({ commitMessageModel: commitMessageModel ?? getSettings().commitMessageModel }));
+    res.json(updateSettings({
+      commitMessageModel: requestedModel,
+      commitMessageThinkingLevel: requestedThinkingLevel,
+      commitMessagePrompt: commitMessagePrompt ?? current.commitMessagePrompt,
+    }));
   });
 
   router.get("/api/models", async (_req, res) => {

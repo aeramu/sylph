@@ -1,5 +1,6 @@
 import { createEffect, createResource, createSignal, For, onCleanup, Show } from 'solid-js';
-import type { ModelOption, ResourceInfo } from '../types';
+import type { ModelOption, ResourceInfo, ThinkingLevel } from '../types';
+import { THINKING_LEVELS } from '../types';
 import { renderMarkdown } from '../lib/markdown';
 import CodeView from './CodeView';
 import CustomSelect from './CustomSelect';
@@ -29,10 +30,12 @@ interface ExtensionDetail {
 
 interface AppSettings {
   commitMessageModel: string;
+  commitMessageThinkingLevel: ThinkingLevel;
+  commitMessagePrompt: string;
 }
 
 interface ModelsResponse {
-  models?: Array<{ id: string; provider?: string; value?: string }>;
+  models?: Array<{ id: string; provider?: string; value?: string; thinkingLevels?: unknown[] }>;
 }
 
 interface ProviderInfo {
@@ -85,7 +88,11 @@ const fetchModels = async () => {
   return (data.models || []).map((model): ModelOption => {
     const value = model.value || `${model.provider}/${model.id}`;
     const provider = model.provider || value.split('/')[0] || 'Other';
-    return { value, label: model.id, provider, searchText: `${provider} ${model.id} ${value}` };
+    const thinkingLevels = Array.isArray(model.thinkingLevels)
+      ? model.thinkingLevels.filter((level): level is ThinkingLevel =>
+          typeof level === 'string' && THINKING_LEVELS.some((option) => option.value === level))
+      : undefined;
+    return { value, label: model.id, provider, searchText: `${provider} ${model.id} ${value}`, thinkingLevels };
   });
 };
 
@@ -172,6 +179,9 @@ export default function SettingsModal(props: { onClose: () => void }) {
   const [providerMessage, setProviderMessage] = createSignal<string | null>(null);
   const [providerBusy, setProviderBusy] = createSignal(false);
   const [commitMessageModel, setCommitMessageModel] = createSignal('');
+  const [commitMessageThinkingLevel, setCommitMessageThinkingLevel] = createSignal<ThinkingLevel>('off');
+  const [commitMessagePrompt, setCommitMessagePrompt] = createSignal('');
+  const [savedCommitMessagePrompt, setSavedCommitMessagePrompt] = createSignal('');
   const [settingsMessage, setSettingsMessage] = createSignal<string | null>(null);
   const [settingsBusy, setSettingsBusy] = createSignal(false);
   const [oauthFlow, setOauthFlow] = createSignal<OAuthFlowInfo | null>(null);
@@ -196,8 +206,31 @@ export default function SettingsModal(props: { onClose: () => void }) {
 
   createEffect(() => {
     const settings = appSettings();
-    if (settings) setCommitMessageModel(settings.commitMessageModel || '');
+    if (!settings) return;
+    setCommitMessageModel(settings.commitMessageModel || '');
+    setCommitMessageThinkingLevel(settings.commitMessageThinkingLevel || 'off');
+    setCommitMessagePrompt(settings.commitMessagePrompt || '');
+    setSavedCommitMessagePrompt(settings.commitMessagePrompt || '');
   });
+
+  const selectedCommitModel = () => models()?.find((model) => model.value === commitMessageModel());
+  const commitThinkingOptions = () => {
+    const available = new Set(selectedCommitModel()?.thinkingLevels || ['off']);
+    return THINKING_LEVELS
+      .filter((option) => available.has(option.value))
+      .map((option) => ({ value: option.value, label: option.label }));
+  };
+
+  const patchSettings = async (patch: Partial<AppSettings>) => {
+    const res = await fetch('/api/settings', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Failed to save settings');
+    return data as AppSettings;
+  };
 
   const saveCommitMessageModel = async (value: string) => {
     const previous = commitMessageModel();
@@ -205,17 +238,48 @@ export default function SettingsModal(props: { onClose: () => void }) {
     setSettingsBusy(true);
     setSettingsMessage(null);
     try {
-      const res = await fetch('/api/settings', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ commitMessageModel: value }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Failed to save settings');
+      const model = models()?.find((option) => option.value === value);
+      const levels = model?.thinkingLevels || ['off'];
+      const thinkingLevel = levels.includes(commitMessageThinkingLevel()) ? commitMessageThinkingLevel() : levels[0] || 'off';
+      const data = await patchSettings({ commitMessageModel: value, commitMessageThinkingLevel: thinkingLevel });
       setCommitMessageModel(data.commitMessageModel || value);
+      setCommitMessageThinkingLevel(data.commitMessageThinkingLevel || thinkingLevel);
       setSettingsMessage('Saved for every project.');
     } catch (err) {
       setCommitMessageModel(previous);
+      setSettingsMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSettingsBusy(false);
+    }
+  };
+
+  const saveCommitThinkingLevel = async (value: ThinkingLevel) => {
+    const previous = commitMessageThinkingLevel();
+    setCommitMessageThinkingLevel(value);
+    setSettingsBusy(true);
+    setSettingsMessage(null);
+    try {
+      const data = await patchSettings({ commitMessageThinkingLevel: value });
+      setCommitMessageThinkingLevel(data.commitMessageThinkingLevel || value);
+      setSettingsMessage('Saved for every project.');
+    } catch (err) {
+      setCommitMessageThinkingLevel(previous);
+      setSettingsMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSettingsBusy(false);
+    }
+  };
+
+  const saveCommitPrompt = async () => {
+    if (!commitMessagePrompt().trim()) return;
+    setSettingsBusy(true);
+    setSettingsMessage(null);
+    try {
+      const data = await patchSettings({ commitMessagePrompt: commitMessagePrompt() });
+      setCommitMessagePrompt(data.commitMessagePrompt);
+      setSavedCommitMessagePrompt(data.commitMessagePrompt);
+      setSettingsMessage('Prompt saved for every project.');
+    } catch (err) {
       setSettingsMessage(err instanceof Error ? err.message : String(err));
     } finally {
       setSettingsBusy(false);
@@ -661,23 +725,66 @@ export default function SettingsModal(props: { onClose: () => void }) {
               <Show when={activeSection() !== 'git'} fallback={
                 <div class="settings-detail">
                   <div class="settings-provider-form settings-git-form">
-                    <label class="settings-provider-label">Commit message model</label>
-                    <p class="settings-description">Used to generate commit messages from staged diffs. This selection is stored globally and applies to every project.</p>
-                    <Show when={!models.loading && !appSettings.loading} fallback={<div class="settings-modal-empty">Loading models...</div>}>
-                      <CustomSelect
-                        triggerClass="settings-model-selector"
-                        value={commitMessageModel()}
-                        onChange={(value) => void saveCommitMessageModel(value)}
-                        options={models() || []}
-                        placeholder="Select a model"
-                        position="bottom"
-                        searchable
-                        searchPlaceholder="Search models..."
-                        noOptionsText="No configured models found"
-                        disabled={settingsBusy()}
-                        groupBy={(option) => option.provider}
-                      />
-                    </Show>
+                    <p class="settings-description">Choose the model and reasoning effort used for commit messages. These settings apply to every project.</p>
+                    <div class="settings-git-select-row">
+                      <div class="settings-git-select-field settings-git-model-field">
+                        <label class="settings-provider-label">Commit message model</label>
+                        <Show when={!models.loading && !appSettings.loading} fallback={<div class="settings-modal-empty">Loading models...</div>}>
+                          <CustomSelect
+                            triggerClass="settings-model-selector"
+                            value={commitMessageModel()}
+                            onChange={(value) => void saveCommitMessageModel(value)}
+                            options={models() || []}
+                            placeholder="Select a model"
+                            position="bottom"
+                            searchable
+                            searchPlaceholder="Search models..."
+                            noOptionsText="No configured models found"
+                            disabled={settingsBusy()}
+                            groupBy={(option) => option.provider}
+                          />
+                        </Show>
+                      </div>
+                      <div class="settings-git-select-field settings-git-thinking-field">
+                        <label class="settings-provider-label">Thinking</label>
+                        <CustomSelect
+                          triggerClass="settings-model-selector"
+                          value={commitMessageThinkingLevel()}
+                          onChange={(value) => void saveCommitThinkingLevel(value as ThinkingLevel)}
+                          options={commitThinkingOptions()}
+                          placeholder="Off"
+                          position="bottom"
+                          disabled={settingsBusy() || !commitMessageModel() || commitThinkingOptions().length === 0}
+                        />
+                      </div>
+                    </div>
+
+                    <label class="settings-provider-label" for="commit-message-prompt">Prompt template</label>
+                    <p class="settings-description">Use <code>{'{{diff}}'}</code> where the staged patch should appear. If omitted, Sylph appends the diff automatically.</p>
+                    <textarea
+                      id="commit-message-prompt"
+                      class="settings-provider-input settings-prompt-input"
+                      value={commitMessagePrompt()}
+                      onInput={(event) => setCommitMessagePrompt(event.currentTarget.value)}
+                      disabled={settingsBusy()}
+                      rows="10"
+                    />
+                    <div class="settings-provider-actions">
+                      <button
+                        class="settings-provider-button primary"
+                        disabled={settingsBusy() || !commitMessagePrompt().trim() || commitMessagePrompt() === savedCommitMessagePrompt()}
+                        onClick={() => void saveCommitPrompt()}
+                      >
+                        Save prompt
+                      </button>
+                      <button
+                        class="settings-provider-button"
+                        disabled={settingsBusy() || commitMessagePrompt() === savedCommitMessagePrompt()}
+                        onClick={() => setCommitMessagePrompt(savedCommitMessagePrompt())}
+                      >
+                        Revert
+                      </button>
+                    </div>
                     <Show when={settingsMessage()}><div class="settings-provider-message">{settingsMessage()}</div></Show>
                   </div>
                 </div>
