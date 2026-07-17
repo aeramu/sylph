@@ -17,6 +17,10 @@ export interface PermissionRoot {
 export interface PermissionPolicy {
   roots: PermissionRoot[];
   externalAccess?: Exclude<PermissionDecision, "allow">;
+  /** Exact canonical external files the agent may read without confirmation (for example, loose skill files). */
+  allowedReadFiles?: Iterable<string>;
+  /** Canonical external directories the agent may read recursively without confirmation. */
+  allowedReadRoots?: Iterable<string>;
 }
 
 interface AccessIntent {
@@ -45,6 +49,7 @@ const NETWORK_COMMANDS = new Set(["curl", "wget", "ssh", "scp", "sftp", "rsync"]
 const ELEVATED_COMMANDS = new Set(["sudo", "su", "doas"]);
 const DESTRUCTIVE_COMMANDS = new Set(["rm", "rmdir", "mv", "cp", "chmod", "chown", "install", "dd"]);
 const SHELL_WRAPPERS = new Set(["sh", "bash", "zsh", "dash", "ksh", "eval"]);
+const SCRIPT_INTERPRETERS = new Set(["sh", "bash", "zsh", "dash", "ksh", "node", "python", "python3", "ruby", "perl", "php"]);
 const SHELL_OPERATORS = new Set(["&&", "||", ";", "|", "&"]);
 const SAFE_DEVICES = new Set(["/dev/null", "/dev/stdin", "/dev/stdout", "/dev/stderr"]);
 
@@ -109,17 +114,32 @@ function evaluatePath(policy: PermissionPolicy, operation: AccessOperation, rawP
   const canonicalPath = canonicalizeExistingPrefix(lexicalPath);
   const roots = normalizeRoots(policy.roots);
   const root = rootForPath(roots, canonicalPath);
-  if (!root) {
+  // Entries are canonicalized when granted, not here. Re-resolving an allowed
+  // path on every call could follow a symlink that was swapped after approval.
+  const withinAllowedReadRoot = Array.from(policy.allowedReadRoots ?? [])
+    .some((allowedRoot) => isWithin(path.resolve(allowedRoot), canonicalPath));
+  const explicitlyAllowedRead = operation === "read" && (
+    Array.from(policy.allowedReadFiles ?? []).some((file) => path.resolve(file) === canonicalPath)
+    || withinAllowedReadRoot
+  );
+  if (!root && !explicitlyAllowedRead) {
     return {
       operation, lexicalPath, canonicalPath,
       decision: policy.externalAccess ?? "ask",
       reason: "path is outside every workspace root",
     };
   }
-  if (root.access === "read-only" && operation !== "read") {
+  if (root?.access === "read-only" && operation !== "read") {
     return { operation, lexicalPath, canonicalPath, root, decision: "deny", reason: `workspace root ${root.name} is read-only` };
   }
   const sensitive = sensitivePathReason(canonicalPath);
+  if (explicitlyAllowedRead) {
+    return {
+      operation, lexicalPath, canonicalPath, root,
+      decision: sensitive ? "ask" : "allow",
+      reason: sensitive ?? "path is explicitly allowed for reading",
+    };
+  }
   return {
     operation, lexicalPath, canonicalPath, root,
     decision: sensitive ? "ask" : "allow",
@@ -218,6 +238,13 @@ function evaluateBash(policy: PermissionPolicy, command: string, cwd: string): E
       }
       continue;
     }
+    if (pathLooksExplicit(unit.command)) {
+      const commandPath = expandHome(unit.command.replace(/^file:\/\//, ""));
+      const canonicalCommandPath = canonicalizeExistingPrefix(path.resolve(effectiveCwd, commandPath));
+      const commandIsInReadRoot = Array.from(policy.allowedReadRoots ?? [])
+        .some((allowedRoot) => isWithin(path.resolve(allowedRoot), canonicalCommandPath));
+      if (commandIsInReadRoot) intents.push(evaluatePath(policy, "execute", commandPath, effectiveCwd));
+    }
     if (ELEVATED_COMMANDS.has(name)) {
       if (commandDecision !== "deny") commandDecision = "ask";
       commandReasons.push(`elevated command ${name}`);
@@ -273,7 +300,8 @@ function evaluateBash(policy: PermissionPolicy, command: string, cwd: string): E
       if (!pathLooksExplicit(arg)) continue;
       const expanded = expandHome(arg.replace(/^file:\/\//, ""));
       if (SAFE_DEVICES.has(expanded)) continue;
-      intents.push(evaluatePath(policy, operation, expanded, effectiveCwd));
+      const argumentOperation = operation === "read" && SCRIPT_INTERPRETERS.has(name) ? "execute" : operation;
+      intents.push(evaluatePath(policy, argumentOperation, expanded, effectiveCwd));
     }
   }
 

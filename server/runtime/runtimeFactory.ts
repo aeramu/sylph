@@ -29,16 +29,35 @@ export async function buildRuntime(sessionManager: any, cwd: string, options: Ru
     const boundSessionId = options.sessionId ?? sessionManager.getSessionId?.();
     const initialApprovals = getSessionBinding(boundSessionId)?.permissionApprovals ?? [];
     const auditFile = path.join(getAgentDir(), "logs", "sylph-permissions.jsonl");
+    // The loader discovers trusted skills before extension factories are bound.
+    // Keep these sets live so reloads update the exact loose skill files and
+    // structured skill directories that the permission gate permits reading.
+    const allowedSkillFiles = new Set<string>();
+    const allowedSkillRoots = new Set<string>();
     const services = await createAgentSessionServices({
       cwd,
       authStorage,
       modelRegistry,
       resourceLoaderOptions: {
         additionalExtensionPaths: [askUserQuestionExtensionPath],
+        skillsOverride: (base) => {
+          allowedSkillFiles.clear();
+          allowedSkillRoots.clear();
+          for (const skill of base.skills) {
+            if (path.basename(skill.filePath) === "SKILL.md") allowedSkillRoots.add(fs.realpathSync(skill.baseDir));
+            else allowedSkillFiles.add(fs.realpathSync(skill.filePath));
+          }
+          return base;
+        },
         extensionFactories: options.project ? [{
           name: "sylph-permissions",
           factory: createPermissionExtension(
-            { roots: permissionRoots, externalAccess: "ask" },
+            {
+              roots: permissionRoots,
+              externalAccess: "ask",
+              allowedReadFiles: allowedSkillFiles,
+              allowedReadRoots: allowedSkillRoots,
+            },
             {
               initialApprovals,
               onApproval: (approvalKey) => {

@@ -27,7 +27,7 @@ Worktree mode is project-wide: Sylph creates one isolated Git worktree per direc
 
 Sylph stores versioned project/workspace ownership in each Pi session as a `sylph.workspace` custom entry. `session-bindings.json` remains a fast, rebuildable index and keeps machine-local fields such as the physical session-file path and permission approvals.
 
-Sylph embeds a native permission gate for its runtimes. Workspace roots are allowed; sensitive files and external paths require confirmation; catastrophic operations are denied; and persistent session grants are stored with the session and written to an audit log. This is an interactive policy layer, not an OS sandbox—child processes still run with the Sylph server user's operating-system permissions.
+Sylph embeds a native permission gate for its runtimes. Workspace roots are allowed; loaded structured skill directories are readable so the agent can inspect their instructions, references, templates, assets, and scripts (loose skill files grant only that file); sensitive files, execution, writes, and other external paths still require confirmation; catastrophic operations are denied; and persistent session grants are stored with the session and written to an audit log. This is an interactive policy layer, not an OS sandbox—child processes still run with the Sylph server user's operating-system permissions.
 
 ## Scripts
 
