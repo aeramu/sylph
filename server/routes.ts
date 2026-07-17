@@ -605,8 +605,14 @@ export function createRouter(): express.Router {
               ? "working"
               : undefined;
           const project = binding?.projectId ? projectsById.get(binding.projectId) : selectedProject;
-          const rootCount = binding?.directories?.length ?? (binding && project ? getSessionDirectories(project, binding).length : undefined);
-          const activeDirectory = binding?.directories?.find((directory) => directory.directoryId === binding.directoryId) ?? binding?.directories?.[0];
+          const sessionDirectories = binding?.directories ?? (binding && project ? getSessionDirectories(project, binding) : undefined);
+          const directoryNames = sessionDirectories?.map((directory) => directory.name);
+          const activeDirectory = sessionDirectories?.find((directory) => directory.directoryId === binding?.directoryId) ?? sessionDirectories?.[0];
+          const configuredDirectory = project?.directories.find((directory) => directory.id === (activeDirectory?.directoryId ?? binding?.directoryId));
+          // Keep the physical session cwd for execution, but expose the source
+          // checkout separately so managed worktrees and ordinary sessions are
+          // grouped under the same real directory in the sidebar.
+          const sourcePath = activeDirectory?.sourcePath ?? configuredDirectory?.path ?? binding?.cwd ?? session.cwd;
           return {
             ...session,
             ...(status ? { status } : {}),
@@ -614,8 +620,9 @@ export function createRouter(): express.Router {
             projectName: project?.name,
             directoryName: activeDirectory?.name || path.basename(binding?.cwd || session.cwd || "") || "Workspace",
             cwd: binding?.cwd || session.cwd,
+            ...(sourcePath ? { sourcePath } : {}),
             ...(binding?.directoryId ? { directoryId: binding.directoryId } : {}),
-            ...(rootCount ? { rootCount } : {}),
+            ...(directoryNames?.length ? { directoryNames } : {}),
             ...(binding?.branch ? { branch: binding.branch } : {}),
             ...(binding && hasManagedWorktrees(binding) ? {
               worktree: true,
@@ -705,6 +712,30 @@ export function createRouter(): express.Router {
   router.get("/api/sessions/:sessionId", async (req, res) => {
     const { sessionId } = req.params;
     try {
+      const binding = getSessionBinding(sessionId);
+      const worktreeMissing = !!binding && hasManagedWorktrees(binding)
+        && getRawManagedDirectories(binding).some((directory) => !fs.existsSync(directory.path));
+      const responseBinding = binding ? { ...binding, worktreeMissing } : binding;
+
+      // A removed worktree cannot host a Pi runtime, but its JSONL session is
+      // still readable. Return detached history so the chat can render the
+      // Restore worktree action instead of failing runtime initialization.
+      if (worktreeMissing) {
+        if (!binding?.sessionFile || !fs.existsSync(binding.sessionFile)) {
+          return res.status(404).json({ error: "Session history not found" });
+        }
+        const detached = SessionManager.open(binding.sessionFile);
+        return res.json({
+          messages: detached.buildSessionContext().messages || [],
+          eventSeq: getSessionEventSequence(sessionId),
+          isStreaming: false,
+          pendingUiRequests: [],
+          statuses: getSessionStatuses(sessionId),
+          context: undefined,
+          binding: responseBinding,
+        });
+      }
+
       const runtime = await getOrInitRuntime(sessionId);
       // Dialogs the agent is still blocked on; their SSE broadcast was a
       // one-shot the client may have missed while on another session.
@@ -731,7 +762,7 @@ export function createRouter(): express.Router {
         // Seed for the composer's context-window indicator; kept fresh after
         // load by the context snapshots attached to SSE events.
         context: getContextInfo(runtime.session),
-        binding: getSessionBinding(sessionId),
+        binding: responseBinding,
       });
     } catch (err) {
       handleError(res, err);

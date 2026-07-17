@@ -17,9 +17,12 @@ interface SessionInfo {
   projectName?: string;
   directoryId?: string;
   directoryName?: string;
+  /** Original configured checkout, used for directory grouping. */
+  sourcePath?: string;
+  /** Actual session checkout; for worktree chats this is the managed worktree. */
   cwd?: string;
   branch?: string;
-  rootCount?: number;
+  directoryNames?: string[];
   worktree?: boolean;
   worktreeMissing?: boolean;
 }
@@ -194,12 +197,14 @@ export default function SessionSidebar(props: {
         projectName: project?.name,
         directoryId: draft.directoryId,
         directoryName: directory?.name || 'Workspace',
+        sourcePath: directory?.path,
         cwd: directory?.path,
         name: draft.firstMessage || 'New Chat',
         firstMessage: draft.firstMessage,
         modified: draft.createdAt,
         messageCount: 1,
         branch: draft.branch,
+        directoryNames: project?.directories.map((entry) => entry.name),
         worktree: draft.worktree,
       });
     }
@@ -225,8 +230,8 @@ export default function SessionSidebar(props: {
         key = session.projectId || '__none__';
         label = session.projectName || 'No Project';
       } else if (groupMode() === 'directory') {
-        key = session.cwd || session.directoryName || '__unknown__';
-        label = session.directoryName || session.cwd || 'Unknown directory';
+        key = session.sourcePath || session.cwd || session.directoryName || '__unknown__';
+        label = session.directoryName || session.sourcePath || session.cwd || 'Unknown directory';
       } else if (groupMode() === 'status') {
         key = statusGroup(session);
         label = key;
@@ -279,7 +284,7 @@ export default function SessionSidebar(props: {
   const sessionSubtitle = (session: SessionInfo) => {
     if (subtitleMode() === 'none') return '';
     if (subtitleMode() === 'project') return session.projectName || 'No Project';
-    if (subtitleMode() === 'worktree') return session.branch || (session.worktree ? 'Worktree' : 'No worktree');
+    if (subtitleMode() === 'worktree') return session.worktree ? (session.branch || 'Worktree') : '';
     return session.directoryName || session.cwd || 'Workspace';
   };
 
@@ -288,33 +293,7 @@ export default function SessionSidebar(props: {
     setViewMenuOpen(false);
   };
 
-  const handleWorktreeAction = async (session: SessionInfo) => {
-    try {
-      if (session.worktreeMissing) {
-        const res = await fetch(`/api/sessions/${encodeURIComponent(session.id)}/worktree/recreate`, { method: 'POST' });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Failed to recreate worktree');
-        await refetchSessions();
-        props.onSelectProject(session.projectId);
-        props.onSelectSession(session.id);
-        return;
-      }
-      if (!confirm(`Remove the worktree for ${session.branch || 'this session'}?\n\nThe chat history and branch will be kept.`)) return;
-      let res = await fetch(`/api/sessions/${encodeURIComponent(session.id)}/worktree`, { method: 'DELETE' });
-      let data = await res.json();
-      if (res.status === 409 && data.code === 'unmerged') {
-        if (!confirm(`This branch is not merged into its base branch.\n\nRemove the clean worktree anyway?`)) return;
-        res = await fetch(`/api/sessions/${encodeURIComponent(session.id)}/worktree?confirmUnmerged=true`, { method: 'DELETE' });
-        data = await res.json();
-      }
-      if (!res.ok) throw new Error(data.error || 'Failed to remove worktree');
-      props.onSessionDetached(session.id);
-      await refetchSessions();
-    } catch (error) { alert(error instanceof Error ? error.message : 'Worktree operation failed'); }
-  };
-
   const openSession = (session: SessionInfo) => {
-    if (session.worktreeMissing) { void handleWorktreeAction(session); return; }
     if (sessionStatuses[session.id] === 'error') setSessionStatus(session.id, undefined);
     props.onSelectProject(session.projectId);
     props.onSelectSession(session.id);
@@ -449,12 +428,12 @@ export default function SessionSidebar(props: {
                         <div class="session-title">{session.name || session.firstMessage || 'Empty Chat'}</div>
                         <Show when={sessionSubtitle(session)}>
                           <div class="session-subtitle">
-                            {sessionSubtitle(session)}<Show when={(session.rootCount || 0) > 1}> · {session.rootCount} roots</Show>
+                            {sessionSubtitle(session)}<Show when={(session.directoryNames?.length || 0) > 1}> · {session.directoryNames!.join(' + ')}</Show>
                           </div>
                         </Show>
                       </div>
                       <div class="session-meta">
-                        <Switch fallback={session.worktreeMissing ? <span class="session-worktree-missing">Missing</span> : formatRelativeTime(session.modified)}>
+                        <Switch fallback={formatRelativeTime(session.modified)}>
                           <Match when={sessionStatuses[session.id] === 'working'}>
                             <span class="session-live-status working" title="Working…" aria-label="Working">
                               <span class="session-typing"><span class="session-typing-dot"/><span class="session-typing-dot"/><span class="session-typing-dot"/></span>
@@ -467,9 +446,6 @@ export default function SessionSidebar(props: {
                           </Match>
                           <Match when={sessionStatuses[session.id] === 'error'}><span class="session-status-icon error" title="Ended with an error">!</span></Match>
                         </Switch>
-                        <Show when={session.worktreeMissing}>
-                          <button class="session-worktree-action recreate" title="Recreate worktree" onClick={(event) => { event.stopPropagation(); void handleWorktreeAction(session); }}>↻</button>
-                        </Show>
                       </div>
                     </div>
                   )}
@@ -496,7 +472,13 @@ export default function SessionSidebar(props: {
       </section>
 
       <div class="sidebar-footer">
-        <button class="sidebar-settings-button" onClick={props.onOpenSettings}>Settings</button>
+        <button class="sidebar-settings-button" onClick={props.onOpenSettings} aria-label="Settings">
+          <svg class="sidebar-settings-icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.86 2.86-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 1.55V21h-4v-.05A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.86-2.86.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3v-4h.05A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06L7.06 4.2l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3h4v.05A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.86 2.86-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.55 1H21v4h-.05A1.7 1.7 0 0 0 19.4 15z" />
+          </svg>
+          <span>Settings</span>
+        </button>
       </div>
 
       <Show when={showAddProject()}><AddProjectModal onClose={() => setShowAddProject(false)} onSaved={() => void handleProjectSaved()}/></Show>

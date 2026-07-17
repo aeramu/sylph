@@ -209,12 +209,19 @@
   font-weight: 500;
 }
 
-.composer-session-worktree-remove {
+.composer-session-worktree-missing {
+  flex: 0 0 auto;
+  color: var(--danger);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.composer-session-worktree-remove,
+.composer-session-worktree-restore {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  width: 24px;
   height: 24px;
   padding: 0;
   border: 0;
@@ -222,12 +229,21 @@
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
+  font: inherit;
   transition: background 0.15s, color 0.15s;
 }
+
+.composer-session-worktree-remove { width: 24px; }
+.composer-session-worktree-restore { gap: 0.35rem; padding: 0 0.45rem; font-size: 0.72rem; }
 
 .composer-session-worktree-remove:hover {
   background: rgba(239, 68, 68, 0.1);
   color: var(--danger);
+}
+
+.composer-session-worktree-restore:hover {
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--accent);
 }
 
 .diff-stats-chip {

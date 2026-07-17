@@ -269,25 +269,6 @@
   font-variant-numeric: tabular-nums;
 }
 .session-branch { display: block; max-width: 60px; overflow: hidden; color: #737783; text-overflow: ellipsis; white-space: nowrap; }
-.session-worktree-missing { color: #cc7676; }
-
-.session-worktree-action {
-  display: none;
-  align-items: center;
-  justify-content: center;
-  width: 19px;
-  height: 19px;
-  padding: 0;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: #6b6e76;
-  cursor: pointer;
-}
-.session-item:hover .session-worktree-action,
-.session-worktree-action.recreate { display: inline-flex; }
-.session-worktree-action:hover { background: rgba(255, 255, 255, 0.05); color: #d17c7c; }
-.session-worktree-action.recreate:hover { color: #a4a5e4; }
 
 .session-group-pagination { display: flex; align-items: center; gap: 0.25rem; padding: 0.15rem 0 0; }
 .session-group-pagination button {
@@ -325,8 +306,11 @@
 .sidebar-empty { padding: 2.5rem 1rem; color: #656972; font-size: 0.74rem; text-align: center; }
 .sidebar-footer { margin-top: auto; padding: 0.55rem 0.75rem 0.75rem; }
 .sidebar-settings-button {
+  display: flex;
+  align-items: center;
   width: 100%;
   height: 34px;
+  gap: 0.55rem;
   padding: 0 0.55rem;
   border: 0;
   border-radius: 7px;
@@ -337,4 +321,5 @@
   font-size: 0.78rem;
   text-align: left;
 }
+.sidebar-settings-icon { display: block; flex: 0 0 auto; }
 .sidebar-settings-button:hover { background: rgba(255, 255, 255, 0.035); color: #a9acb4; }

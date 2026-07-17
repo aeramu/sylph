@@ -37,6 +37,7 @@ interface SessionBindingInfo {
   branch?: string;
   baseBranch?: string;
   worktree?: boolean;
+  worktreeMissing?: boolean;
 }
 
 export default function ChatInterface(props: { activeSessionId?: string, activeProjectId?: string, onSelectProject?: (id?: string) => void, onSessionCreated: (id: string, projectId?: string, firstMessage?: string, meta?: { directoryId?: string; branch?: string; worktree?: boolean }) => void, onTurnComplete?: () => void, onSessionRemoved?: (id: string) => void, projectRefreshTrigger?: number }) {
@@ -708,9 +709,23 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     }
   };
 
+  const handleWorktreeRestore = async () => {
+    const sessionId = props.activeSessionId;
+    if (!sessionId || !sessionBinding()?.worktreeMissing) return;
+    try {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/worktree/recreate`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to restore worktree');
+      setSessionBinding((binding) => binding ? { ...binding, worktreeMissing: false } : binding);
+      props.onTurnComplete?.();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Failed to restore worktree');
+    }
+  };
+
   const handleWorktreeRemove = async () => {
     const sessionId = props.activeSessionId;
-    if (!sessionId || !sessionBinding()?.worktree) return;
+    if (!sessionId || !sessionBinding()?.worktree || sessionBinding()?.worktreeMissing) return;
     if (!confirm(`Remove the worktree for ${sessionBinding()?.branch || 'this session'}?\n\nThe chat history and branch will be kept.`)) return;
     try {
       let res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/worktree`, { method: 'DELETE' });
@@ -721,7 +736,10 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
         data = await res.json();
       }
       if (!res.ok) throw new Error(data.error || 'Failed to remove worktree');
-      props.onSessionRemoved?.(sessionId);
+      // Removing a checkout does not remove the chat. Keep the session open in
+      // detached/read-only mode and expose Restore worktree in the session bar.
+      setSessionBinding((binding) => binding ? { ...binding, worktreeMissing: true } : binding);
+      props.onTurnComplete?.();
     } catch (error) {
       alert(error instanceof Error ? error.message : 'Failed to remove worktree');
     }
@@ -789,7 +807,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
           <h1 class="chat-header-title" title={activeSessionTitle()}>{activeSessionTitle()}</h1>
           <Show when={activeProject()} keyed>
             {(project) => <span class="chat-header-project" title={project.directories.map((directory) => directory.path).join('\n')}>
-              {project.name}<Show when={project.directories.length > 1}> · {project.directories.length} roots</Show>
+              {project.name}
             </span>}
           </Show>
           <Show when={!panelOpen()}>
@@ -1011,10 +1029,24 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
             <div class="composer-session-bar">
               <Show when={activeProject()} keyed>
                 {(project) => <span class="composer-session-project" title={project.directories.map((directory) => directory.path).join('\n')}>
-                  {project.name}<Show when={project.directories.length > 1}> · {project.directories.length} roots</Show><Show when={sessionBinding()?.branch}> · {sessionBinding()!.branch}</Show>
+                  {project.directories.map((directory) => directory.name).join(' · ')}<Show when={sessionBinding()?.branch}> — {sessionBinding()!.branch}</Show>
                 </span>}
               </Show>
-              <Show when={sessionBinding()?.worktree}>
+              <Show when={sessionBinding()?.worktreeMissing}>
+                <span class="composer-session-worktree-missing">Missing</span>
+                <button
+                  class="composer-session-worktree-restore"
+                  onClick={() => void handleWorktreeRestore()}
+                  title="Restore this session's worktree"
+                  aria-label="Restore this session's worktree"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/>
+                  </svg>
+                  <span>Restore worktree</span>
+                </button>
+              </Show>
+              <Show when={sessionBinding()?.worktree && !sessionBinding()?.worktreeMissing}>
                 <button
                   class="composer-session-worktree-remove"
                   onClick={() => void handleWorktreeRemove()}
@@ -1044,7 +1076,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
           <Composer
             isConnected={isConnected()}
             isProcessing={isProcessing()}
-            disabled={!!uiRequest() || !!questionsRequest()}
+            disabled={!!uiRequest() || !!questionsRequest() || !!sessionBinding()?.worktreeMissing}
             commands={commandsList()}
             projectId={props.activeProjectId}
             directoryId={activeDirectory()?.id}
