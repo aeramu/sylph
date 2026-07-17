@@ -3,7 +3,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { spawnSync } from "child_process";
-import { applyToIndex, commit, createManagedWorktree, fetchRemote, getGitDivergence, getGitLog, getGitStatus, getManagedWorktreeRemovalStatus, listGitBranches, recreateManagedWorktree, removeManagedWorktree, pull, push, stageAll, stageFile, unstageAll, unstageFile, worktreeBranchName } from "./git.ts";
+import { applyToIndex, commit, createManagedWorktree, fetchRemote, getGitDivergence, getGitLog, getGitStatus, getManagedWorktreeRemovalStatus, getStagedDiff, listGitBranches, recreateManagedWorktree, removeManagedWorktree, pull, push, stageAll, stageFile, unstageAll, unstageFile, worktreeBranchName } from "./git.ts";
 import type { Project } from "./projects.ts";
 
 const directories: string[] = [];
@@ -164,6 +164,22 @@ describe("Git tab backend", () => {
     expect(status.files.map((file) => file.path)).toEqual(["file.txt"]);
     await stageFile(project, "file.txt");
     expect(git(root, "diff", "--cached", "--name-only").trim()).toBe("sub/file.txt");
+  });
+
+  it("limits the staged diff to a nested project's own paths", async () => {
+    const { root } = repository();
+    write(root, "root.txt", "root\n");
+    write(root, "sub/file.txt", "sub\n");
+    git(root, "add", ".");
+    git(root, "commit", "-qm", "initial");
+    write(root, "root.txt", "outside\n");
+    write(root, "sub/file.txt", "inside\n");
+    git(root, "add", "root.txt", "sub/file.txt");
+    const project = testProject("sub", path.join(root, "sub"));
+
+    const diff = await getStagedDiff(project);
+    expect(diff).toContain("sub/file.txt");
+    expect(diff).not.toContain("root.txt");
   });
 
   it("refuses a nested-project commit when the parent has staged files outside it", async () => {

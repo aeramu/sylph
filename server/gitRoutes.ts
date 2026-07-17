@@ -1,6 +1,9 @@
 import express from "express";
-import { applyToIndex, commit, fetchRemote, getGitDivergence, getGitLog, getGitStatus, pull, push, stageAll, stageFile, unstageAll, unstageFile } from "./git.ts";
+import { applyToIndex, commit, fetchRemote, getGitDivergence, getGitLog, getGitStatus, getStagedDiff, pull, push, stageAll, stageFile, unstageAll, unstageFile } from "./git.ts";
+import { generateCommitMessage } from "./commitMessage.ts";
 import { getProjectById, projectAtDirectory } from "./projects.ts";
+import { getIntrospectionRuntime } from "./runtimes.ts";
+import { getSettings } from "./settings.ts";
 import { getSessionBinding } from "./sessionBindings.ts";
 import { getSessionDirectory } from "./sessionWorkspace.ts";
 
@@ -104,6 +107,20 @@ export function createGitRouter(): express.Router {
     try {
       await applyToIndex(res.locals.project, filePath, patch, !!reverse);
       res.json({ success: true });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  router.post("/api/projects/:id/git/generate-commit-message", async (_req, res) => {
+    try {
+      const stagedDiff = await getStagedDiff(res.locals.project);
+      if (!stagedDiff.trim()) return res.status(400).json({ error: "Stage changes before generating a commit message" });
+      const selectedModel = getSettings().commitMessageModel;
+      if (!selectedModel) return res.status(400).json({ error: "Select a commit message model in Settings" });
+      const runtime = await getIntrospectionRuntime();
+      const message = await generateCommitMessage(runtime.session.modelRegistry, selectedModel, stagedDiff);
+      res.json({ message });
     } catch (error) {
       handleError(res, error);
     }

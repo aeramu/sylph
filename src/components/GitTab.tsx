@@ -15,6 +15,7 @@ export default function GitTab(props: { projectId?: string; directoryId?: string
   const [loading, setLoading] = createSignal(false);
   const [loaded, setLoaded] = createSignal(false);
   const [busy, setBusy] = createSignal(false);
+  const [generating, setGenerating] = createSignal(false);
   const [syncOperation, setSyncOperation] = createSignal<'pull' | 'push' | null>(null);
   const [error, setError] = createSignal('');
   const draftId = () => `${props.sessionId || props.projectId || 'none'}:${props.directoryId || 'root'}`;
@@ -126,6 +127,27 @@ export default function GitTab(props: { projectId?: string; directoryId?: string
     setGitCommitDraft(draftId(), value);
   };
 
+  const generateCommitMessage = async () => {
+    const projectId = props.projectId;
+    if (!projectId || stagedFiles().length === 0) return;
+    setGenerating(true);
+    setError('');
+    try {
+      const res = await fetch(withSession(`/api/projects/${encodeURIComponent(projectId)}/git/generate-commit-message`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to generate commit message');
+      if (props.projectId === projectId) updateMessage(data.message || '');
+    } catch (err) {
+      if (props.projectId === projectId) setError(err instanceof Error ? err.message : 'Failed to generate commit message');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   const commit = async () => {
     if (await post('commit', { message: message() })) updateMessage('');
   };
@@ -169,7 +191,9 @@ export default function GitTab(props: { projectId?: string; directoryId?: string
           message={message()}
           stagedCount={stagedFiles().length}
           busy={busy()}
+          generating={generating()}
           onMessage={updateMessage}
+          onGenerate={() => void generateCommitMessage()}
           onCommit={() => void commit()}
         />
         <Show when={loaded()} fallback={<div class="git-empty">Loading git status...</div>}>

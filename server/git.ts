@@ -395,6 +395,14 @@ async function getRepositoryInfo(context: GitContext): Promise<GitRepositoryInfo
   return { branch, detached: symbolicBranch == null, upstream, ahead, behind };
 }
 
+export async function getStagedDiff(project: Pick<Project, "path">) {
+  const context = await getContext(project);
+  return runGit(context.root, [
+    "diff", "--cached", "--no-ext-diff", "--no-color", "--no-renames", "--patch",
+    "--", projectPathspec(context),
+  ]);
+}
+
 export async function getGitStatus(project: Pick<Project, "path">) {
   const context = await getContext(project);
   const statusOutput = await runGit(context.root, [

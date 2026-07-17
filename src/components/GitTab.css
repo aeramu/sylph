@@ -325,11 +325,35 @@
   padding: 0.5rem;
 }
 
-.git-commit-box button {
+.git-commit-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.5rem;
+}
+
+.git-commit-box .git-generate-button,
+.git-commit-box .git-commit-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
   align-self: stretch;
+  font-weight: 600;
+}
+
+.git-commit-box .git-generate-button {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border-color));
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.git-commit-box .git-commit-button {
   background: color-mix(in srgb, var(--accent) 70%, transparent);
   border-color: transparent;
-  font-weight: 600;
+}
+
+.git-generate-spinner {
+  display: inline-block;
+  animation: git-refresh-spin 0.8s linear infinite;
 }
 
 .git-source-control {

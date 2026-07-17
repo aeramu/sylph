@@ -12,6 +12,7 @@ import { authStorage, modelRegistry, refreshAuthState } from "./auth.ts";
 import { reconstructInterruptedQuestion, resumeInterruptedQuestion } from "./interruptedQuestions.ts";
 import { walkProject, resolveMentionsInPrompt, fuzzyPathScore, MENTION_MAX_RESULTS, type MentionEntry } from "./mentions.ts";
 import { readModelsJson, writeModelsJson } from "./modelsConfig.ts";
+import { getSettings, updateSettings } from "./settings.ts";
 import { startOAuthLogin, getSerializedOAuthFlow, respondToOAuthFlow, cancelOAuthFlow } from "./oauthFlows.ts";
 import { createGitRouter } from "./gitRoutes.ts";
 import { findAvailableModel, isSameModel } from "./modelSelection.ts";
@@ -96,6 +97,29 @@ export function createRouter(): express.Router {
 
   router.post("/api/agent-browser/dashboard/start", async (_req, res) => {
     res.json(await startAgentBrowserDashboard());
+  });
+
+  router.get("/api/settings", (_req, res) => {
+    res.json(getSettings());
+  });
+
+  router.patch("/api/settings", async (req, res) => {
+    const { commitMessageModel } = req.body ?? {};
+    if (commitMessageModel !== undefined && typeof commitMessageModel !== "string") {
+      return res.status(400).json({ error: "commitMessageModel must be a string" });
+    }
+    if (commitMessageModel) {
+      try {
+        const runtime = await getIntrospectionRuntime();
+        const available = runtime.session.modelRegistry.getAvailable();
+        if (!findAvailableModel(available, commitMessageModel)) {
+          return res.status(400).json({ error: `Unknown or unavailable model: ${commitMessageModel}` });
+        }
+      } catch (err) {
+        return handleError(res, err);
+      }
+    }
+    res.json(updateSettings({ commitMessageModel: commitMessageModel ?? getSettings().commitMessageModel }));
   });
 
   router.get("/api/models", async (_req, res) => {
