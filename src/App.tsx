@@ -10,6 +10,7 @@ const SettingsModal = lazy(() => import('./components/SettingsModal'));
 function App() {
   const [activeSessionId, setActiveSessionId] = createSignal<string | undefined>(undefined);
   const [activeProjectId, setActiveProjectId] = createSignal<string | undefined>(undefined);
+  const [newSessionRequest, setNewSessionRequest] = createSignal<{ id: number; standalonePath?: string }>({ id: 0 });
   const [refreshSidebar, setRefreshSidebar] = createSignal(0);
   // Bumped whenever projects are added/removed so both the sidebar and the
   // chat composer's project selector refetch from the same source of truth.
@@ -30,6 +31,13 @@ function App() {
       return;
     }
     setSidebarCollapsed(c => !c);
+  };
+
+  const startNewSession = (projectId?: string, standalonePath?: string) => {
+    setActiveSessionId(undefined);
+    setActiveProjectId(projectId);
+    setNewSessionRequest((current) => ({ id: current.id + 1, standalonePath }));
+    setSidebarOpen(false);
   };
 
   const startSidebarResize = (event: PointerEvent) => {
@@ -71,6 +79,7 @@ function App() {
         }}
         activeProjectId={activeProjectId()}
         onSelectProject={setActiveProjectId}
+        onNewSession={startNewSession}
         refreshTrigger={refreshSidebar()}
         draftSessions={draftSessions()}
         onProjectsChanged={() => setProjectRefresh(r => r + 1)}
@@ -99,6 +108,7 @@ function App() {
         activeSessionId={activeSessionId()}
         activeProjectId={activeProjectId()}
         onSelectProject={setActiveProjectId}
+        newSessionRequest={newSessionRequest()}
         projectRefreshTrigger={projectRefresh()}
         onSessionCreated={(newId, newProjectId, firstMessage, sessionMeta) => {
           setDraftSessions((prev) => [...prev, {

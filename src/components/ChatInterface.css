@@ -69,6 +69,23 @@
   background: var(--danger);
 }
 
+/* No Project is the neutral new-chat default, not an emphasized project
+   selection. Keep it quieter until the user hovers or opens the selector. */
+.project-selector.no-project {
+  color: #777c86;
+  font-size: 0.82rem;
+  font-weight: 450;
+  opacity: 0.78;
+}
+
+.project-selector.no-project:hover,
+.project-selector.no-project:focus-visible {
+  color: #a2a6af;
+  opacity: 1;
+}
+
+.project-selector.no-project svg:first-child { opacity: 0.55 !important; }
+
 /* New-chat checkout controls. A branch is a base for a new isolated
    worktree; the unchecked state intentionally leaves the current checkout alone. */
 .worktree-toggle {

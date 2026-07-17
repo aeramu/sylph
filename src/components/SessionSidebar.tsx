@@ -120,6 +120,7 @@ export default function SessionSidebar(props: {
   activeProjectId?: string,
   onSelectSession: (id?: string) => void,
   onSelectProject: (id?: string) => void,
+  onNewSession: (projectId?: string, standalonePath?: string) => void,
   refreshTrigger: number,
   draftSessions: DraftSession[],
   onProjectsChanged?: () => void,
@@ -267,6 +268,16 @@ export default function SessionSidebar(props: {
   };
 
   const projectForGroup = (key: string) => groupMode() === 'project' ? projects()?.find((project) => project.id === key) : undefined;
+  const startSessionForGroup = (group: { key: string; sessions: SessionInfo[] }) => {
+    if (groupMode() === 'project') {
+      props.onNewSession(group.key === '__none__' ? undefined : group.key);
+      return;
+    }
+    if (groupMode() === 'directory') {
+      const directoryPath = group.sessions.find((session) => session.sourcePath || session.cwd);
+      props.onNewSession(undefined, directoryPath?.sourcePath || directoryPath?.cwd);
+    }
+  };
   const groupPinKey = (key: string) => `${groupMode()}:${key}`;
   const groupPinned = (key: string) => !!pinnedGroups()[groupPinKey(key)];
   const togglePinnedGroup = (key: string) => {
@@ -368,7 +379,7 @@ export default function SessionSidebar(props: {
             <button class="session-header-action" onClick={() => setShowAddProject(true)} title="Add project" aria-label="Add project">
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 11v5m-2.5-2.5h5"/></svg>
             </button>
-            <button class="session-header-action" onClick={() => { props.onSelectProject(undefined); props.onSelectSession(undefined); }} title="New chat" aria-label="New chat">
+            <button class="session-header-action" onClick={() => props.onNewSession()} title="New chat" aria-label="New chat">
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
             </button>
           </div>
@@ -409,13 +420,14 @@ export default function SessionSidebar(props: {
                           </button>
                         )}
                       </Show>
-                      <Show when={projectForGroup(group.key)} keyed>
-                        {(project) => (
-                          <button class="session-group-action new-chat" onClick={(event) => { event.stopPropagation(); props.onSelectProject(project.id); props.onSelectSession(undefined); }} title={`New chat in ${project.name}`} aria-label={`New chat in ${project.name}`}>
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-                          </button>
-                        )}
-                      </Show>
+                      <button
+                        class="session-group-action new-chat"
+                        onClick={(event) => { event.stopPropagation(); startSessionForGroup(group); }}
+                        title={groupMode() === 'project' ? `New chat in ${group.label}` : `New No Project chat in ${group.label}`}
+                        aria-label={groupMode() === 'project' ? `New chat in ${group.label}` : `New No Project chat in ${group.label}`}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                      </button>
                     </div>
                   </Show>
                 </div>

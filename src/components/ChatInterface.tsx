@@ -40,7 +40,7 @@ interface SessionBindingInfo {
   worktreeMissing?: boolean;
 }
 
-export default function ChatInterface(props: { activeSessionId?: string, activeProjectId?: string, onSelectProject?: (id?: string) => void, onSessionCreated: (id: string, projectId?: string, firstMessage?: string, meta?: { directoryId?: string; branch?: string; worktree?: boolean }) => void, onTurnComplete?: () => void, onSessionRemoved?: (id: string) => void, projectRefreshTrigger?: number }) {
+export default function ChatInterface(props: { activeSessionId?: string, activeProjectId?: string, onSelectProject?: (id?: string) => void, newSessionRequest?: { id: number; standalonePath?: string }, onSessionCreated: (id: string, projectId?: string, firstMessage?: string, meta?: { directoryId?: string; branch?: string; worktree?: boolean }) => void, onTurnComplete?: () => void, onSessionRemoved?: (id: string) => void, projectRefreshTrigger?: number }) {
   const [messages, setMessages] = createStore<ChatMessage[]>([]);
   // Only needed during the brief new-chat window before /api/chat returns a
   // session id. Existing sessions derive processing from sessionStatuses.
@@ -266,6 +266,17 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   createEffect(() => {
     void props.projectRefreshTrigger; // track
     fetchProjects();
+  });
+
+  // Group-level + actions can open a No Project draft at a specific
+  // standalone directory. Use an incrementing request id so choosing the same
+  // group repeatedly still resets the new-session form.
+  createEffect(() => {
+    const request = props.newSessionRequest;
+    if (!request?.id || props.activeSessionId) return;
+    setUseWorktree(false);
+    setSelectedDirectoryId('');
+    if (request.standalonePath) setStandalonePath(request.standalonePath);
   });
 
   // Keep the new-chat directory selection valid when the user switches
@@ -943,7 +954,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
           {messages.length === 0 && (
             <div class="top-project-row">
               <CustomSelect
-                triggerClass="project-selector"
+                triggerClass={`project-selector ${!props.activeProjectId ? 'no-project' : ''}`}
                 value={props.activeProjectId || '__none__'}
                 onChange={(val) => {
                   setUseWorktree(false);
