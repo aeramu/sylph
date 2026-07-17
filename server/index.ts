@@ -2,8 +2,8 @@ import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
 import { HOST, PORT } from "./config.ts";
-import { createRouter } from "./routes.ts";
-import { startEvictionTimer } from "./runtimes.ts";
+import { createRouter } from "./routes/index.ts";
+import { startEvictionTimer } from "./runtime/index.ts";
 import { startAgentBrowserDashboard } from "./agentBrowserDashboard.ts";
 import { createAgentBrowserDashboardProxy } from "./agentBrowserDashboardProxy.ts";
 

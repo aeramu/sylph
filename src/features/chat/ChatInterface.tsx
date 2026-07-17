@@ -1,29 +1,29 @@
 import { createSignal, createEffect, createMemo, For, lazy, Show, Suspense, onCleanup, onMount } from 'solid-js';
 import { createStore, produce } from 'solid-js/store';
-import type { Attachment, ChatMessage, CommandInfo, ContextInfo, ExtWidget, ProjectInfo } from '../types';
-import { applyAgentEvent } from '../lib/chatEvents';
-import { trackSessionEvent, setSessionStatus, sessionStatuses } from '../lib/sessionStatus';
-import { hasRenderableContent, mapHistoryToMessages } from '../lib/messages';
-import { computeSessionDiffs, emptyDiffSummary } from '../lib/sessionDiff';
-import { stripAnsi } from '../lib/markdown';
-import { getChatDraft, setChatDraft } from '../lib/chatDraft';
+import type { Attachment, ChatMessage, CommandInfo, ContextInfo, ExtWidget, ProjectInfo } from '../../types';
+import { applyAgentEvent } from '../../lib/chatEvents';
+import { trackSessionEvent, setSessionStatus, sessionStatuses } from '../../lib/sessionStatus';
+import { hasRenderableContent, mapHistoryToMessages } from '../../lib/messages';
+import { computeSessionDiffs, emptyDiffSummary } from '../../lib/sessionDiff';
+import { stripAnsi } from '../../lib/markdown';
+import { getChatDraft, setChatDraft } from '../../lib/chatDraft';
 import './ChatInterface.css';
-import CustomSelect from './CustomSelect';
-import Composer, { type ComposerApi } from './Composer';
+import CustomSelect from '../../shared/ui/CustomSelect';
+import Composer, { type ComposerApi } from '../composer/Composer';
 import MessageBubble from './MessageBubble';
 import UiRequestModal, { type UiRequest } from './UiRequestModal';
 import QuestionsModal, { type QuestionsRequest } from './QuestionsModal';
-import RightPanel, { type PanelTabId } from './RightPanel';
-import DiffStats from './DiffStats';
-import { startPointerResize } from '../lib/resize';
-import { SessionEventBuffer } from '../lib/sessionEventBuffer';
-import { createModelPreferences } from '../lib/modelPreferences';
-import { getRightPanelState, setRightPanelState } from '../lib/rightPanelState';
-import { createId } from '../lib/id';
+import RightPanel, { type PanelTabId } from '../../shared/ui/RightPanel';
+import DiffStats from '../changes/DiffStats';
+import { startPointerResize } from '../../lib/resize';
+import { SessionEventBuffer } from '../../lib/sessionEventBuffer';
+import { createModelPreferences } from '../../lib/modelPreferences';
+import { getRightPanelState, setRightPanelState } from '../../lib/rightPanelState';
+import { createId } from '../../lib/id';
 
-const BrowserTab = lazy(() => import('./BrowserTab'));
-const ChangesTab = lazy(() => import('./ChangesTab'));
-const GitTab = lazy(() => import('./GitTab'));
+const BrowserTab = lazy(() => import('../browser/BrowserTab'));
+const ChangesTab = lazy(() => import('../changes/ChangesTab'));
+const GitTab = lazy(() => import('../git/GitTab'));
 
 interface GitBranchOption {
   name: string;
@@ -544,7 +544,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
 
   const applyEvent = (event: any) => {
     // message_end / agent_end / compaction_end events carry a fresh
-    // context-window snapshot (see server/runtimes.ts).
+    // context-window snapshot (see server/runtime/index.ts).
     if (event.context) setContextInfo(event.context);
     applyAgentEvent(messages, setMessages, event, {
       setProcessing: (processing) => {

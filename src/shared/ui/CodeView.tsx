@@ -2,8 +2,8 @@ import { createEffect, onCleanup } from 'solid-js';
 import { EditorState, type Extension } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { basicSetup } from 'codemirror';
-import { sylphEditorTheme, sylphSyntaxHighlighting } from '../editor/codemirrorTheme';
-import { languageExtensionForPath } from '../editor/languages';
+import { sylphEditorTheme, sylphSyntaxHighlighting } from '../../editor/codemirrorTheme';
+import { languageExtensionForPath } from '../../editor/languages';
 
 const readOnlyExtensions: Extension[] = [
   EditorView.editable.of(false),

@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, on, Show } from 'solid-js';
-import type { GitCommit, GitDivergence, GitFile, GitRepositoryInfo } from '../lib/gitPatch';
-import { getGitCommitDraft, setGitCommitDraft } from '../lib/gitCommitDraft';
+import type { GitCommit, GitDivergence, GitFile, GitRepositoryInfo } from '../../lib/gitPatch';
+import { getGitCommitDraft, setGitCommitDraft } from '../../lib/gitCommitDraft';
 import GitCommitBox from './GitCommitBox';
 import { GitBranchSection, GitCommitHistory } from './GitRepositorySection';
 import GitSourceSection from './GitSourceSection';

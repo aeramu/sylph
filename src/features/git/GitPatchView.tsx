@@ -1,11 +1,11 @@
 import { createMemo, createSignal, Index, Show } from 'solid-js';
-import DiffView, { type DiffLineAction } from './DiffView';
+import DiffView, { type DiffLineAction } from '../changes/DiffView';
 import {
   gitHunkView,
   makeHunkPatch,
   makeLinePatch,
   parseGitPatch,
-} from '../lib/gitPatch';
+} from '../../lib/gitPatch';
 
 export function GitChevron(props: { expanded: boolean; class?: string }) {
   return (

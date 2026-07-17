@@ -1,6 +1,6 @@
 import { createSignal, Index, Show } from 'solid-js';
-import type { DiffSummary, FileDiff } from '../lib/sessionDiff';
-import { diffMode, setDiffMode } from '../lib/diffMode';
+import type { DiffSummary, FileDiff } from '../../lib/sessionDiff';
+import { diffMode, setDiffMode } from '../../lib/diffMode';
 import DiffStats from './DiffStats';
 import DiffView from './DiffView';
 import './ChangesTab.css';

@@ -1,9 +1,9 @@
 import { createEffect, createResource, createSignal, For, onCleanup, Show } from 'solid-js';
-import type { ModelOption, ResourceInfo, ThinkingLevel } from '../types';
-import { THINKING_LEVELS } from '../types';
-import { renderMarkdown } from '../lib/markdown';
-import CodeView from './CodeView';
-import CustomSelect from './CustomSelect';
+import type { ModelOption, ResourceInfo, ThinkingLevel } from '../../types';
+import { THINKING_LEVELS } from '../../types';
+import { renderMarkdown } from '../../lib/markdown';
+import CodeView from '../../shared/ui/CodeView';
+import CustomSelect from '../../shared/ui/CustomSelect';
 import './SettingsModal.css';
 
 type SettingsSection = 'provider' | 'git' | 'skills' | 'extensions';

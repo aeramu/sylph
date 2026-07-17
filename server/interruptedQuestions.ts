@@ -5,7 +5,7 @@
 // session file as a tool call with no result. These helpers rebuild the dialog
 // so the user can still answer, and route the answer back into the session.
 
-import { getOrInitRuntime, touchRuntime } from "./runtimes.ts";
+import { getOrInitRuntime, touchRuntime } from "./runtime/index.ts";
 import { findDanglingQuestion, formatAnswersAsUserReply } from "./askUserQuestion.ts";
 
 // Questions whose reconstructed dialog the user dismissed, so reopening the

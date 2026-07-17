@@ -1,11 +1,11 @@
 import express from "express";
-import { applyToIndex, commit, fetchRemote, getGitDivergence, getGitLog, getGitStatus, getStagedDiff, pull, push, stageAll, stageFile, unstageAll, unstageFile } from "./git.ts";
-import { generateCommitMessage } from "./commitMessage.ts";
-import { getProjectById, projectAtDirectory } from "./projects.ts";
-import { getIntrospectionRuntime } from "./runtimes.ts";
-import { getSettings } from "./settings.ts";
-import { getSessionBinding } from "./sessionBindings.ts";
-import { getSessionDirectory, projectFromSessionBinding } from "./sessionWorkspace.ts";
+import { applyToIndex, commit, fetchRemote, getGitDivergence, getGitLog, getGitStatus, getStagedDiff, pull, push, stageAll, stageFile, unstageAll, unstageFile } from "../git.ts";
+import { generateCommitMessage } from "../commitMessage.ts";
+import { getProjectById, projectAtDirectory } from "../projects.ts";
+import { getIntrospectionRuntime } from "../runtime/index.ts";
+import { getSettings } from "../settings.ts";
+import { getSessionBinding } from "../sessionBindings.ts";
+import { getSessionDirectory, projectFromSessionBinding } from "../sessionWorkspace.ts";
 
 function handleError(res: express.Response, error: unknown) {
   console.error(error);

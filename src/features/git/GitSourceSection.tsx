@@ -1,6 +1,6 @@
 import { Index, Show } from 'solid-js';
-import type { GitFile } from '../lib/gitPatch';
-import { gitPatchStats, gitStatusLabel, splitGitFilePath } from '../lib/gitPatch';
+import type { GitFile } from '../../lib/gitPatch';
+import { gitPatchStats, gitStatusLabel, splitGitFilePath } from '../../lib/gitPatch';
 import GitPatchView, { GitChevron } from './GitPatchView';
 
 export default function GitSourceSection(props: {

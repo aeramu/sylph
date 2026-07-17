@@ -9,7 +9,7 @@
 
 import { randomUUID } from "crypto";
 import { authStorage, refreshAuthState } from "./auth.ts";
-import { getIntrospectionRuntime } from "./runtimes.ts";
+import { getIntrospectionRuntime } from "./runtime/index.ts";
 
 type OAuthFlowStep =
   | { type: "auth_url"; url: string; instructions?: string; progress: string[] }

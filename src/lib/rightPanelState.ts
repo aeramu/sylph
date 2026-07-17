@@ -1,4 +1,4 @@
-import type { PanelTabId } from '../components/RightPanel';
+import type { PanelTabId } from '../shared/ui/RightPanel';
 
 export interface RightPanelState {
   open: boolean;

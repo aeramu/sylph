@@ -1,8 +1,8 @@
 import { createMemo, createResource, createSignal, For, Show, Switch, Match, createEffect, onCleanup } from 'solid-js';
 import { Portal } from 'solid-js/web';
-import type { DraftSession, ProjectInfo, SessionStatus } from '../types';
-import { sessionStatuses, setSessionStatus } from '../lib/sessionStatus';
-import AddProjectModal from './AddProjectModal';
+import type { DraftSession, ProjectInfo, SessionStatus } from '../../types';
+import { sessionStatuses, setSessionStatus } from '../../lib/sessionStatus';
+import AddProjectModal from '../projects/AddProjectModal';
 import './SessionSidebar.css';
 
 interface SessionInfo {

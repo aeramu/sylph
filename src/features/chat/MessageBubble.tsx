@@ -1,7 +1,7 @@
 import { createEffect, For, Show } from 'solid-js';
-import type { ChatMessage } from '../types';
-import { renderMarkdown } from '../lib/markdown';
-import { highlightMarkdownCodeBlocks } from '../lib/codeHighlight';
+import type { ChatMessage } from '../../types';
+import { renderMarkdown } from '../../lib/markdown';
+import { highlightMarkdownCodeBlocks } from '../../lib/codeHighlight';
 import ThinkingSection from './ThinkingSection';
 import ToolExecution from './ToolExecution';
 

@@ -3,9 +3,9 @@ import { ChangeSet, Compartment, EditorState, type Extension, type StateEffect }
 import { EditorView, GutterMarker, gutter, lineNumbers } from '@codemirror/view';
 import { getOriginalDoc, MergeView, originalDocChangeEffect, unifiedMergeView } from '@codemirror/merge';
 import { minimalSetup } from 'codemirror';
-import { sylphEditorTheme, sylphMergeTheme, sylphSyntaxHighlighting } from '../editor/codemirrorTheme';
-import { languageExtensionForPath } from '../editor/languages';
-import { diffMode } from '../lib/diffMode';
+import { sylphEditorTheme, sylphMergeTheme, sylphSyntaxHighlighting } from '../../editor/codemirrorTheme';
+import { languageExtensionForPath } from '../../editor/languages';
+import { diffMode } from '../../lib/diffMode';
 
 export type DiffLineAction = {
   line: number;

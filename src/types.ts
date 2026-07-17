@@ -113,7 +113,7 @@ export const THINKING_LEVELS: ThinkingLevelOption[] = [
 ];
 
 // Context-window snapshot computed server-side (see getContextInfo in
-// server/runtimes.ts). tokens/percent are null right after compaction, before
+// server/runtime/index.ts). tokens/percent are null right after compaction, before
 // the next assistant response re-establishes real usage.
 export interface ContextInfo {
   tokens: number | null;

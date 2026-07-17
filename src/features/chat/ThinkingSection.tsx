@@ -1,6 +1,6 @@
 import { createSignal, createEffect, Show } from 'solid-js';
-import { renderMarkdown } from '../lib/markdown';
-import { highlightMarkdownCodeBlocks } from '../lib/codeHighlight';
+import { renderMarkdown } from '../../lib/markdown';
+import { highlightMarkdownCodeBlocks } from '../../lib/codeHighlight';
 
 // Collapsible reasoning panel. Auto-expands while the model is actively
 // thinking, then collapses once the answer text begins streaming.

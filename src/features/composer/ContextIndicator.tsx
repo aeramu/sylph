@@ -1,5 +1,5 @@
 import { createSignal, Show, onMount, onCleanup } from 'solid-js';
-import type { ContextInfo } from '../types';
+import type { ContextInfo } from '../../types';
 
 // Compact "108.7k" / "1.0M" formatting used throughout the popover.
 function fmtTokens(n: number): string {

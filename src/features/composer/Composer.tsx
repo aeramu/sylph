@@ -1,18 +1,18 @@
 import { createSignal, createEffect, createMemo, For, Show, on, onCleanup, onMount } from 'solid-js';
-import type { Attachment, CommandInfo, ContextInfo, FileMentionInfo, ModelOption, ThinkingLevel, ThinkingLevelOption } from '../types';
-import { ACCEPT_ATTR, readFile } from '../lib/attachments';
-import CustomSelect, { type CustomSelectApi } from './CustomSelect';
+import type { Attachment, CommandInfo, ContextInfo, FileMentionInfo, ModelOption, ThinkingLevel, ThinkingLevelOption } from '../../types';
+import { ACCEPT_ATTR, readFile } from '../../lib/attachments';
+import CustomSelect, { type CustomSelectApi } from '../../shared/ui/CustomSelect';
 import ContextIndicator from './ContextIndicator';
-import { escapeHtml } from '../lib/html';
-import { fuzzyScore } from '../lib/fuzzyScore';
-import { createMentionSearch, type ActiveMention } from '../lib/mentionSearch';
+import { escapeHtml } from '../../lib/html';
+import { fuzzyScore } from '../../lib/fuzzyScore';
+import { createMentionSearch, type ActiveMention } from '../../lib/mentionSearch';
 import {
   getSpeechRecognitionConstructor,
   mergeSpeechTranscript,
   readSpeechTranscript,
   speechRecognitionErrorMessage,
   type SpeechRecognitionLike,
-} from '../lib/speechRecognition';
+} from '../../lib/speechRecognition';
 import './Composer.css';
 
 // Built-in slash commands handled locally by the composer (they run a UI

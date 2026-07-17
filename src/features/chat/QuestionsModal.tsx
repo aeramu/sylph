@@ -1,5 +1,5 @@
 import { createSignal, For, Show, onMount } from 'solid-js';
-import { renderMarkdown } from '../lib/markdown';
+import { renderMarkdown } from '../../lib/markdown';
 
 export interface QuestionOption {
   label: string;

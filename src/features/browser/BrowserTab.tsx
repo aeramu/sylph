@@ -1,5 +1,5 @@
 import { createSignal, onMount, Show } from 'solid-js';
-import { api } from '../lib/api';
+import { api } from '../../lib/api';
 import './BrowserTab.css';
 
 interface DashboardStatus {

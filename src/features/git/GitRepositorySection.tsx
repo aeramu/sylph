@@ -1,5 +1,5 @@
 import { createSignal, For, Show } from 'solid-js';
-import type { GitCommit, GitDivergence, GitRepositoryInfo } from '../lib/gitPatch';
+import type { GitCommit, GitDivergence, GitRepositoryInfo } from '../../lib/gitPatch';
 import { GitChevron } from './GitPatchView';
 
 function commitDate(value: string) {

@@ -13,16 +13,16 @@ import type {
   CreateAgentSessionRuntimeFactory,
   AgentSessionEvent
 } from "@earendil-works/pi-coding-agent";
-import { RUNTIME_IDLE_MS, EVICTION_INTERVAL_MS, WORKTREES_DIR } from "./config.ts";
-import { authStorage, modelRegistry } from "./auth.ts";
-import { findProjectDirectoryByPath, getProjectDirectory, getProjects, type Project } from "./projects.ts";
-import { deleteSessionBinding, getSessionBinding, saveSessionBinding, type SessionBinding, type SessionDirectoryBinding } from "./sessionBindings.ts";
-import { broadcast } from "./sse.ts";
-import { clearSessionStatuses, createExtensionUiContext, rejectPendingForSession } from "./uiBridge.ts";
-import { createPermissionExtension, isThirdPartyPermissionExtension } from "./permissions.ts";
-import { getRawManagedDirectories } from "./sessionWorkspace.ts";
-import { createProjectWorktrees, discardProjectWorktrees } from "./projectWorktrees.ts";
-import { appendWorkspaceMetadata, getWorkspaceMetadata, reconcileSessionBinding } from "./piSessionMetadata.ts";
+import { RUNTIME_IDLE_MS, EVICTION_INTERVAL_MS, WORKTREES_DIR } from "../config.ts";
+import { authStorage, modelRegistry } from "../auth.ts";
+import { findProjectDirectoryByPath, getProjectDirectory, getProjects, type Project } from "../projects.ts";
+import { deleteSessionBinding, getSessionBinding, saveSessionBinding, type SessionBinding, type SessionDirectoryBinding } from "../sessionBindings.ts";
+import { broadcast } from "../sse.ts";
+import { clearSessionStatuses, createExtensionUiContext, rejectPendingForSession } from "../uiBridge.ts";
+import { createPermissionExtension, isThirdPartyPermissionExtension } from "../permissions.ts";
+import { getRawManagedDirectories } from "../sessionWorkspace.ts";
+import { createProjectWorktrees, discardProjectWorktrees } from "../projectWorktrees.ts";
+import { appendWorkspaceMetadata, getWorkspaceMetadata, reconcileSessionBinding } from "../piSessionMetadata.ts";
 
 interface RuntimeEntry {
   // Registered synchronously at the start of a build so concurrent callers for
@@ -36,7 +36,7 @@ const activeRuntimes = new Map<string, RuntimeEntry>();
 const sessionEventSequences = new Map<string, number>();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const askUserQuestionExtensionPath = path.join(__dirname, "askUserQuestion.ts");
+const askUserQuestionExtensionPath = path.join(__dirname, "../askUserQuestion.ts");
 
 function workspacePrompt(project: Project | undefined, directoryId: string | undefined, cwd: string) {
   if (!project || project.directories.length < 2) return undefined;

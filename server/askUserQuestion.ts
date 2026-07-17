@@ -7,8 +7,8 @@
 // structured params to ctx.ui.questions(), which sylph's uiBridge turns into
 // an SSE dialog request and resolves with the user's answers.
 //
-// Registered as an inline extensionFactory (see runtimes.ts) so it loads into
-// every sylph runtime without a file or npm package.
+// Registered by the runtime factory (see runtime/index.ts) so it loads into
+// every Sylph runtime as a native extension.
 
 import { Type, type Static } from "typebox";
 import type { ExtensionAPI, ExtensionFactory, AgentToolResult } from "@earendil-works/pi-coding-agent";

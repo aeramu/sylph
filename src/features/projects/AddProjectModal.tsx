@@ -1,5 +1,5 @@
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from 'solid-js';
-import type { ProjectInfo } from '../types';
+import type { ProjectInfo } from '../../types';
 import './ProjectModal.css';
 
 interface DirectoryDraft {

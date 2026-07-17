@@ -1,4 +1,4 @@
-import { diffMode, setDiffMode } from '../lib/diffMode';
+import { diffMode, setDiffMode } from '../../lib/diffMode';
 
 export default function GitToolbar(props: { fileCount: number; loading: boolean; busy: boolean; onRefresh: () => void }) {
   return (

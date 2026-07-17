@@ -1,11 +1,11 @@
 import { createSignal, onCleanup, onMount, lazy, Show, Suspense } from 'solid-js';
-import type { DraftSession } from './types';
-import ChatInterface from './components/ChatInterface';
-import SessionSidebar from './components/SessionSidebar';
-import { startPointerResize } from './lib/resize';
+import type { DraftSession } from '../types';
+import ChatInterface from '../features/chat/ChatInterface';
+import SessionSidebar from '../features/sessions/SessionSidebar';
+import { startPointerResize } from '../lib/resize';
 import './App.css';
 
-const SettingsModal = lazy(() => import('./components/SettingsModal'));
+const SettingsModal = lazy(() => import('../features/settings/SettingsModal'));
 
 function App() {
   const [activeSessionId, setActiveSessionId] = createSignal<string | undefined>(undefined);

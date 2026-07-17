@@ -1,12 +1,12 @@
 import { createSignal, createEffect, For, Show } from 'solid-js';
-import type { ToolCall } from '../types';
-import { renderMarkdown, stripAnsi } from '../lib/markdown';
-import { highlightCodeToHtml, highlightMarkdownCodeBlocks } from '../lib/codeHighlight';
-import { escapeHtml } from '../lib/html';
-import { toolSummary, formatToolArgs, getEdits } from '../lib/toolFormat';
-import { diffLines } from '../lib/diff';
-import DiffView from './DiffView';
-import CodeView from './CodeView';
+import type { ToolCall } from '../../types';
+import { renderMarkdown, stripAnsi } from '../../lib/markdown';
+import { highlightCodeToHtml, highlightMarkdownCodeBlocks } from '../../lib/codeHighlight';
+import { escapeHtml } from '../../lib/html';
+import { toolSummary, formatToolArgs, getEdits } from '../../lib/toolFormat';
+import { diffLines } from '../../lib/diff';
+import DiffView from '../changes/DiffView';
+import CodeView from '../../shared/ui/CodeView';
 
 function fencedMarkdown(code: string, language = ''): string {
   const longestBacktickRun = Math.max(0, ...Array.from(code.matchAll(/`+/g), (m) => m[0].length));
