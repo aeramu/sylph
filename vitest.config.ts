@@ -5,6 +5,9 @@ export default defineConfig({
     // The pure functions under test operate on plain objects and Solid stores,
     // neither of which needs a DOM — keep the fast node environment.
     environment: 'node',
+    // Component interaction tests live in *.browser.test.tsx and run through
+    // vitest.browser.config.ts against real Chromium; keep them out of node.
     include: ['{src,server}/**/*.test.ts'],
+    exclude: ['**/*.browser.test.tsx', 'node_modules/**', 'dist/**'],
   },
 });
