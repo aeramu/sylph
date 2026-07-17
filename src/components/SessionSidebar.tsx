@@ -38,6 +38,11 @@ function loadPinnedGroups(): Record<string, boolean> {
   catch { return {}; }
 }
 
+function loadCollapsedGroups(): Record<string, boolean> {
+  try { return JSON.parse(localStorage.getItem('sylph:collapsed-session-groups') || '{}'); }
+  catch { return {}; }
+}
+
 function loadViewPreference<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
   const stored = localStorage.getItem(key);
   return allowed.includes(stored as T) ? (stored as T) : fallback;
@@ -141,7 +146,7 @@ export default function SessionSidebar(props: {
   const [showAddProject, setShowAddProject] = createSignal(false);
   const [editingProject, setEditingProject] = createSignal<ProjectInfo | null>(null);
   const [pinnedGroups, setPinnedGroups] = createSignal<Record<string, boolean>>(loadPinnedGroups());
-  const [collapsedGroups, setCollapsedGroups] = createSignal<Record<string, boolean>>({});
+  const [collapsedGroups, setCollapsedGroups] = createSignal<Record<string, boolean>>(loadCollapsedGroups());
   const [groupPages, setGroupPages] = createSignal<Record<string, number>>({});
   let viewMenuRef: HTMLDivElement | undefined;
   let viewMenuTriggerRef: HTMLButtonElement | undefined;
@@ -288,8 +293,15 @@ export default function SessionSidebar(props: {
     });
   };
 
+  const groupCollapseKey = (key: string) => `${groupMode()}:${key}`;
+  const groupCollapsed = (key: string) => !!collapsedGroups()[groupCollapseKey(key)];
   const toggleGroup = (key: string) => {
-    setCollapsedGroups((current) => ({ ...current, [key]: !current[key] }));
+    setCollapsedGroups((current) => {
+      const collapseKey = groupCollapseKey(key);
+      const next = { ...current, [collapseKey]: !current[collapseKey] };
+      localStorage.setItem('sylph:collapsed-session-groups', JSON.stringify(next));
+      return next;
+    });
   };
 
   const sessionSubtitle = (session: SessionInfo) => {
@@ -388,13 +400,13 @@ export default function SessionSidebar(props: {
         <div class="session-list grouped-session-list">
           <For each={groups()}>
             {(group) => (
-              <div class={`session-group ${collapsedGroups()[group.key] ? 'collapsed' : ''}`}>
-                <div class="session-group-header" onClick={() => toggleGroup(group.key)} role="button" aria-expanded={!collapsedGroups()[group.key]}>
+              <div class={`session-group ${groupCollapsed(group.key) ? 'collapsed' : ''}`}>
+                <div class="session-group-header" onClick={() => toggleGroup(group.key)} role="button" aria-expanded={!groupCollapsed(group.key)}>
                   <div class="session-group-title">
                     <span class="session-group-label">
                       <Show when={groupMode() !== 'none'}>
                         <span class={`session-group-icon ${groupMode()}`} aria-hidden="true">
-                          <SessionGroupIcon mode={groupMode()} expanded={!collapsedGroups()[group.key]} statusKey={group.key} />
+                          <SessionGroupIcon mode={groupMode()} expanded={!groupCollapsed(group.key)} statusKey={group.key} />
                         </span>
                       </Show>
                       <span class="session-group-name">{group.label}</span>
@@ -431,7 +443,7 @@ export default function SessionSidebar(props: {
                     </div>
                   </Show>
                 </div>
-                <Show when={!collapsedGroups()[group.key]}>
+                <Show when={!groupCollapsed(group.key)}>
                 <div class="session-group-content">
                 <For each={visibleGroupSessions(group)}>
                   {(session) => (

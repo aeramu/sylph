@@ -133,11 +133,18 @@
   opacity: 0.45;
 }
 
+.standalone-directory-picker {
+  position: relative;
+  min-width: min(360px, 44vw);
+}
+
 .standalone-directory-input {
-  min-width: min(320px, 42vw);
-  padding: 0.3rem 0.5rem;
+  width: 100%;
+  box-sizing: border-box;
+  height: 32px;
+  padding: 0 2rem 0 2rem;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 7px;
+  border-radius: 8px;
   outline: none;
   background: rgba(255, 255, 255, 0.025);
   color: var(--text-secondary);
@@ -149,6 +156,78 @@
   border-color: rgba(99, 102, 241, 0.38);
   background: rgba(99, 102, 241, 0.035);
 }
+
+.standalone-directory-icon {
+  position: absolute;
+  z-index: 2;
+  top: 8px;
+  left: 0.55rem;
+  color: #747985;
+  pointer-events: none;
+}
+
+.standalone-directory-loading {
+  position: absolute;
+  z-index: 2;
+  top: 10px;
+  right: 0.65rem;
+  width: 10px;
+  height: 10px;
+  border: 2px solid rgba(255, 255, 255, 0.13);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: standalone-directory-spin 0.7s linear infinite;
+}
+
+@keyframes standalone-directory-spin { to { transform: rotate(360deg); } }
+
+.standalone-directory-suggestions {
+  position: absolute;
+  z-index: 120;
+  top: calc(100% + 6px);
+  right: 0;
+  left: 0;
+  max-height: 230px;
+  padding: 0.3rem;
+  overflow-y: auto;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 10px;
+  background: #171a22;
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.55);
+}
+
+.standalone-directory-suggestions button {
+  display: grid;
+  grid-template-columns: auto minmax(70px, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.5rem 0.55rem;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.standalone-directory-suggestions button:hover,
+.standalone-directory-suggestions button.highlighted {
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--text-primary);
+}
+
+.standalone-directory-suggestions button > span { font-size: 0.76rem; font-weight: 600; }
+.standalone-directory-suggestions button > small {
+  overflow: hidden;
+  color: #686d7b;
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.standalone-directory-empty { padding: 0.8rem; color: #676b78; font-size: 0.74rem; text-align: center; }
 
 .branch-selector {
   max-width: min(300px, 38vw);

@@ -213,7 +213,8 @@
   text-align: left;
 }
 
-.project-path-suggestions button:hover { background: rgba(99, 102, 241, 0.12); color: var(--text-primary); }
+.project-path-suggestions button:hover,
+.project-path-suggestions button.highlighted { background: rgba(99, 102, 241, 0.12); color: var(--text-primary); }
 .project-suggestion-name { color: #d7d9e0; font-size: 0.76rem; font-weight: 600; }
 .project-suggestion-path { overflow: hidden; color: #646978; font-family: var(--font-mono); font-size: 0.65rem; text-overflow: ellipsis; white-space: nowrap; }
 .project-path-empty { padding: 0.85rem; color: #676b78; font-size: 0.75rem; text-align: center; }

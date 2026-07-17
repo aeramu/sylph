@@ -975,14 +975,23 @@ export function createRouter(): express.Router {
 
       const projects = getProjects();
       const binding = getSessionBinding(resolvedSessionId);
-      const resolvedProject = (binding ? projects.find((entry) => entry.id === binding.projectId) : undefined)
-        || projects.find((entry) => entry.directories.some((directory) => path.resolve(directory.path) === path.resolve(runtime.session.cwd)));
-      // Mentions must resolve inside the checkout used by this session. Using
-      // the saved project's main path here would quietly feed the model stale
-      // files while it edits the worktree.
-      const mentionProject = resolvedProject
-        ? binding ? projectForSession(resolvedProject, binding) : projectAtDirectory(resolvedProject, directoryId, runtime.session.cwd)
-        : undefined;
+      const runtimeCwd = binding?.cwd ?? runtime.session.cwd;
+      // A binding without projectId is explicitly a No Project session; do not
+      // silently reattach it just because its standalone cwd is also configured
+      // as a project directory. Some Pi runtime versions also omit session.cwd,
+      // so never pass it unchecked to path.resolve.
+      const resolvedProject = binding
+        ? (binding.projectId ? projects.find((entry) => entry.id === binding.projectId) : undefined)
+        : (typeof runtimeCwd === "string"
+            ? projects.find((entry) => entry.directories.some((directory) => path.resolve(directory.path) === path.resolve(runtimeCwd)))
+            : undefined);
+      // Mentions must resolve inside the checkout used by this session. A No
+      // Project session still gets its standalone directory as a virtual root.
+      const mentionProject = binding
+        ? projectForSession(resolvedProject ?? projectFromSessionBinding(binding), binding)
+        : resolvedProject && typeof runtimeCwd === "string"
+          ? projectAtDirectory(resolvedProject, directoryId, runtimeCwd)
+          : undefined;
       // Scan only the user-typed text for @mentions when the client provides it,
       // so mentions inside inlined file attachments aren't resolved as well.
       const mentionSource = typeof mentionText === "string" ? mentionText : prompt;

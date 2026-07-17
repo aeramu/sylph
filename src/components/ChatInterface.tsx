@@ -60,6 +60,9 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   const [selectedDirectoryId, setSelectedDirectoryId] = createSignal('');
   const [standalonePath, setStandalonePath] = createSignal('');
   const [standaloneSuggestions, setStandaloneSuggestions] = createSignal<Array<{ name: string; path: string }>>([]);
+  const [standaloneSuggestionsOpen, setStandaloneSuggestionsOpen] = createSignal(false);
+  const [standaloneSuggestionIndex, setStandaloneSuggestionIndex] = createSignal(0);
+  const [standaloneSuggestionsLoading, setStandaloneSuggestionsLoading] = createSignal(false);
   const [branchErrors, setBranchErrors] = createSignal<Record<string, string>>({});
   const [sessionBinding, setSessionBinding] = createSignal<SessionBindingInfo | null>(null);
   const {
@@ -176,6 +179,70 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   };
 
   let composerApi: ComposerApi | undefined;
+  let standaloneSuggestionsRef: HTMLDivElement | undefined;
+  let standaloneSuggestionTimer: number | undefined;
+  let standaloneSuggestionController: AbortController | undefined;
+
+  const loadStandaloneSuggestions = async (value: string, open = true) => {
+    standaloneSuggestionController?.abort();
+    const controller = new AbortController();
+    standaloneSuggestionController = controller;
+    setStandaloneSuggestionsLoading(true);
+    try {
+      const query = value.trim() ? `?path=${encodeURIComponent(value.trim())}` : '';
+      const res = await fetch(`/api/fs/list${query}`, { signal: controller.signal });
+      if (!res.ok) throw new Error('Directory unavailable');
+      const data = await res.json();
+      if (controller.signal.aborted) return;
+      setStandaloneSuggestions(data.directories || []);
+      setStandaloneSuggestionIndex(0);
+      if (!value.trim() && data.currentPath) setStandalonePath(data.currentPath);
+      if (open) setStandaloneSuggestionsOpen(true);
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === 'AbortError')) setStandaloneSuggestions([]);
+    } finally {
+      if (!controller.signal.aborted) setStandaloneSuggestionsLoading(false);
+    }
+  };
+
+  const scheduleStandaloneSuggestions = (value: string) => {
+    if (standaloneSuggestionTimer) window.clearTimeout(standaloneSuggestionTimer);
+    setStandaloneSuggestionIndex(0);
+    standaloneSuggestionTimer = window.setTimeout(() => void loadStandaloneSuggestions(value), 180);
+  };
+
+  const selectStandaloneSuggestion = (suggestion: { path: string } | undefined) => {
+    if (!suggestion) return;
+    setStandalonePath(suggestion.path);
+    setStandaloneSuggestionsOpen(false);
+  };
+
+  const handleStandaloneDirectoryKeyDown = (event: KeyboardEvent) => {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      if (!standaloneSuggestionsOpen()) {
+        void loadStandaloneSuggestions(standalonePath());
+        return;
+      }
+      const count = standaloneSuggestions().length;
+      if (count) {
+        const direction = event.key === 'ArrowDown' ? 1 : -1;
+        setStandaloneSuggestionIndex((index) => (index + direction + count) % count);
+      }
+    } else if (event.key === 'Enter' && standaloneSuggestionsOpen() && standaloneSuggestions().length) {
+      event.preventDefault();
+      selectStandaloneSuggestion(standaloneSuggestions()[standaloneSuggestionIndex()]);
+    } else if (event.key === 'Escape' && standaloneSuggestionsOpen()) {
+      event.preventDefault();
+      setStandaloneSuggestionsOpen(false);
+    }
+  };
+
+  createEffect(() => {
+    standaloneSuggestionIndex();
+    if (!standaloneSuggestionsOpen()) return;
+    queueMicrotask(() => standaloneSuggestionsRef?.querySelector('.highlighted')?.scrollIntoView({ block: 'nearest' }));
+  });
 
   // Session id promised by the /api/chat response but not yet committed as
   // active. The HTTP response is the single authoritative source of the id;
@@ -251,12 +318,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     loadModels().catch(console.error);
     fetchCommands();
     connectSSE();
-    void fetch('/api/fs/list').then(async (res) => {
-      if (!res.ok) return;
-      const data = await res.json();
-      setStandalonePath(data.currentPath || '');
-      setStandaloneSuggestions(data.directories || []);
-    }).catch(() => {});
+    void loadStandaloneSuggestions('', false);
   });
 
   // Project list drives the "Select a Project" dropdown for new chats.
@@ -443,9 +505,9 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   };
 
   onCleanup(() => {
-    if (eventSource) {
-      eventSource.close();
-    }
+    if (eventSource) eventSource.close();
+    if (standaloneSuggestionTimer) window.clearTimeout(standaloneSuggestionTimer);
+    standaloneSuggestionController?.abort();
   });
 
   const connectSSE = () => {
@@ -964,24 +1026,62 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
                   if (props.onSelectProject) props.onSelectProject(projectId);
                 }}
                 options={[
-                  { value: '__none__', label: 'No Project', icon: 'folder' },
-                  ...projects().map(p => ({ value: p.id, label: p.name, icon: 'folder' })),
+                  { value: '__none__', label: 'No Project', icon: 'project' },
+                  ...projects().map(p => ({ value: p.id, label: p.name, icon: 'project' })),
                 ]}
                 placeholder="Select a Project"
                 position="bottom"
               />
               <Show when={!activeProject()}>
-                <input
-                  class="standalone-directory-input"
-                  value={standalonePath()}
-                  onInput={(event) => setStandalonePath(event.currentTarget.value)}
-                  list="standalone-directory-suggestions"
-                  placeholder="Starting directory"
-                  aria-label="Starting directory"
-                />
-                <datalist id="standalone-directory-suggestions">
-                  <For each={standaloneSuggestions()}>{(directory) => <option value={directory.path}>{directory.name}</option>}</For>
-                </datalist>
+                <div class="standalone-directory-picker">
+                  <svg class="standalone-directory-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h5l2 2h8A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z" />
+                  </svg>
+                  <input
+                    class="standalone-directory-input"
+                    value={standalonePath()}
+                    onFocus={() => void loadStandaloneSuggestions(standalonePath())}
+                    onInput={(event) => {
+                      setStandalonePath(event.currentTarget.value);
+                      scheduleStandaloneSuggestions(event.currentTarget.value);
+                    }}
+                    onKeyDown={handleStandaloneDirectoryKeyDown}
+                    onBlur={() => window.setTimeout(() => setStandaloneSuggestionsOpen(false), 140)}
+                    placeholder="Starting directory"
+                    aria-label="Starting directory"
+                    aria-expanded={standaloneSuggestionsOpen()}
+                    aria-controls="standalone-directory-suggestions"
+                    aria-autocomplete="list"
+                    autocomplete="off"
+                    spellcheck={false}
+                  />
+                  <Show when={standaloneSuggestionsLoading()}><span class="standalone-directory-loading" aria-label="Loading folders" /></Show>
+                  <Show when={standaloneSuggestionsOpen()}>
+                    <div ref={standaloneSuggestionsRef} id="standalone-directory-suggestions" class="standalone-directory-suggestions" role="listbox">
+                      <Show when={standaloneSuggestions().length > 0} fallback={<div class="standalone-directory-empty">No subdirectories found</div>}>
+                        <For each={standaloneSuggestions()}>
+                          {(directory, index) => (
+                            <button
+                              type="button"
+                              role="option"
+                              aria-selected={standaloneSuggestionIndex() === index()}
+                              class={standaloneSuggestionIndex() === index() ? 'highlighted' : ''}
+                              onMouseEnter={() => setStandaloneSuggestionIndex(index())}
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={() => selectStandaloneSuggestion(directory)}
+                            >
+                              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h5l2 2h8A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z" />
+                              </svg>
+                              <span>{directory.name}</span>
+                              <small>{directory.path}</small>
+                            </button>
+                          )}
+                        </For>
+                      </Show>
+                    </div>
+                  </Show>
+                </div>
               </Show>
               <Show when={activeProject() && activeProject()!.directories.length > 1}>
                 <CustomSelect

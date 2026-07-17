@@ -220,6 +220,14 @@ export default function CustomSelect(props: CustomSelectProps) {
   const isHighlighted = (opt: CustomSelectOption) => flatOptions()[highlighted()] === opt;
 
   const renderIcon = (iconType?: string) => {
+    if (iconType === 'project') {
+      return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.8;">
+          <path d="M4 7.5A1.5 1.5 0 0 1 5.5 6h4l1.7 2h7.3A1.5 1.5 0 0 1 20 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z" />
+          <path d="M7 6V4.8A.8.8 0 0 1 7.8 4h8.4a.8.8 0 0 1 .8.8V8" />
+        </svg>
+      );
+    }
     if (iconType === 'folder') {
       return (
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.8;">

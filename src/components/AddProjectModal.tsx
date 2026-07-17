@@ -1,4 +1,4 @@
-import { createSignal, For, onCleanup, onMount, Show } from 'solid-js';
+import { createEffect, createSignal, For, onCleanup, onMount, Show } from 'solid-js';
 import type { ProjectInfo } from '../types';
 import './ProjectModal.css';
 
@@ -32,7 +32,9 @@ function DirectoryRow(props: {
   const [folderPath, setFolderPath] = createSignal(props.directory.path);
   const [suggestions, setSuggestions] = createSignal<DirectorySuggestion[]>([]);
   const [suggestionsOpen, setSuggestionsOpen] = createSignal(false);
+  const [highlightedSuggestion, setHighlightedSuggestion] = createSignal(0);
   const [loading, setLoading] = createSignal(false);
+  let suggestionsRef: HTMLDivElement | undefined;
   let timer: number | undefined;
   let controller: AbortController | undefined;
 
@@ -46,6 +48,7 @@ function DirectoryRow(props: {
       if (!res.ok) throw new Error('Directory unavailable');
       const data = await res.json();
       setSuggestions(data.directories || []);
+      setHighlightedSuggestion(0);
       setSuggestionsOpen(true);
     } catch (error) {
       if (!(error instanceof DOMException && error.name === 'AbortError')) setSuggestions([]);
@@ -56,8 +59,51 @@ function DirectoryRow(props: {
 
   const scheduleSuggestions = (value: string) => {
     if (timer) window.clearTimeout(timer);
+    setHighlightedSuggestion(0);
     timer = window.setTimeout(() => void loadSuggestions(value), 180);
   };
+
+  const selectSuggestion = (suggestion: DirectorySuggestion | undefined) => {
+    if (!suggestion) return;
+    setFolderPath(suggestion.path);
+    props.onChange('path', suggestion.path);
+    if (!alias().trim()) {
+      setAlias(suggestion.name);
+      props.onChange('name', suggestion.name);
+    }
+    setSuggestionsOpen(false);
+  };
+
+  const handleSuggestionKeyDown = (event: KeyboardEvent) => {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      if (!suggestionsOpen()) {
+        void loadSuggestions(folderPath());
+        return;
+      }
+      const count = suggestions().length;
+      if (count) {
+        const direction = event.key === 'ArrowDown' ? 1 : -1;
+        setHighlightedSuggestion((index) => (index + direction + count) % count);
+      }
+      return;
+    }
+    if (event.key === 'Enter' && suggestionsOpen() && suggestions().length) {
+      event.preventDefault();
+      selectSuggestion(suggestions()[highlightedSuggestion()]);
+      return;
+    }
+    if (event.key === 'Escape' && suggestionsOpen()) {
+      event.preventDefault();
+      setSuggestionsOpen(false);
+    }
+  };
+
+  createEffect(() => {
+    highlightedSuggestion();
+    if (!suggestionsOpen()) return;
+    queueMicrotask(() => suggestionsRef?.querySelector('.highlighted')?.scrollIntoView({ block: 'nearest' }));
+  });
 
   onCleanup(() => {
     if (timer) window.clearTimeout(timer);
@@ -86,29 +132,29 @@ function DirectoryRow(props: {
                 props.onChange('path', event.currentTarget.value);
                 scheduleSuggestions(event.currentTarget.value);
               }}
+              onKeyDown={handleSuggestionKeyDown}
               onBlur={() => window.setTimeout(() => setSuggestionsOpen(false), 140)}
               placeholder="/Users/you/code/project"
               autocomplete="off"
               spellcheck={false}
+              aria-expanded={suggestionsOpen()}
+              aria-controls={`project-folder-suggestions-${props.index}`}
+              aria-autocomplete="list"
             />
             <Show when={loading()}><span class="project-path-loading" aria-label="Loading folders" /></Show>
             <Show when={suggestionsOpen()}>
-              <div class="project-path-suggestions">
+              <div ref={suggestionsRef} id={`project-folder-suggestions-${props.index}`} class="project-path-suggestions" role="listbox">
                 <Show when={suggestions().length > 0} fallback={<div class="project-path-empty">No subdirectories found</div>}>
                   <For each={suggestions()}>
-                    {(suggestion) => (
+                    {(suggestion, suggestionIndex) => (
                       <button
                         type="button"
+                        role="option"
+                        aria-selected={highlightedSuggestion() === suggestionIndex()}
+                        class={highlightedSuggestion() === suggestionIndex() ? 'highlighted' : ''}
+                        onMouseEnter={() => setHighlightedSuggestion(suggestionIndex())}
                         onMouseDown={(event) => event.preventDefault()}
-                        onClick={() => {
-                          setFolderPath(suggestion.path);
-                          props.onChange('path', suggestion.path);
-                          if (!alias().trim()) {
-                            setAlias(suggestion.name);
-                            props.onChange('name', suggestion.name);
-                          }
-                          setSuggestionsOpen(false);
-                        }}
+                        onClick={() => selectSuggestion(suggestion)}
                       >
                         <FolderIcon />
                         <span class="project-suggestion-name">{suggestion.name}</span>
