@@ -83,6 +83,20 @@ describe("Sylph permissions", () => {
     expect(evaluateToolCall(policy, tool("bash", { command: "cat `printf /tmp/secret`" }), frontend).decision).toBe("ask");
   });
 
+  it("allows trusted scratch variables and cleanup only inside the scratch root", () => {
+    const { parent, frontend, policy } = workspace();
+    const scratch = path.join(parent, "scratch");
+    fs.mkdirSync(scratch);
+    policy.roots.push({ id: "scratch", name: "session scratch", path: scratch, temporary: true });
+    policy.shellEnvironment = { TMPDIR: scratch, SYLPH_SCRATCH_DIR: scratch };
+
+    expect(evaluateToolCall(policy, tool("bash", { command: "printf data > \"$TMPDIR/result.txt\"" }), frontend).decision).toBe("allow");
+    expect(evaluateToolCall(policy, tool("bash", { command: "rm -rf \"$SYLPH_SCRATCH_DIR/job\"" }), frontend).decision).toBe("allow");
+    expect(evaluateToolCall(policy, tool("bash", { command: "rm -rf \"$SYLPH_SCRATCH_DIR\"" }), frontend).decision).toBe("ask");
+    expect(evaluateToolCall(policy, tool("bash", { command: "rm -rf ./dist" }), frontend).decision).toBe("ask");
+    expect(evaluateToolCall(policy, tool("bash", { command: "cat \"$UNKNOWN\"" }), frontend).decision).toBe("ask");
+  });
+
   it("denies catastrophic commands and force pushes", () => {
     const { frontend, policy } = workspace();
     expect(evaluateToolCall(policy, tool("bash", { command: "shutdown -h now" }), frontend).decision).toBe("deny");

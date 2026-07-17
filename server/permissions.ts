@@ -12,11 +12,15 @@ export interface PermissionRoot {
   name: string;
   path: string;
   access?: "read-write" | "read-only";
+  /** Ephemeral root where routine cleanup is safe without confirmation. */
+  temporary?: boolean;
 }
 
 export interface PermissionPolicy {
   roots: PermissionRoot[];
   externalAccess?: Exclude<PermissionDecision, "allow">;
+  /** Trusted variables injected into shell processes and safe to expand for path analysis. */
+  shellEnvironment?: Record<string, string>;
 }
 
 interface AccessIntent {
@@ -146,33 +150,51 @@ function commandName(token: string) {
   return path.basename(token).toLowerCase();
 }
 
-interface CommandUnit { command: string; args: string[] }
+interface CommandUnit {
+  command: string;
+  args: string[];
+  redirections: Array<{ operation: "read" | "write"; path: string }>;
+}
 
-export function parseCommandUnits(command: string): { units: CommandUnit[]; opaque: boolean; unparseable: boolean } {
+export function parseCommandUnits(command: string, trustedEnvironment: Record<string, string> = {}): { units: CommandUnit[]; opaque: boolean; unparseable: boolean } {
   try {
-    // shell-quote expands unknown variables to empty by default; detect dynamic
-    // expansion from source before parsing so `cat "$FILE"` cannot disappear
+    // Expand only environment values injected by Sylph. Unknown variables and
+    // command substitutions remain opaque so `cat "$FILE"` cannot disappear
     // from path analysis. Escaped dollars are literals.
-    const hasDynamicExpansion = /(^|[^\\])(?:\$[A-Za-z_{(]|`)/.test(command);
-    const tokens = parse(command);
+    const dynamicPattern = /(^|[^\\])\$(?:([A-Za-z_][A-Za-z0-9_]*)|\{([A-Za-z_][A-Za-z0-9_]*)\}|\()|`/g;
+    let hasDynamicExpansion = false;
+    for (const match of command.matchAll(dynamicPattern)) {
+      const variable = match[2] || match[3];
+      if (!variable || trustedEnvironment[variable] === undefined) { hasDynamicExpansion = true; break; }
+    }
+    const tokens = parse(command, trustedEnvironment);
     const units: CommandUnit[] = [];
     let current: string[] = [];
+    let redirections: CommandUnit["redirections"] = [];
+    let pendingRedirection: "read" | "write" | undefined;
     let opaque = hasDynamicExpansion;
     const flush = () => {
+      if (pendingRedirection) { opaque = true; pendingRedirection = undefined; }
       const words = [...current];
       // Environment assignments are prefixes only before the command; values
       // like dd's `of=/dev/disk0` are real arguments and must remain visible.
       while (words.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0])) words.shift();
-      if (words.length) units.push({ command: words[0], args: words.slice(1) });
+      if (words.length) units.push({ command: words[0], args: words.slice(1), redirections });
       current = [];
+      redirections = [];
     };
     for (const token of tokens) {
       if (typeof token === "string") {
-        if (SHELL_OPERATORS.has(token)) flush();
+        if (pendingRedirection) {
+          redirections.push({ operation: pendingRedirection, path: token });
+          pendingRedirection = undefined;
+        } else if (SHELL_OPERATORS.has(token)) flush();
         else current.push(token);
       } else {
         const operator = typeof (token as any).op === "string" ? (token as any).op : "";
         if (SHELL_OPERATORS.has(operator)) flush();
+        else if ([">", ">>", ">&"].includes(operator)) pendingRedirection = "write";
+        else if (operator === "<") pendingRedirection = "read";
         else opaque = true;
       }
     }
@@ -188,7 +210,7 @@ export function parseCommandUnits(command: string): { units: CommandUnit[]; opaq
 }
 
 function evaluateBash(policy: PermissionPolicy, command: string, cwd: string): Evaluation {
-  const parsed = parseCommandUnits(command);
+  const parsed = parseCommandUnits(command, policy.shellEnvironment);
   const intents: AccessIntent[] = [];
   let effectiveCwd = cwd;
   let commandDecision: PermissionDecision = "allow";
@@ -223,8 +245,16 @@ function evaluateBash(policy: PermissionPolicy, command: string, cwd: string): E
       commandReasons.push(`elevated command ${name}`);
     }
     if (DESTRUCTIVE_COMMANDS.has(name) && commandDecision !== "deny") {
-      commandDecision = "ask";
-      commandReasons.push(`destructive command ${name}`);
+      const cleanupTargets = (name === "rm" || name === "rmdir")
+        ? unit.args.filter((arg) => !arg.startsWith("-") && pathLooksExplicit(arg)).map((arg) =>
+            evaluatePath(policy, "delete", expandHome(arg.replace(/^file:\/\//, "")), effectiveCwd))
+        : [];
+      const routineScratchCleanup = cleanupTargets.length > 0 && cleanupTargets.every((intent) =>
+        intent.decision === "allow" && intent.root?.temporary === true && intent.canonicalPath !== intent.root.path);
+      if (!routineScratchCleanup) {
+        commandDecision = "ask";
+        commandReasons.push(`destructive command ${name}`);
+      }
     }
     if (NETWORK_COMMANDS.has(name)) {
       if (commandDecision !== "deny") commandDecision = "ask";
@@ -263,9 +293,22 @@ function evaluateBash(policy: PermissionPolicy, command: string, cwd: string): E
         commandDecision = "deny";
         commandReasons.push("recursive deletion of a filesystem/home root is denied");
       } else {
-        if (commandDecision !== "deny") commandDecision = "ask";
-        commandReasons.push("recursive deletion");
+        const targetIntents = targets.filter(pathLooksExplicit).map((target) =>
+          evaluatePath(policy, "delete", expandHome(target.replace(/^file:\/\//, "")), effectiveCwd));
+        const routineScratchCleanup = targetIntents.length > 0 && targetIntents.every((intent) =>
+          intent.decision === "allow" && intent.root?.temporary === true && intent.canonicalPath !== intent.root.path);
+        if (!routineScratchCleanup) {
+          if (commandDecision !== "deny") commandDecision = "ask";
+          commandReasons.push("recursive deletion");
+        }
       }
+    }
+
+    for (const redirection of unit.redirections) {
+      if (!pathLooksExplicit(redirection.path)) continue;
+      const expanded = expandHome(redirection.path.replace(/^file:\/\//, ""));
+      if (SAFE_DEVICES.has(expanded)) continue;
+      intents.push(evaluatePath(policy, redirection.operation, expanded, effectiveCwd));
     }
 
     const operation: AccessOperation = DESTRUCTIVE_COMMANDS.has(name) ? (name === "rm" || name === "rmdir" ? "delete" : "write") : "read";

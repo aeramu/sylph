@@ -11,6 +11,7 @@ export type { NewSessionOptions } from "./sessionResolver.ts";
 import { clearSessionStatuses, rejectPendingForSession } from "../uiBridge.ts";
 import { getRawManagedDirectories } from "../sessionWorkspace.ts";
 import { discardProjectWorktrees } from "../projectWorktrees.ts";
+import { removeSessionScratch } from "../sessionScratch.ts";
 
 const runtimeRegistry = new RuntimeRegistry<any>();
 const sessionEventSequences = new Map<string, number>();
@@ -48,6 +49,7 @@ export async function rollbackNewWorktreeSession(sessionId: string) {
   // metadata for any checkout that remains.
   await discardProjectWorktrees(project, managedDirectories, WORKTREES_DIR);
   if (binding.sessionFile) fs.rmSync(binding.sessionFile, { force: true });
+  removeSessionScratch(sessionId);
   deleteSessionBinding(sessionId);
 }
 

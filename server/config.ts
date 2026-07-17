@@ -12,3 +12,4 @@ export const PROJECTS_FILE = path.join(SYLPH_DIR, "projects.json");
 export const SETTINGS_FILE = path.join(SYLPH_DIR, "settings.json");
 export const SESSION_BINDINGS_FILE = path.join(SYLPH_DIR, "session-bindings.json");
 export const WORKTREES_DIR = path.join(SYLPH_DIR, "worktrees");
+export const SCRATCH_DIR = path.join(SYLPH_DIR, "scratch");

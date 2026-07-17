@@ -2,13 +2,14 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import {
-  createAgentSessionRuntime, createAgentSessionServices, createAgentSessionFromServices, getAgentDir, loadProjectContextFiles,
+  createAgentSessionRuntime, createAgentSessionServices, createAgentSessionFromServices, createBashToolDefinition, getAgentDir, loadProjectContextFiles,
   type CreateAgentSessionRuntimeFactory,
 } from "@earendil-works/pi-coding-agent";
 import { authStorage, modelRegistry } from "../auth.ts";
 import type { Project } from "../projects.ts";
 import { getSessionBinding, saveSessionBinding } from "../sessionBindings.ts";
 import { createPermissionExtension, isThirdPartyPermissionExtension } from "../permissions.ts";
+import { ensureSessionScratch } from "../sessionScratch.ts";
 import { workspacePrompt } from "./workspacePrompt.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -23,10 +24,19 @@ export interface RuntimeFactoryOptions {
 
 export async function buildRuntime(sessionManager: any, cwd: string, options: RuntimeFactoryOptions = {}) {
   const factory: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
-    const permissionRoots = (options.project?.directories ?? [{ id: "cwd", name: "workspace", path: cwd }]).map((directory) => ({
-      id: directory.id, name: directory.name, path: directory.path, access: "read-write" as const,
-    }));
     const boundSessionId = options.sessionId ?? sessionManager.getSessionId?.();
+    // Introspection uses an in-memory runtime without a sessionId and should
+    // not leave behind a fake session directory merely for listing resources.
+    const scratchPath = typeof options.sessionId === "string" ? ensureSessionScratch(options.sessionId) : undefined;
+    const permissionRoots = [
+      ...(options.project?.directories ?? [{ id: "cwd", name: "workspace", path: cwd }]).map((directory) => ({
+        id: directory.id, name: directory.name, path: directory.path, access: "read-write" as const,
+      })),
+      ...(scratchPath ? [{ id: "sylph-scratch", name: "session scratch", path: scratchPath, access: "read-write" as const, temporary: true }] : []),
+    ];
+    const scratchEnvironment: Record<string, string> = scratchPath
+      ? { TMPDIR: scratchPath, TMP: scratchPath, TEMP: scratchPath, SYLPH_SCRATCH_DIR: scratchPath }
+      : {};
     const initialApprovals = getSessionBinding(boundSessionId)?.permissionApprovals ?? [];
     const auditFile = path.join(getAgentDir(), "logs", "sylph-permissions.jsonl");
     const services = await createAgentSessionServices({
@@ -38,7 +48,7 @@ export async function buildRuntime(sessionManager: any, cwd: string, options: Ru
         extensionFactories: options.project ? [{
           name: "sylph-permissions",
           factory: createPermissionExtension(
-            { roots: permissionRoots, externalAccess: "ask" },
+            { roots: permissionRoots, externalAccess: "ask", shellEnvironment: scratchEnvironment },
             {
               initialApprovals,
               onApproval: (approvalKey) => {
@@ -75,13 +85,32 @@ export async function buildRuntime(sessionManager: any, cwd: string, options: Ru
           return { agentsFiles: files };
         },
         appendSystemPromptOverride: (base) => {
+          const additions: string[] = [];
           const workspace = workspacePrompt(options.project, options.directoryId, cwd);
-          return workspace ? [...base, workspace] : base;
+          if (workspace) additions.push(workspace);
+          if (scratchPath) additions.push([
+            `A private temporary directory is available at ${scratchPath}.`,
+            "For temporary/intermediate files, use $TMPDIR or $SYLPH_SCRATCH_DIR instead of /tmp. They point to that directory and are already authorized for this session.",
+            "Scratch files are not project files and may be cleaned up later; put durable user-requested changes in the workspace.",
+          ].join("\n"));
+          return additions.length ? [...base, ...additions] : base;
         },
       },
     });
+    const scratchBash = scratchPath ? createBashToolDefinition(cwd, {
+      commandPrefix: services.settingsManager.getShellCommandPrefix(),
+      shellPath: services.settingsManager.getShellPath(),
+      spawnHook: (context) => ({ ...context, env: { ...context.env, ...scratchEnvironment } }),
+    }) : undefined;
     return {
-      ...(await createAgentSessionFromServices({ services, sessionManager, sessionStartEvent })),
+      ...(await createAgentSessionFromServices({
+        services,
+        sessionManager,
+        sessionStartEvent,
+        // The SDK's broad ToolDefinition default is invariant under TS 6;
+        // the concrete bash definition is nevertheless the expected runtime shape.
+        ...(scratchBash ? { customTools: [scratchBash as any] } : {}),
+      })),
       services,
       diagnostics: services.diagnostics,
     };
