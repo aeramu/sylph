@@ -72,7 +72,9 @@ function DirectoryRow(props: {
     if (!suggestion) return;
     setFolderPath(suggestion.path);
     props.onChange('path', suggestion.path);
-    setSuggestionsOpen(false);
+    // Treat selection as navigation: the chosen folder is already the current
+    // value, while the open list immediately shows its children for drill-down.
+    void loadSuggestions(suggestion.path);
   };
 
   const handleSuggestionKeyDown = (event: KeyboardEvent) => {

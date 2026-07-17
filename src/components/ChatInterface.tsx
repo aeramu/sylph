@@ -214,7 +214,9 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   const selectStandaloneSuggestion = (suggestion: { path: string } | undefined) => {
     if (!suggestion) return;
     setStandalonePath(suggestion.path);
-    setStandaloneSuggestionsOpen(false);
+    // Keep browsing from the selected folder so users can drill down without
+    // repeatedly reopening the picker.
+    void loadStandaloneSuggestions(suggestion.path);
   };
 
   const handleStandaloneDirectoryKeyDown = (event: KeyboardEvent) => {
