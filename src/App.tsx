@@ -111,9 +111,11 @@ function App() {
             createdAt: new Date().toISOString(),
           }]);
           setActiveSessionId(newId);
-          if (newProjectId) {
-            setActiveProjectId(newProjectId);
-          }
+          setActiveProjectId(newProjectId);
+        }}
+        onSessionRemoved={(id) => {
+          if (activeSessionId() === id) setActiveSessionId(undefined);
+          setRefreshSidebar((value) => value + 1);
         }}
         onTurnComplete={() => {
           setRefreshSidebar(r => r + 1);

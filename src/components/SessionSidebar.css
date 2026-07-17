@@ -1,304 +1,340 @@
-/* Styles for SessionSidebar (projects + sessions drawer).
-   Mobile off-canvas positioning lives in App.css, which owns the layout. */
-
+/* Flat, grouped chat index. Hierarchy comes from type, spacing, and indentation. */
 .sidebar {
   min-width: 0;
-  background: var(--bg-panel);
-  border-right: 1px solid var(--border-color);
+  height: 100%;
   display: flex;
   flex-direction: column;
-  height: 100%;
-  overflow: hidden auto;
-  transition: border-color 0.25s ease;
+  overflow: hidden;
+  background: #17191f;
 }
 
 .sidebar-header {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  padding: 1rem;
+  gap: 0.6rem;
+  min-height: 56px;
+  padding: 0.7rem 0.75rem;
 }
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #747780;
+  cursor: pointer;
+}
+.icon-button:hover { background: rgba(255, 255, 255, 0.04); color: #b9bbc1; }
+
+.sidebar-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  flex: 1;
+  gap: 0.25rem;
+}
+
+.sidebar-new-chat {
+  height: 32px;
+  padding: 0 0.7rem;
+  border: 0;
+  border-radius: 7px;
+  background: rgba(99, 102, 241, 0.16);
+  color: #c6c7ef;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.sidebar-new-chat:hover { background: rgba(99, 102, 241, 0.23); color: #eeeeff; }
+.sidebar-new-chat.secondary { background: transparent; color: #747985; font-weight: 500; }
+.sidebar-new-chat.secondary:hover { background: rgba(255, 255, 255, 0.035); color: #a9acb4; }
 
 .sidebar-section {
   display: flex;
   flex: 1;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
 }
 
 .sidebar-section-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 0.25rem 1rem 0.75rem;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.8rem 0.9rem 0.65rem;
 }
-
-.sidebar-title {
-  font-weight: 600;
-  color: #8c8c8c;
-  font-size: 1rem;
-  letter-spacing: 0.02em;
-}
-
-.sidebar-actions {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.sidebar-empty {
-  text-align: center;
-  padding: 2rem 1rem;
-  color: #5f5f5f;
-  font-size: 0.875rem;
-}
-
-.icon-button {
-  background: none;
-  border: none;
-  color: #8c8c8c;
-  cursor: pointer;
-  padding: 0.25rem;
-  display: flex;
+.sidebar-title { color: #c9cbd1; font-size: 0.95rem; font-weight: 650; }
+.session-list-header-actions { display: flex; align-items: center; gap: 0; }
+.session-header-action {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
-  transition: color 0.2s;
-}
-
-.icon-button:hover {
-  color: #d4d4d4;
-}
-
-.project-group {
-  margin-bottom: 0.5rem;
-}
-
-.project-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.5rem 0;
-  cursor: pointer;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
   border-radius: 6px;
-  transition: background 0.2s;
-}
-
-.project-header:hover {
-  background: rgba(255, 255, 255, 0.03);
-}
-
-.project-header-title {
-  font-weight: 600;
-  font-size: 1rem;
-  color: #d4d4d4;
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  overflow: hidden;
-  padding-left: 0.25rem;
-}
-
-.project-header-icon {
-  display: flex;
-  color: #8c8c8c;
-}
-
-.project-header-name {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  letter-spacing: 0.02em;
-}
-
-.project-header-actions {
-  display: flex;
-  gap: 0.5rem;
-  opacity: 0;
-  transition: opacity 0.2s;
-  padding-right: 0.5rem;
-}
-
-.project-header:hover .project-header-actions {
-  opacity: 1;
-}
-
-.project-sessions {
-  padding-left: 1.8rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  margin-top: 0.5rem;
-  margin-bottom: 1rem;
-}
-
-.session-list-toggle {
-  font-size: 0.9rem;
-  color: #5f5f5f;
-  padding: 0.4rem 0.5rem;
+  background: transparent;
+  color: #717680;
   cursor: pointer;
-  transition: color 0.2s;
 }
-
-.session-list-toggle:hover {
-  color: #a3a3a3;
+.session-header-action:hover { background: rgba(255, 255, 255, 0.045); color: #afb2ba; }
+.session-view-menu { position: relative; }
+.session-view-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #717680;
+  cursor: pointer;
 }
-
-.session-list-empty {
-  font-size: 0.875rem;
-  color: #5f5f5f;
-  padding: 0.4rem 0.5rem;
+.session-view-menu-trigger:hover,
+.session-view-menu-trigger[aria-expanded="true"] { background: rgba(255, 255, 255, 0.045); color: #a6a9b1; }
+.session-view-menu-popover {
+  position: fixed;
+  z-index: 1000;
+  width: 190px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
+  background: #1d1f24;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.48);
 }
+.session-view-menu-section + .session-view-menu-section { border-top: 1px solid rgba(255, 255, 255, 0.07); }
+.session-view-menu-heading {
+  padding: 0.45rem 0.55rem 0.3rem;
+  color: #737780;
+  font-size: 0.68rem;
+  font-weight: 500;
+}
+.session-view-menu-section button {
+  display: block;
+  width: 100%;
+  padding: 0.38rem 0.55rem;
+  border: 0;
+  background: transparent;
+  color: #b4b6bc;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.76rem;
+  text-align: left;
+}
+.session-view-menu-section button:hover { background: rgba(255, 255, 255, 0.055); color: #dedfe3; }
+.session-view-menu-section button.active { background: rgba(255, 255, 255, 0.09); color: #f0f0f2; font-weight: 570; }
 
 .session-list {
-  padding: 0.5rem 1rem;
   display: flex;
+  height: 0;
+  flex: 1 1 0;
   flex-direction: column;
-  gap: 0.25rem;
-  flex: 1;
+  min-height: 0;
+  padding: 0 0.75rem 1rem;
+  overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
 }
-
-.sidebar-footer {
-  padding: 0.75rem 1rem 1rem;
-  border-top: 1px solid var(--border-color);
-  margin-top: auto;
-}
-
-.sidebar-settings-button {
-  width: 100%;
+.grouped-session-list { gap: 0.95rem; }
+.session-group { flex: 0 0 auto; }
+.session-group-header {
   display: flex;
   align-items: center;
-  gap: 0.65rem;
-  padding: 0.65rem 0.75rem;
-  border: 1px solid transparent;
-  border-radius: 10px;
-  background: transparent;
-  color: #a3a3a3;
-  font: inherit;
-  font-size: 0.9rem;
-  cursor: pointer;
-  transition: background 0.2s, border-color 0.2s, color 0.2s;
-}
-
-.sidebar-settings-button:hover {
-  background: rgba(255, 255, 255, 0.05);
-  border-color: var(--border-color);
-  color: var(--text-primary);
-}
-
-.session-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.4rem 0.5rem;
+  min-height: 30px;
+  padding: 0.15rem 0.1rem;
   border-radius: 6px;
   cursor: pointer;
-  transition: all 0.2s;
-  border: 1px solid transparent;
 }
+.session-group-header:hover { background: rgba(255, 255, 255, 0.022); }
 
-.session-item:hover {
-  background: rgba(255, 255, 255, 0.05);
+.session-group-title {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex: 0 1 auto;
+  color: #8d9098;
+  font: inherit;
+  text-align: left;
 }
-
-.session-item.active {
-  background: rgba(99, 102, 241, 0.15);
-  border-color: rgba(99, 102, 241, 0.3);
+.session-group-header:hover .session-group-title { color: #b8bac0; }
+.session-group-label { display: inline-flex; align-items: center; min-width: 0; gap: 0.5rem; }
+.session-group-actions { display: flex; align-items: center; flex: 0 0 auto; margin-left: auto; }
+.session-group-action.inline { flex: 0 0 auto; }
+.session-group-action { opacity: 0; transition: opacity 0.15s, color 0.15s, background 0.15s; }
+.session-group-header:hover .session-group-action,
+.session-group-action.pin.active { opacity: 1; }
+.session-group-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 25px;
+  height: 25px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #666b75;
+  cursor: pointer;
 }
-
-.session-title {
-  font-size: 0.9rem;
-  font-weight: 500;
-  white-space: nowrap;
+.session-group-action:hover { background: rgba(255, 255, 255, 0.04); color: #aaaeb6; }
+.session-group-action svg { display: block; width: 16px; height: 16px; }
+.session-group-action.pin svg { transform: rotate(30deg); transform-origin: 50% 50%; }
+.session-group-action.pin.active { color: #a1a4bb; }
+.session-group-action.pin.active svg { fill: currentColor; stroke-width: 1.5; }
+.session-group-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  color: #777a82;
+}
+.session-group-icon.project { color: #8587a5; }
+.session-group-icon.directory { color: #7b8585; }
+.session-group-icon.status { color: #827e89; }
+.session-group-icon svg { display: block; width: 20px; height: 20px; }
+.session-group-name {
   overflow: hidden;
+  font-size: 0.88rem;
+  font-weight: 620;
+  line-height: 1.2;
   text-overflow: ellipsis;
-  color: #a3a3a3;
-  max-width: 80%;
+  white-space: nowrap;
 }
 
-.session-item.active .session-title {
-  color: var(--text-primary);
+.session-group-content { margin-top: 0.25rem; padding-left: 1.25rem; }
+
+.session-item {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  min-height: 54px;
+  padding: 0.5rem 0.6rem 0.45rem;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.session-item.without-subtitle { min-height: 38px; align-items: center; padding-top: 0.38rem; padding-bottom: 0.38rem; }
+.session-item.without-subtitle .session-meta { padding-top: 0; }
+.session-item:hover { background: rgba(255, 255, 255, 0.028); }
+.session-item.active { background: rgba(255, 255, 255, 0.055); }
+
+.session-main { min-width: 0; flex: 1; }
+.session-title {
+  overflow: hidden;
+  color: #bfc1c7;
+  font-size: 0.88rem;
+  font-weight: 400;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-item:hover .session-title { color: #d0d2d7; }
+.session-item.active .session-title { color: #e0e1e5; }
+.session-subtitle {
+  margin-top: 0.24rem;
+  overflow: hidden;
+  color: #70747d;
+  font-size: 0.72rem;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .session-meta {
-  font-size: 0.8rem;
-  color: #5f5f5f;
   display: flex;
   align-items: center;
-  gap: 0.25rem;
-  flex-shrink: 0;
+  flex: 0 0 auto;
+  gap: 0.2rem;
+  padding-top: 0.06rem;
+  color: #72757d;
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
 }
-
-.session-worktree-missing {
-  color: var(--danger);
-  font-size: 0.65rem;
-}
+.session-branch { display: block; max-width: 60px; overflow: hidden; color: #737783; text-overflow: ellipsis; white-space: nowrap; }
+.session-worktree-missing { color: #cc7676; }
 
 .session-worktree-action {
   display: none;
   align-items: center;
   justify-content: center;
-  padding: 0.15rem;
+  width: 19px;
+  height: 19px;
+  padding: 0;
   border: 0;
   border-radius: 4px;
   background: transparent;
-  color: #777;
+  color: #6b6e76;
   cursor: pointer;
 }
-
 .session-item:hover .session-worktree-action,
-.session-worktree-action.recreate {
-  display: inline-flex;
-}
+.session-worktree-action.recreate { display: inline-flex; }
+.session-worktree-action:hover { background: rgba(255, 255, 255, 0.05); color: #d17c7c; }
+.session-worktree-action.recreate:hover { color: #a4a5e4; }
 
-.session-worktree-action:hover {
-  color: var(--danger);
-  background: rgba(255, 255, 255, 0.06);
+.session-group-pagination { display: flex; align-items: center; gap: 0.25rem; padding: 0.15rem 0 0; }
+.session-group-pagination button {
+  padding: 0.25rem;
+  border: 0;
+  background: transparent;
+  color: #62666f;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.7rem;
 }
+.session-group-pagination button:hover { color: #999ca4; }
+.session-group-pagination .session-group-more { font-size: 0.78rem; }
+.session-group-pagination .session-group-less { margin-left: auto; }
 
-.session-worktree-action.recreate:hover {
-  color: var(--accent);
-}
-
-/* Sidebar session status: typing dots while the agent works.
-   `bounce` keyframes are defined globally in index.css. */
-.session-typing {
+.session-live-status {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  padding: 0 2px;
+  justify-content: center;
+  min-width: 18px;
+  min-height: 18px;
+  padding: 0;
+  color: #9b9dcf;
+  line-height: 1;
 }
-
-.session-typing-dot {
-  width: 4px;
-  height: 4px;
-  background-color: var(--accent);
-  border-radius: 50%;
-  animation: bounce 1.4s infinite ease-in-out both;
-}
-
+.session-live-status.needs-input { color: #d1a15d; }
+.session-typing { display: inline-flex; align-items: center; gap: 2px; }
+.session-typing-dot { width: 4px; height: 4px; border-radius: 50%; background: currentColor; animation: bounce 1.4s infinite ease-in-out both; }
 .session-typing-dot:nth-child(1) { animation-delay: -0.32s; }
 .session-typing-dot:nth-child(2) { animation-delay: -0.16s; }
+.session-live-status-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; box-shadow: 0 0 5px currentColor; }
+.session-status-icon { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; color: #999be0; font-size: 0.72rem; }
+.session-status-icon.error { color: #dc7c7c; font-weight: 700; }
 
-/* Sidebar session status: attention/error icons */
-.session-status-icon {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  color: #a3a3a3;
+.sidebar-empty { padding: 2.5rem 1rem; color: #656972; font-size: 0.74rem; text-align: center; }
+.sidebar-footer { margin-top: auto; padding: 0.55rem 0.75rem 0.75rem; }
+.sidebar-settings-button {
+  width: 100%;
+  height: 34px;
+  padding: 0 0.55rem;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #737781;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+  text-align: left;
 }
-
-.session-status-icon.error {
-  color: var(--danger);
-}
-
-.session-status-icon .session-status-dot {
-  position: absolute;
-  top: -2px;
-  right: -3px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 4px var(--accent-glow);
-}
+.sidebar-settings-button:hover { background: rgba(255, 255, 255, 0.035); color: #a9acb4; }

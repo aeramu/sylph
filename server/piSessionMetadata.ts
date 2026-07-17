@@ -8,7 +8,7 @@ export const SYLPH_WORKSPACE_METADATA_VERSION = 1;
 
 export interface SylphWorkspaceMetadata {
   version: 1;
-  projectId: string;
+  projectId?: string;
   directoryId?: string;
   cwd: string;
   directories?: SessionDirectoryBinding[];
@@ -23,6 +23,7 @@ function validDirectory(value: unknown): value is SessionDirectoryBinding {
   const directory = value as Record<string, unknown>;
   return typeof directory.directoryId === "string"
     && typeof directory.name === "string"
+    && (directory.sourcePath === undefined || typeof directory.sourcePath === "string")
     && typeof directory.path === "string"
     && (directory.branch === undefined || typeof directory.branch === "string")
     && (directory.baseBranch === undefined || typeof directory.baseBranch === "string")
@@ -33,7 +34,7 @@ function parseMetadata(value: unknown): SylphWorkspaceMetadata | undefined {
   if (!value || typeof value !== "object") return undefined;
   const metadata = value as Record<string, unknown>;
   if (metadata.version !== SYLPH_WORKSPACE_METADATA_VERSION
-    || typeof metadata.projectId !== "string"
+    || (metadata.projectId !== undefined && typeof metadata.projectId !== "string")
     || typeof metadata.cwd !== "string"
     || (metadata.directoryId !== undefined && typeof metadata.directoryId !== "string")
     || (metadata.directories !== undefined && (!Array.isArray(metadata.directories) || !metadata.directories.every(validDirectory)))
@@ -47,7 +48,7 @@ function parseMetadata(value: unknown): SylphWorkspaceMetadata | undefined {
 export function workspaceMetadataFromBinding(binding: SessionBinding): SylphWorkspaceMetadata {
   return {
     version: SYLPH_WORKSPACE_METADATA_VERSION,
-    projectId: binding.projectId,
+    ...(binding.projectId ? { projectId: binding.projectId } : {}),
     ...(binding.directoryId ? { directoryId: binding.directoryId } : {}),
     cwd: binding.cwd,
     ...(binding.directories?.length ? { directories: binding.directories } : {}),
@@ -84,7 +85,7 @@ export function reconcileSessionBinding(sessionManager: SessionManager, sessionF
   const existing = getSessionBinding(sessionManager.getSessionId());
   const binding: SessionBinding = {
     sessionId: sessionManager.getSessionId(),
-    projectId: metadata.projectId,
+    ...(metadata.projectId ? { projectId: metadata.projectId } : {}),
     ...(metadata.directoryId ? { directoryId: metadata.directoryId } : {}),
     cwd: metadata.cwd,
     ...(metadata.directories?.length ? { directories: metadata.directories } : {}),

@@ -36,7 +36,7 @@ export default function GitTab(props: { projectId?: string; directoryId?: string
   // one root cannot update another root's message, error, or loading state.
   let commitMessageGeneration = 0;
 
-  const refresh = async (projectId = props.projectId, fetchRemote = false) => {
+  const refresh = async (projectId = props.projectId || (props.sessionId ? '__session__' : undefined), fetchRemote = false) => {
     const generation = ++refreshGeneration;
     if (!projectId) {
       setFiles([]);
@@ -56,7 +56,7 @@ export default function GitTab(props: { projectId?: string; directoryId?: string
         });
         const fetchData = await fetchRes.json();
         if (!fetchRes.ok) throw new Error(fetchData.error || 'Failed to fetch remote Git state');
-        if (generation !== refreshGeneration || props.projectId !== projectId) return false;
+        if (generation !== refreshGeneration || (props.projectId || (props.sessionId ? '__session__' : undefined)) !== projectId) return false;
       }
       const requestOptions: RequestInit = { cache: 'no-store' };
       const [statusRes, logRes, divergenceRes] = await Promise.all([
@@ -68,7 +68,7 @@ export default function GitTab(props: { projectId?: string; directoryId?: string
       if (!statusRes.ok) throw new Error(data.error || 'Failed to load git status');
       if (!logRes.ok) throw new Error(logData.error || 'Failed to load commit history');
       if (!divergenceRes.ok) throw new Error(divergenceData.error || 'Failed to load branch divergence');
-      if (generation !== refreshGeneration || props.projectId !== projectId) return false;
+      if (generation !== refreshGeneration || (props.projectId || (props.sessionId ? '__session__' : undefined)) !== projectId) return false;
       const nextFiles: GitFile[] = data.files || [];
       setRepository(data.repository);
       setCommits(logData.commits || []);
@@ -90,7 +90,7 @@ export default function GitTab(props: { projectId?: string; directoryId?: string
       setLoaded(true);
       return true;
     } catch (err: any) {
-      if (generation !== refreshGeneration || props.projectId !== projectId) return false;
+      if (generation !== refreshGeneration || (props.projectId || (props.sessionId ? '__session__' : undefined)) !== projectId) return false;
       setError(err.message || 'Failed to load git status');
       setLoaded(true);
       return false;
@@ -100,7 +100,7 @@ export default function GitTab(props: { projectId?: string; directoryId?: string
   };
 
   const post = async (url: string, body: unknown) => {
-    const projectId = props.projectId;
+    const projectId = props.projectId || (props.sessionId ? '__session__' : undefined);
     if (!projectId) return false;
     const sync = url === 'pull' || url === 'push' ? url : null;
     if (sync) setSyncOperation(sync);
@@ -114,10 +114,10 @@ export default function GitTab(props: { projectId?: string; directoryId?: string
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Git operation failed');
-      if (props.projectId === projectId) await refresh(projectId);
+      if ((props.projectId || (props.sessionId ? '__session__' : undefined)) === projectId) await refresh(projectId);
       return true;
     } catch (err: any) {
-      if (props.projectId === projectId) setError(err.message || 'Git operation failed');
+      if ((props.projectId || (props.sessionId ? '__session__' : undefined)) === projectId) setError(err.message || 'Git operation failed');
       return false;
     } finally {
       if (sync) setSyncOperation(null);
@@ -131,7 +131,7 @@ export default function GitTab(props: { projectId?: string; directoryId?: string
   };
 
   const generateCommitMessage = async () => {
-    const projectId = props.projectId;
+    const projectId = props.projectId || (props.sessionId ? '__session__' : undefined);
     if (!projectId || stagedFiles().length === 0) return;
     const requestDraftId = draftId();
     const generation = ++commitMessageGeneration;
@@ -160,7 +160,7 @@ export default function GitTab(props: { projectId?: string; directoryId?: string
   };
 
   createEffect(() => {
-    const projectId = props.projectId;
+    const projectId = props.projectId || (props.sessionId ? '__session__' : undefined);
     setExpanded({});
     void props.sessionId;
     void props.directoryId;

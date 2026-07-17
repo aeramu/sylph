@@ -123,6 +123,25 @@ describe("embedded Sylph workspace metadata", () => {
     expect(bindings.getProjectSessionBindings("project-old")).toEqual([]);
   });
 
+  it("supports a standalone workspace without project ownership", () => {
+    const manager = createSession();
+    const binding: SessionBinding = {
+      sessionId: manager.getSessionId(),
+      directoryId: "root",
+      cwd: "/tmp/backend",
+      directories: [{ directoryId: "root", name: "backend", sourcePath: "/tmp/backend", path: "/tmp/backend" }],
+      sessionFile: manager.getSessionFile(),
+    };
+
+    metadata.appendWorkspaceMetadata(manager, binding);
+    const stored = metadata.getWorkspaceMetadata(manager);
+    const reconciled = metadata.reconcileSessionBinding(manager);
+
+    expect(stored).not.toHaveProperty("projectId");
+    expect(reconciled).toEqual(expect.objectContaining({ directoryId: "root", cwd: "/tmp/backend" }));
+    expect(reconciled).not.toHaveProperty("projectId");
+  });
+
   it("uses the latest valid append-only metadata entry", () => {
     const manager = createSession();
     const base: SessionBinding = {

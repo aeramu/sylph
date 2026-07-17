@@ -5,7 +5,7 @@ import { getProjectById, projectAtDirectory } from "./projects.ts";
 import { getIntrospectionRuntime } from "./runtimes.ts";
 import { getSettings } from "./settings.ts";
 import { getSessionBinding } from "./sessionBindings.ts";
-import { getSessionDirectory } from "./sessionWorkspace.ts";
+import { getSessionDirectory, projectFromSessionBinding } from "./sessionWorkspace.ts";
 
 function handleError(res: express.Response, error: unknown) {
   console.error(error);
@@ -21,11 +21,11 @@ export function createGitRouter(): express.Router {
   const router = express.Router();
 
   router.use("/api/projects/:id/git", (req, res, next) => {
-    const project = getProjectById(req.params.id);
-    if (!project) return res.status(404).json({ error: "Project not found" });
     const sessionId = typeof req.query.sessionId === "string" ? req.query.sessionId : undefined;
     const binding = getSessionBinding(sessionId);
-    if (binding && binding.projectId !== project.id) {
+    const project = getProjectById(req.params.id) ?? (binding ? projectFromSessionBinding(binding) : undefined);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+    if (binding && binding.projectId && binding.projectId !== req.params.id) {
       return res.status(400).json({ error: "Session does not belong to this project" });
     }
     if (!binding && typeof req.query.directoryId === "string"

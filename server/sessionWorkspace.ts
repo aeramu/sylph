@@ -28,6 +28,24 @@ export function getSessionDirectory(project: Project, binding: SessionBinding, d
   return directories.find((directory) => directory.directoryId === binding.directoryId) ?? directories[0];
 }
 
+export function projectFromSessionBinding(binding: SessionBinding, fallbackName = "No Project"): Project {
+  const directories = binding.directories?.length
+    ? binding.directories.map((directory) => ({
+        id: directory.directoryId,
+        name: directory.name,
+        path: path.resolve(directory.sourcePath ?? directory.path),
+      }))
+    : [{ id: binding.directoryId || "root", name: fallbackName, path: path.resolve(binding.cwd) }];
+  const active = directories.find((directory) => directory.id === binding.directoryId) ?? directories[0];
+  return {
+    id: binding.projectId || `standalone:${binding.sessionId}`,
+    name: fallbackName,
+    path: active.path,
+    directories,
+    activeDirectoryId: active.id,
+  };
+}
+
 export function projectForSession(project: Project, binding: SessionBinding): Project {
   const sessionDirectories = new Map(getSessionDirectories(project, binding).map((directory) => [directory.directoryId, directory]));
   const directories = project.directories.map((directory) => ({

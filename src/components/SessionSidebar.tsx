@@ -1,4 +1,5 @@
-import { createResource, createSignal, For, createEffect, Show, Switch, Match } from 'solid-js';
+import { createMemo, createResource, createSignal, For, Show, Switch, Match, createEffect, onCleanup } from 'solid-js';
+import { Portal } from 'solid-js/web';
 import type { DraftSession, ProjectInfo, SessionStatus } from '../types';
 import { sessionStatuses, setSessionStatus } from '../lib/sessionStatus';
 import AddProjectModal from './AddProjectModal';
@@ -8,17 +9,36 @@ interface SessionInfo {
   id: string;
   name?: string;
   modified: string;
+  created?: string;
   messageCount: number;
   firstMessage: string;
   status?: SessionStatus;
-  branch?: string;
+  projectId?: string;
+  projectName?: string;
   directoryId?: string;
+  directoryName?: string;
+  cwd?: string;
+  branch?: string;
   rootCount?: number;
   worktree?: boolean;
   worktreeMissing?: boolean;
 }
 
-const SESSION_PREVIEW_COUNT = 5;
+type GroupMode = 'project' | 'directory' | 'status' | 'none';
+type SortMode = 'updated' | 'alphabetical' | 'created';
+type SubtitleMode = 'directory' | 'project' | 'worktree' | 'none';
+
+const SESSIONS_PER_GROUP_PAGE = 5;
+
+function loadPinnedGroups(): Record<string, boolean> {
+  try { return JSON.parse(localStorage.getItem('sylph:pinned-session-groups') || '{}'); }
+  catch { return {}; }
+}
+
+function loadViewPreference<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
+  const stored = localStorage.getItem(key);
+  return allowed.includes(stored as T) ? (stored as T) : fallback;
+}
 
 const fetchProjects = async () => {
   const res = await fetch('/api/projects');
@@ -27,287 +47,69 @@ const fetchProjects = async () => {
 };
 
 function formatRelativeTime(dateStr: string) {
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diffSecs = Math.max(0, Math.floor((now.getTime() - date.getTime()) / 1000));
-  const diffMins = Math.floor(diffSecs / 60);
-  const diffHours = Math.floor(diffMins / 60);
-  const diffDays = Math.floor(diffHours / 24);
-
+  const diffSecs = Math.max(0, Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000));
   if (diffSecs < 60) return `${diffSecs}s`;
-  if (diffMins < 60) return `${diffMins}m`;
-  if (diffHours < 24) return `${diffHours}h`;
-  if (diffDays < 30) return `${diffDays}d`;
-
-  const diffMonths = Math.floor(diffDays / 30);
-  if (diffMonths < 12) return `${diffMonths}mo`;
-  return `${Math.floor(diffMonths / 12)}y`;
+  const mins = Math.floor(diffSecs / 60);
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d`;
+  const months = Math.floor(days / 30);
+  return months < 12 ? `${months}mo` : `${Math.floor(months / 12)}y`;
 }
 
-function FolderIcon(props: { open?: boolean }) {
-  return (
-    <Show
-      when={props.open}
-      fallback={
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-        </svg>
-      }
-    >
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M2 5v14a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2h-8.5l-2-3H4a2 2 0 0 0-2 2z"></path>
-        <path d="M2 12h20"></path>
+function statusGroup(session: SessionInfo) {
+  const status = sessionStatuses[session.id] || session.status;
+  if (status === 'working') return 'Working';
+  if (status === 'needsInput') return 'Needs input';
+  if (status === 'error') return 'Errors';
+  return 'Idle';
+}
+
+function SessionGroupIcon(props: { mode: GroupMode; expanded: boolean; statusKey?: string }) {
+  if (props.mode === 'project') {
+    return (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 7.5A1.5 1.5 0 0 1 5.5 6h4l1.7 2h7.3A1.5 1.5 0 0 1 20 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z" />
+        <path d="M7 6V4.8A.8.8 0 0 1 7.8 4h8.4a.8.8 0 0 1 .8.8V8" />
+        <Show when={props.expanded}><path d="M4 11h16" /></Show>
       </svg>
-    </Show>
-  );
-}
-
-function ProjectItem(props: {
-  project: ProjectInfo,
-  activeSessionId?: string,
-  activeProjectId?: string,
-  onSelectSession: (id?: string) => void,
-  onSelectProject: (id?: string) => void,
-  onNewChat: () => void,
-  onEdit: () => void,
-  onSessionDetached: (id: string) => void,
-  refreshTrigger: number,
-  draftSessions: DraftSession[]
-}) {
-  const [expanded, setExpanded] = createSignal(false);
-  const [showAll, setShowAll] = createSignal(false);
-
-  const fetchSessions = async () => {
-    const res = await fetch(`/api/sessions?projectId=${props.project.id}&t=${Date.now()}`, {
-      cache: 'no-store',
-      headers: { 'Cache-Control': 'no-cache' }
-    });
-    const data = await res.json();
-    const list = data.sessions as SessionInfo[];
-    // Seed live statuses the SSE stream can't tell us about (sessions that
-    // were already mid-turn or blocked on a dialog before this page loaded).
-    // Set-only: clearing is the SSE tracker's job, and the server never
-    // reports 'error' (only the client sees error events).
-    for (const s of list) {
-      if (s.status) setSessionStatus(s.id, s.status);
+    );
+  }
+  if (props.mode === 'directory') {
+    return (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h5l2 2h8A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z" />
+        <Show when={props.expanded}><path d="M3 10h18" /></Show>
+      </svg>
+    );
+  }
+  if (props.mode === 'status') {
+    if (props.statusKey === 'Idle') {
+      return (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="8.5" />
+          <path d="m8.5 12 2.4 2.4 4.6-4.8" />
+        </svg>
+      );
     }
-    return list;
-  };
-
-  const [sessions, { refetch }] = createResource(fetchSessions);
-
-  createEffect(() => {
-    const trigger = props.refreshTrigger;
-    if (trigger > 0 && expanded()) {
-      refetch();
+    if (props.statusKey === 'Needs input') {
+      return (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="8.5" />
+          <path d="M12 8v4.5" /><path d="M12 15.5h.01" />
+        </svg>
+      );
     }
-  });
-
-  createEffect(() => {
-    if (props.activeSessionId) {
-      if (sessions()?.some(s => s.id === props.activeSessionId)) {
-        setExpanded(true);
-      } else if (props.activeProjectId === props.project.id) {
-        setExpanded(true);
-      }
-    }
-  });
-
-  // Fetched sessions plus locally created ones the server list doesn't
-  // include yet (fresh chats still on their first turn). Titled with the
-  // first prompt so they don't vanish or read "New Chat" while streaming.
-  const mergedSessions = () => {
-    const list = sessions() ? [...sessions()!] : [];
-    for (const draft of props.draftSessions) {
-      if (!list.some(s => s.id === draft.id)) {
-        list.unshift({
-          id: draft.id,
-          name: draft.firstMessage || 'New Chat',
-          modified: draft.createdAt,
-          messageCount: 1,
-          firstMessage: draft.firstMessage,
-          branch: draft.branch,
-          directoryId: draft.directoryId,
-          worktree: draft.worktree,
-        });
-      }
-    }
-    return list;
-  };
-
-  const handleWorktreeAction = async (session: SessionInfo) => {
-    try {
-      if (session.worktreeMissing) {
-        const res = await fetch(`/api/sessions/${encodeURIComponent(session.id)}/worktree/recreate`, { method: 'POST' });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Failed to recreate worktree');
-        await refetch();
-        props.onSelectProject(props.project.id);
-        props.onSelectSession(session.id);
-        return;
-      }
-
-      if (!confirm(`Remove the worktree for ${session.branch || 'this session'}?\n\nThe chat history and branch will be kept.`)) return;
-      let res = await fetch(`/api/sessions/${encodeURIComponent(session.id)}/worktree`, { method: 'DELETE' });
-      let data = await res.json();
-      if (res.status === 409 && data.code === 'unmerged') {
-        if (!confirm(`${data.branch || session.branch} is not merged into its base branch.\n\nRemove the clean worktree anyway? The branch will be kept.`)) return;
-        res = await fetch(`/api/sessions/${encodeURIComponent(session.id)}/worktree?confirmUnmerged=true`, { method: 'DELETE' });
-        data = await res.json();
-      }
-      if (!res.ok) throw new Error(data.error || 'Failed to remove worktree');
-      props.onSessionDetached(session.id);
-      await refetch();
-    } catch (error) {
-      alert(error instanceof Error ? error.message : 'Worktree operation failed');
-    }
-  };
-
-  const visibleSessions = () => {
-    const list = mergedSessions();
-    if (!showAll()) return list.slice(0, SESSION_PREVIEW_COUNT);
-    return list;
-  };
-
-  return (
-    <div class="project-group">
-      <div class="project-header" onClick={() => setExpanded(!expanded())}>
-        <div class="project-header-title">
-          <span class="project-header-icon"><FolderIcon open={expanded()} /></span>
-          <span class="project-header-name" title={props.project.directories.map((directory) => directory.path).join('\n')}>
-            {props.project.name}<Show when={props.project.directories.length > 1}> · {props.project.directories.length}</Show>
-          </span>
-        </div>
-
-        <div class="project-header-actions">
-          <button
-            class="icon-button"
-            onClick={(e) => {
-              e.stopPropagation();
-              props.onEdit();
-            }}
-            title="Edit Project"
-            aria-label={`Edit ${props.project.name}`}
-          >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="3"></circle>
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-            </svg>
-          </button>
-          <button
-            class="icon-button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setExpanded(true);
-              props.onNewChat();
-            }}
-            title="New Chat"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="12" y1="5" x2="12" y2="19"></line>
-              <line x1="5" y1="12" x2="19" y2="12"></line>
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      <Show when={expanded()}>
-        <div class="project-sessions">
-          <For each={visibleSessions()}>
-            {(session) => (
-              <div
-                class={`session-item ${props.activeSessionId === session.id ? 'active' : ''}`}
-                onClick={() => {
-                  if (session.worktreeMissing) {
-                    void handleWorktreeAction(session);
-                    return;
-                  }
-                  // Opening an errored session acknowledges the error badge.
-                  if (sessionStatuses[session.id] === 'error') {
-                    setSessionStatus(session.id, undefined);
-                  }
-                  props.onSelectProject(props.project.id);
-                  props.onSelectSession(session.id);
-                }}
-              >
-                <div class="session-title">
-                  <Show when={(session.rootCount || props.project.directories.length) > 1}>
-                    <span>{session.rootCount || props.project.directories.length} roots · </span>
-                  </Show>
-                  {session.name || session.firstMessage || 'Empty Chat'}
-                </div>
-                <div class="session-meta">
-                  <Switch fallback={session.worktreeMissing
-                    ? <span class="session-worktree-missing">Missing</span>
-                    : session.branch
-                      ? <span class="session-branch" title={session.branch}>{session.branch}</span>
-                      : formatRelativeTime(session.modified)}>
-                    <Match when={sessionStatuses[session.id] === 'working'}>
-                      <span class="session-typing" title="Working…">
-                        <span class="session-typing-dot" />
-                        <span class="session-typing-dot" />
-                        <span class="session-typing-dot" />
-                      </span>
-                    </Match>
-                    <Match when={sessionStatuses[session.id] === 'needsInput'}>
-                      <span class="session-status-icon needs-input" title="Waiting for your input">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                          <polyline points="14 2 14 8 20 8"></polyline>
-                        </svg>
-                        <span class="session-status-dot" />
-                      </span>
-                    </Match>
-                    <Match when={sessionStatuses[session.id] === 'error'}>
-                      <span class="session-status-icon error" title="Ended with an error">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                          <circle cx="12" cy="12" r="10"></circle>
-                          <line x1="12" y1="8" x2="12" y2="12"></line>
-                          <line x1="12" y1="16" x2="12.01" y2="16"></line>
-                        </svg>
-                      </span>
-                    </Match>
-                  </Switch>
-                  <Show when={session.worktree}>
-                    <button
-                      class={`session-worktree-action ${session.worktreeMissing ? 'recreate' : ''}`}
-                      title={session.worktreeMissing ? 'Recreate worktree' : 'Remove worktree'}
-                      aria-label={session.worktreeMissing ? 'Recreate worktree' : 'Remove worktree'}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void handleWorktreeAction(session);
-                      }}
-                    >
-                      <Show when={session.worktreeMissing} fallback={
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                          <polyline points="3 6 5 6 21 6"></polyline>
-                          <path d="M19 6l-1 14H6L5 6"></path>
-                          <path d="M8 6V4h8v2"></path>
-                        </svg>
-                      }>
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                          <polyline points="23 4 23 10 17 10"></polyline>
-                          <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
-                        </svg>
-                      </Show>
-                    </button>
-                  </Show>
-                </div>
-              </div>
-            )}
-          </For>
-          <Show when={mergedSessions().length > SESSION_PREVIEW_COUNT}>
-            <div class="session-list-toggle" onClick={() => setShowAll(!showAll())}>
-              {showAll() ? 'See less' : `See all (${mergedSessions().length})`}
-            </div>
-          </Show>
-          <Show when={mergedSessions().length === 0}>
-            <div class="session-list-empty">No chats yet.</div>
-          </Show>
-        </div>
-      </Show>
-    </div>
-  );
+    return (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="8.5" />
+        <path d="M7.5 12h2.2l1.35-3.2 2.1 6.1 1.35-2.9h2" />
+      </svg>
+    );
+  }
+  return null;
 }
 
 export default function SessionSidebar(props: {
@@ -316,33 +118,222 @@ export default function SessionSidebar(props: {
   onSelectSession: (id?: string) => void,
   onSelectProject: (id?: string) => void,
   refreshTrigger: number,
-  draftSessions: DraftSession[]
+  draftSessions: DraftSession[],
   onProjectsChanged?: () => void,
   onSessionDetached: (id: string) => void,
   onOpenSettings: () => void,
   onToggleSidebar: () => void,
 }) {
-  const [projects, { refetch }] = createResource(fetchProjects);
+  const [projects, { refetch: refetchProjects }] = createResource(fetchProjects);
+  const [groupMode, setGroupMode] = createSignal<GroupMode>(loadViewPreference('sylph:session-group-mode', ['project', 'directory', 'status', 'none'] as const, 'project'));
+  const [sortMode, setSortMode] = createSignal<SortMode>(loadViewPreference('sylph:session-sort-mode', ['updated', 'alphabetical', 'created'] as const, 'updated'));
+  const [subtitleMode, setSubtitleMode] = createSignal<SubtitleMode>(loadViewPreference('sylph:session-subtitle-mode', ['directory', 'project', 'worktree', 'none'] as const, 'none'));
+
+  createEffect(() => localStorage.setItem('sylph:session-group-mode', groupMode()));
+  createEffect(() => localStorage.setItem('sylph:session-sort-mode', sortMode()));
+  createEffect(() => localStorage.setItem('sylph:session-subtitle-mode', subtitleMode()));
+  const [viewMenuOpen, setViewMenuOpen] = createSignal(false);
+  const [viewMenuPosition, setViewMenuPosition] = createSignal({ top: 0, left: 0 });
   const [showAddProject, setShowAddProject] = createSignal(false);
   const [editingProject, setEditingProject] = createSignal<ProjectInfo | null>(null);
+  const [pinnedGroups, setPinnedGroups] = createSignal<Record<string, boolean>>(loadPinnedGroups());
+  const [collapsedGroups, setCollapsedGroups] = createSignal<Record<string, boolean>>({});
+  const [groupPages, setGroupPages] = createSignal<Record<string, number>>({});
+  let viewMenuRef: HTMLDivElement | undefined;
+  let viewMenuTriggerRef: HTMLButtonElement | undefined;
+  let viewMenuPopoverRef: HTMLDivElement | undefined;
+
+  const closeViewMenu = (event: MouseEvent) => {
+    const target = event.target as Node;
+    if (!viewMenuRef?.contains(target) && !viewMenuPopoverRef?.contains(target)) setViewMenuOpen(false);
+  };
+
+  const toggleViewMenu = () => {
+    if (viewMenuOpen()) {
+      setViewMenuOpen(false);
+      return;
+    }
+    const rect = viewMenuTriggerRef?.getBoundingClientRect();
+    if (rect) {
+      const popoverWidth = 190;
+      setViewMenuPosition({
+        top: Math.min(rect.bottom + 6, window.innerHeight - 430),
+        // Align left edges so the menu opens below and expands rightward.
+        left: Math.min(rect.left, window.innerWidth - popoverWidth - 8),
+      });
+    }
+    setViewMenuOpen(true);
+  };
+  document.addEventListener('mousedown', closeViewMenu);
+  onCleanup(() => document.removeEventListener('mousedown', closeViewMenu));
+
+  const fetchSessions = async () => {
+    const res = await fetch(`/api/sessions?t=${Date.now()}`, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } });
+    const data = await res.json();
+    const list = (data.sessions || []) as SessionInfo[];
+    for (const session of list) if (session.status) setSessionStatus(session.id, session.status);
+    return list;
+  };
+  const [sessions, { refetch: refetchSessions }] = createResource(fetchSessions);
+
+  createEffect(() => {
+    void props.refreshTrigger;
+    void refetchSessions();
+  });
+
+  const mergedSessions = createMemo(() => {
+    const list = sessions() ? [...sessions()!] : [];
+    const projectById = new Map((projects() || []).map((project) => [project.id, project]));
+    for (const draft of props.draftSessions) {
+      if (list.some((session) => session.id === draft.id)) continue;
+      const project = draft.projectId ? projectById.get(draft.projectId) : undefined;
+      const directory = project?.directories.find((entry) => entry.id === draft.directoryId) || project?.directories[0];
+      list.unshift({
+        id: draft.id,
+        projectId: draft.projectId,
+        projectName: project?.name,
+        directoryId: draft.directoryId,
+        directoryName: directory?.name || 'Workspace',
+        cwd: directory?.path,
+        name: draft.firstMessage || 'New Chat',
+        firstMessage: draft.firstMessage,
+        modified: draft.createdAt,
+        messageCount: 1,
+        branch: draft.branch,
+        worktree: draft.worktree,
+      });
+    }
+    return list.sort((a, b) => {
+      if (sortMode() === 'alphabetical') {
+        const aTitle = a.name || a.firstMessage || 'Empty Chat';
+        const bTitle = b.name || b.firstMessage || 'Empty Chat';
+        return aTitle.localeCompare(bTitle);
+      }
+      if (sortMode() === 'created') {
+        return new Date(b.created || b.modified).getTime() - new Date(a.created || a.modified).getTime();
+      }
+      return new Date(b.modified).getTime() - new Date(a.modified).getTime();
+    });
+  });
+
+  const groups = createMemo(() => {
+    const byKey = new Map<string, { key: string; label: string; sessions: SessionInfo[] }>();
+    for (const session of mergedSessions()) {
+      let key: string;
+      let label: string;
+      if (groupMode() === 'project') {
+        key = session.projectId || '__none__';
+        label = session.projectName || 'No Project';
+      } else if (groupMode() === 'directory') {
+        key = session.cwd || session.directoryName || '__unknown__';
+        label = session.directoryName || session.cwd || 'Unknown directory';
+      } else if (groupMode() === 'status') {
+        key = statusGroup(session);
+        label = key;
+      } else {
+        key = '__all__';
+        label = 'All Chats';
+      }
+      const group = byKey.get(key) || { key, label, sessions: [] };
+      group.sessions.push(session);
+      byKey.set(key, group);
+    }
+    const statusOrder: Record<string, number> = { 'Needs input': 0, 'Errors': 1, 'Working': 2, 'Idle': 3 };
+    return Array.from(byKey.values()).sort((a, b) => {
+      const pinDifference = Number(groupPinned(b.key)) - Number(groupPinned(a.key));
+      if (pinDifference) return pinDifference;
+      if (groupMode() === 'status') return (statusOrder[a.key] ?? 99) - (statusOrder[b.key] ?? 99);
+      if (groupMode() === 'project' && a.label === 'No Project') return -1;
+      if (groupMode() === 'project' && b.label === 'No Project') return 1;
+      return a.label.localeCompare(b.label);
+    });
+  });
+
+  const groupPage = (group: { key: string; sessions: SessionInfo[] }) => {
+    const lastPage = Math.max(0, Math.ceil(group.sessions.length / SESSIONS_PER_GROUP_PAGE) - 1);
+    return Math.min(groupPages()[group.key] || 0, lastPage);
+  };
+
+  const visibleGroupSessions = (group: { key: string; sessions: SessionInfo[] }) =>
+    group.sessions.slice(0, (groupPage(group) + 1) * SESSIONS_PER_GROUP_PAGE);
+
+  const setGroupPage = (key: string, page: number) => {
+    setGroupPages((current) => ({ ...current, [key]: Math.max(0, page) }));
+  };
+
+  const projectForGroup = (key: string) => groupMode() === 'project' ? projects()?.find((project) => project.id === key) : undefined;
+  const groupPinKey = (key: string) => `${groupMode()}:${key}`;
+  const groupPinned = (key: string) => !!pinnedGroups()[groupPinKey(key)];
+  const togglePinnedGroup = (key: string) => {
+    setPinnedGroups((current) => {
+      const next = { ...current, [groupPinKey(key)]: !current[groupPinKey(key)] };
+      localStorage.setItem('sylph:pinned-session-groups', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const toggleGroup = (key: string) => {
+    setCollapsedGroups((current) => ({ ...current, [key]: !current[key] }));
+  };
+
+  const sessionSubtitle = (session: SessionInfo) => {
+    if (subtitleMode() === 'none') return '';
+    if (subtitleMode() === 'project') return session.projectName || 'No Project';
+    if (subtitleMode() === 'worktree') return session.branch || (session.worktree ? 'Worktree' : 'No worktree');
+    return session.directoryName || session.cwd || 'Workspace';
+  };
+
+  const chooseViewOption = <T,>(setter: (value: T) => void, value: T) => {
+    setter(value);
+    setViewMenuOpen(false);
+  };
+
+  const handleWorktreeAction = async (session: SessionInfo) => {
+    try {
+      if (session.worktreeMissing) {
+        const res = await fetch(`/api/sessions/${encodeURIComponent(session.id)}/worktree/recreate`, { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to recreate worktree');
+        await refetchSessions();
+        props.onSelectProject(session.projectId);
+        props.onSelectSession(session.id);
+        return;
+      }
+      if (!confirm(`Remove the worktree for ${session.branch || 'this session'}?\n\nThe chat history and branch will be kept.`)) return;
+      let res = await fetch(`/api/sessions/${encodeURIComponent(session.id)}/worktree`, { method: 'DELETE' });
+      let data = await res.json();
+      if (res.status === 409 && data.code === 'unmerged') {
+        if (!confirm(`This branch is not merged into its base branch.\n\nRemove the clean worktree anyway?`)) return;
+        res = await fetch(`/api/sessions/${encodeURIComponent(session.id)}/worktree?confirmUnmerged=true`, { method: 'DELETE' });
+        data = await res.json();
+      }
+      if (!res.ok) throw new Error(data.error || 'Failed to remove worktree');
+      props.onSessionDetached(session.id);
+      await refetchSessions();
+    } catch (error) { alert(error instanceof Error ? error.message : 'Worktree operation failed'); }
+  };
+
+  const openSession = (session: SessionInfo) => {
+    if (session.worktreeMissing) { void handleWorktreeAction(session); return; }
+    if (sessionStatuses[session.id] === 'error') setSessionStatus(session.id, undefined);
+    props.onSelectProject(session.projectId);
+    props.onSelectSession(session.id);
+  };
 
   const handleDeleteProject = async (id: string) => {
     const res = await fetch(`/api/projects/${encodeURIComponent(id)}`, { method: 'DELETE' });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed to remove project');
-    if (props.activeProjectId === id) {
-      props.onSelectProject(undefined);
-      props.onSelectSession(undefined);
-    }
+    if (props.activeProjectId === id) props.onSelectProject(undefined);
     setEditingProject(null);
-    await refetch();
+    await Promise.all([refetchProjects(), refetchSessions()]);
     props.onProjectsChanged?.();
   };
 
   const handleProjectSaved = async () => {
     setShowAddProject(false);
     setEditingProject(null);
-    await refetch();
+    await refetchProjects();
     props.onProjectsChanged?.();
   };
 
@@ -350,80 +341,167 @@ export default function SessionSidebar(props: {
     <div class="sidebar">
       <div class="sidebar-header">
         <button class="icon-button sidebar-toggle-inside" onClick={props.onToggleSidebar} title="Hide sidebar" aria-label="Hide sidebar">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="3" y1="6" x2="21" y2="6"></line>
-            <line x1="3" y1="12" x2="21" y2="12"></line>
-            <line x1="3" y1="18" x2="21" y2="18"></line>
-          </svg>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
         </button>
       </div>
 
       <section class="sidebar-section">
-        <div class="sidebar-section-header">
-          <div class="sidebar-title">Projects</div>
-          <button class="icon-button" onClick={() => setShowAddProject(true)} title="Add Project">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-              <line x1="12" y1="11" x2="12" y2="17"></line>
-              <line x1="9" y1="14" x2="15" y2="14"></line>
-            </svg>
-          </button>
+        <div class="sidebar-section-header session-list-header">
+          <div class="sidebar-title">Chats</div>
+          <div class="session-list-header-actions">
+          <div class="session-view-menu" ref={viewMenuRef}>
+            <button ref={viewMenuTriggerRef} class="session-view-menu-trigger" onClick={toggleViewMenu} title="Group, sort, and subtitles" aria-label="Group, sort, and subtitles" aria-expanded={viewMenuOpen()}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M5 7h14M8 12h8m-5 5h2"/></svg>
+            </button>
+            <Show when={viewMenuOpen()}>
+              <Portal>
+              <div ref={viewMenuPopoverRef} class="session-view-menu-popover" style={{ top: `${viewMenuPosition().top}px`, left: `${viewMenuPosition().left}px` }}>
+                <div class="session-view-menu-section">
+                  <div class="session-view-menu-heading">Group By</div>
+                  <For each={[
+                    ['project', 'Project'],
+                    ['directory', 'Directory'],
+                    ['status', 'Status'],
+                    ['none', 'None'],
+                  ] as const}>{([value, label]) => <button class={groupMode() === value ? 'active' : ''} onClick={() => chooseViewOption(setGroupMode, value)}>{label}</button>}</For>
+                </div>
+                <div class="session-view-menu-section">
+                  <div class="session-view-menu-heading">Sort Conversations</div>
+                  <For each={[
+                    ['updated', 'Last Updated'],
+                    ['alphabetical', 'Alphabetical (A–Z)'],
+                    ['created', 'Date Added'],
+                  ] as const}>{([value, label]) => <button class={sortMode() === value ? 'active' : ''} onClick={() => chooseViewOption(setSortMode, value)}>{label}</button>}</For>
+                </div>
+                <div class="session-view-menu-section">
+                  <div class="session-view-menu-heading">Subtitles</div>
+                  <For each={[
+                    ['directory', 'Directory'],
+                    ['project', 'Project'],
+                    ['worktree', 'Worktree'],
+                    ['none', 'No Subtitle'],
+                  ] as const}>{([value, label]) => <button class={subtitleMode() === value ? 'active' : ''} onClick={() => chooseViewOption(setSubtitleMode, value)}>{label}</button>}</For>
+                </div>
+              </div>
+              </Portal>
+            </Show>
+          </div>
+            <button class="session-header-action" onClick={() => setShowAddProject(true)} title="Add project" aria-label="Add project">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 11v5m-2.5-2.5h5"/></svg>
+            </button>
+            <button class="session-header-action" onClick={() => { props.onSelectProject(undefined); props.onSelectSession(undefined); }} title="New chat" aria-label="New chat">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+            </button>
+          </div>
         </div>
 
-        <div class="session-list">
-        <For each={projects()}>
-          {(proj) => (
-            <ProjectItem
-              project={proj}
-              activeSessionId={props.activeSessionId}
-              activeProjectId={props.activeProjectId}
-              onSelectSession={props.onSelectSession}
-              onSelectProject={props.onSelectProject}
-              onNewChat={() => {
-                props.onSelectProject(proj.id);
-                props.onSelectSession(undefined);
-              }}
-              onEdit={() => setEditingProject(proj)}
-              onSessionDetached={props.onSessionDetached}
-              refreshTrigger={props.refreshTrigger}
-              draftSessions={props.draftSessions.filter(d => d.projectId === proj.id)}
-            />
-          )}
-        </For>
-
-          <Show when={projects() && projects()!.length === 0}>
-            <div class="sidebar-empty">
-              No projects added yet. <br /><br /> Click the folder icon to add one.
-            </div>
-          </Show>
+        <div class="session-list grouped-session-list">
+          <For each={groups()}>
+            {(group) => (
+              <div class={`session-group ${collapsedGroups()[group.key] ? 'collapsed' : ''}`}>
+                <div class="session-group-header" onClick={() => toggleGroup(group.key)} role="button" aria-expanded={!collapsedGroups()[group.key]}>
+                  <div class="session-group-title">
+                    <span class="session-group-label">
+                      <Show when={groupMode() !== 'none'}>
+                        <span class={`session-group-icon ${groupMode()}`} aria-hidden="true">
+                          <SessionGroupIcon mode={groupMode()} expanded={!collapsedGroups()[group.key]} statusKey={group.key} />
+                        </span>
+                      </Show>
+                      <span class="session-group-name">{group.label}</span>
+                    </span>
+                  </div>
+                  <Show when={groupMode() === 'project' || groupMode() === 'directory'}>
+                    <button class={`session-group-action pin inline ${groupPinned(group.key) ? 'active' : ''}`} onClick={(event) => { event.stopPropagation(); togglePinnedGroup(group.key); }} title={groupPinned(group.key) ? 'Unpin group' : 'Pin group'} aria-label={groupPinned(group.key) ? 'Unpin group' : 'Pin group'}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M9 3h6l-1 5 3 3v2H7v-2l3-3z" />
+                        <path d="M12 13v8" />
+                      </svg>
+                    </button>
+                  </Show>
+                  <Show when={groupMode() === 'project' || groupMode() === 'directory'}>
+                    <div class="session-group-actions">
+                      <Show when={projectForGroup(group.key)} keyed>
+                        {(project) => (
+                          <button class="session-group-action settings" onClick={(event) => { event.stopPropagation(); setEditingProject(project); }} title={`Project settings for ${project.name}`} aria-label={`Project settings for ${project.name}`}>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                              <circle cx="12" cy="12" r="3" />
+                              <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.86 2.86-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 1.55V21h-4v-.05A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.86-2.86.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3v-4h.05A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06L7.06 4.2l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3h4v.05A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.86 2.86-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.55 1H21v4h-.05A1.7 1.7 0 0 0 19.4 15z" />
+                            </svg>
+                          </button>
+                        )}
+                      </Show>
+                      <Show when={projectForGroup(group.key)} keyed>
+                        {(project) => (
+                          <button class="session-group-action new-chat" onClick={(event) => { event.stopPropagation(); props.onSelectProject(project.id); props.onSelectSession(undefined); }} title={`New chat in ${project.name}`} aria-label={`New chat in ${project.name}`}>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                          </button>
+                        )}
+                      </Show>
+                    </div>
+                  </Show>
+                </div>
+                <Show when={!collapsedGroups()[group.key]}>
+                <div class="session-group-content">
+                <For each={visibleGroupSessions(group)}>
+                  {(session) => (
+                    <div class={`session-item ${props.activeSessionId === session.id ? 'active' : ''} ${sessionSubtitle(session) ? '' : 'without-subtitle'}`} onClick={() => openSession(session)}>
+                      <div class="session-main">
+                        <div class="session-title">{session.name || session.firstMessage || 'Empty Chat'}</div>
+                        <Show when={sessionSubtitle(session)}>
+                          <div class="session-subtitle">
+                            {sessionSubtitle(session)}<Show when={(session.rootCount || 0) > 1}> · {session.rootCount} roots</Show>
+                          </div>
+                        </Show>
+                      </div>
+                      <div class="session-meta">
+                        <Switch fallback={session.worktreeMissing ? <span class="session-worktree-missing">Missing</span> : formatRelativeTime(session.modified)}>
+                          <Match when={sessionStatuses[session.id] === 'working'}>
+                            <span class="session-live-status working" title="Working…" aria-label="Working">
+                              <span class="session-typing"><span class="session-typing-dot"/><span class="session-typing-dot"/><span class="session-typing-dot"/></span>
+                            </span>
+                          </Match>
+                          <Match when={sessionStatuses[session.id] === 'needsInput'}>
+                            <span class="session-live-status needs-input" title="Waiting for your input" aria-label="Waiting for your input">
+                              <span class="session-live-status-dot" />
+                            </span>
+                          </Match>
+                          <Match when={sessionStatuses[session.id] === 'error'}><span class="session-status-icon error" title="Ended with an error">!</span></Match>
+                        </Switch>
+                        <Show when={session.worktreeMissing}>
+                          <button class="session-worktree-action recreate" title="Recreate worktree" onClick={(event) => { event.stopPropagation(); void handleWorktreeAction(session); }}>↻</button>
+                        </Show>
+                      </div>
+                    </div>
+                  )}
+                </For>
+                <Show when={group.sessions.length > SESSIONS_PER_GROUP_PAGE}>
+                  <div class="session-group-pagination">
+                    <Show when={visibleGroupSessions(group).length < group.sessions.length}>
+                      <button class="session-group-more" onClick={() => setGroupPage(group.key, groupPage(group) + 1)}>
+                        See more ({group.sessions.length - visibleGroupSessions(group).length})
+                      </button>
+                    </Show>
+                    <Show when={groupPage(group) > 0}>
+                      <button class="session-group-less" onClick={() => setGroupPage(group.key, 0)}>See less</button>
+                    </Show>
+                  </div>
+                </Show>
+                </div>
+                </Show>
+              </div>
+            )}
+          </For>
+          <Show when={!sessions.loading && mergedSessions().length === 0}><div class="sidebar-empty">No chats yet.</div></Show>
         </div>
       </section>
 
       <div class="sidebar-footer">
-        <button class="sidebar-settings-button" onClick={props.onOpenSettings}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="3"></circle>
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.14.31.22.65.22 1H21a2 2 0 0 1 0 4h-1.38c0 .35-.08.69-.22 1z"></path>
-          </svg>
-          <span>Settings</span>
-        </button>
+        <button class="sidebar-settings-button" onClick={props.onOpenSettings}>Settings</button>
       </div>
 
-      {showAddProject() && (
-        <AddProjectModal
-          onClose={() => setShowAddProject(false)}
-          onSaved={() => void handleProjectSaved()}
-        />
-      )}
+      <Show when={showAddProject()}><AddProjectModal onClose={() => setShowAddProject(false)} onSaved={() => void handleProjectSaved()}/></Show>
       <Show when={editingProject()} keyed>
-        {(project) => (
-          <AddProjectModal
-            project={project}
-            onClose={() => setEditingProject(null)}
-            onSaved={() => void handleProjectSaved()}
-            onDelete={() => handleDeleteProject(project.id)}
-          />
-        )}
+        {(project) => <AddProjectModal project={project} onClose={() => setEditingProject(null)} onSaved={() => void handleProjectSaved()} onDelete={() => handleDeleteProject(project.id)}/>}
       </Show>
     </div>
   );

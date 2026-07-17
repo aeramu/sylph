@@ -19,7 +19,7 @@ import { findAvailableModel, isSameModel } from "./modelSelection.ts";
 import { getAgentBrowserDashboardStatus, startAgentBrowserDashboard } from "./agentBrowserDashboard.ts";
 import { getManagedWorktreeRemovalStatus, listGitBranches, recreateManagedWorktree, removeManagedWorktree } from "./git.ts";
 import { getProjectSessionBindings, getSessionBinding, saveSessionBinding } from "./sessionBindings.ts";
-import { getRawManagedDirectories, getSessionDirectories, getSessionDirectory, hasManagedWorktrees, projectForSession } from "./sessionWorkspace.ts";
+import { getRawManagedDirectories, getSessionDirectories, getSessionDirectory, hasManagedWorktrees, projectForSession, projectFromSessionBinding } from "./sessionWorkspace.ts";
 import { reconcileSessionBinding, recoverSessionBindingsFromPi } from "./piSessionMetadata.ts";
 import { WORKTREES_DIR } from "./config.ts";
 
@@ -420,17 +420,41 @@ export function createRouter(): express.Router {
     res.json(updated);
   });
 
-  router.delete("/api/projects/:id", (req, res) => {
-    saveProjects(getProjects().filter(p => p.id !== req.params.id));
-    res.json({ success: true });
+  router.delete("/api/projects/:id", async (req, res) => {
+    const project = getProjectById(req.params.id);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+    try {
+      // Sessions retain their workspace snapshots; only their organizational
+      // project link is removed, so they move into the virtual No Project group.
+      await recoverSessionBindingsFromPi(project.id);
+      for (const binding of getProjectSessionBindings(project.id)) {
+        const detached = { ...binding, projectId: undefined };
+        if (binding.sessionFile && fs.existsSync(binding.sessionFile)) {
+          const manager = SessionManager.open(binding.sessionFile);
+          manager.appendCustomEntry("sylph.workspace", {
+            version: 1,
+            directoryId: detached.directoryId,
+            cwd: detached.cwd,
+            directories: detached.directories,
+            branch: detached.branch,
+            baseBranch: detached.baseBranch,
+            worktree: detached.worktree,
+            managedWorktreeRoot: detached.managedWorktreeRoot,
+          });
+        }
+        saveSessionBinding(detached);
+      }
+      saveProjects(getProjects().filter((entry) => entry.id !== project.id));
+      res.json({ success: true });
+    } catch (err) { handleError(res, err); }
   });
 
   router.get("/api/fs/files", async (req, res) => {
     try {
-      const project = getProjectById(req.query.projectId);
-      if (!project) return res.status(404).json({ error: "Project not found" });
       const binding = getSessionBinding(req.query.sessionId);
-      if (binding && binding.projectId !== project.id) {
+      const project = getProjectById(req.query.projectId) ?? (binding ? projectFromSessionBinding(binding) : undefined);
+      if (!project) return res.status(404).json({ error: "Project not found" });
+      if (binding && req.query.projectId && binding.projectId !== req.query.projectId) {
         return res.status(400).json({ error: "Session does not belong to this project" });
       }
       if (!binding && typeof req.query.directoryId === "string"
@@ -494,21 +518,30 @@ export function createRouter(): express.Router {
 
   router.get("/api/sessions", async (req, res) => {
     try {
-      const projectId = req.query.projectId as string;
+      const projectId = typeof req.query.projectId === "string" ? req.query.projectId : undefined;
+      const unprojected = req.query.scope === "unprojected";
       let targetDir = process.cwd();
-      let bindings = [] as ReturnType<typeof getProjectSessionBindings>;
+      let bindings = await recoverSessionBindingsFromPi();
 
       if (projectId) {
         const project = getProjects().find((entry) => entry.id === projectId);
         if (!project) return res.status(404).json({ error: "Project not found" });
         targetDir = project.path;
-        bindings = await recoverSessionBindingsFromPi(projectId);
+        bindings = bindings.filter((binding) => binding.projectId === projectId);
+      } else if (unprojected) {
+        bindings = bindings.filter((binding) => !binding.projectId);
       }
 
       const selectedProject = projectId ? getProjectById(projectId) : undefined;
-      const directories = new Set<string>(selectedProject ? selectedProject.directories.map((entry) => entry.path) : [targetDir]);
+      const directories = new Set<string>(selectedProject
+        ? selectedProject.directories.map((entry) => entry.path)
+        : bindings.map((binding) => binding.cwd).filter((directory) => fs.existsSync(directory)));
+      if (!projectId && !unprojected) directories.add(targetDir);
       for (const binding of bindings) if (fs.existsSync(binding.cwd)) directories.add(binding.cwd);
       const byId = new Map<string, any>();
+      if (!projectId) {
+        try { for (const session of await SessionManager.listAll()) byId.set(session.id, session); } catch { /* retain cwd-scoped fallback */ }
+      }
       for (const directory of directories) {
         if (!fs.existsSync(directory)) continue;
         try {
@@ -547,33 +580,40 @@ export function createRouter(): express.Router {
         if (session.path && fs.existsSync(session.path)) {
           try { reconcileSessionBinding(SessionManager.open(session.path), session.path); } catch { /* malformed legacy session */ }
         }
-        if (projectId && selectedProject && !getSessionBinding(session.id)) {
-          const directory = selectedProject.directories.find((entry) => path.resolve(entry.path) === path.resolve(session.cwd));
-          if (directory) saveSessionBinding({
-            sessionId: session.id,
-            projectId,
-            directoryId: directory.id,
-            cwd: session.cwd,
-            sessionFile: session.path,
-          });
-        }
+
       }
-      bindings = projectId ? getProjectSessionBindings(projectId) : bindings;
+      const allBindings = await recoverSessionBindingsFromPi();
+      bindings = projectId
+        ? allBindings.filter((binding) => binding.projectId === projectId)
+        : unprojected
+          ? allBindings.filter((binding) => !binding.projectId)
+          : allBindings;
       const bindingById = new Map(bindings.map((binding) => [binding.sessionId, binding]));
+      const allBindingById = new Map(allBindings.map((binding) => [binding.sessionId, binding]));
+      const projectsById = new Map(getProjects().map((project) => [project.id, project]));
       const sessions = Array.from(byId.values())
-        .filter((session) => !projectId || bindingById.get(session.id)?.projectId === projectId)
+        .filter((session) => projectId
+          ? bindingById.has(session.id)
+          : unprojected
+            ? !allBindingById.get(session.id)?.projectId
+            : true)
         .map((session) => {
-          const binding = bindingById.get(session.id);
+          const binding = allBindingById.get(session.id);
           const status = getPendingUiRequests(session.id).length > 0
             ? "needsInput"
             : getActiveRuntime(session.id)?.session?.isStreaming
               ? "working"
               : undefined;
-          const project = selectedProject;
-          const rootCount = binding && project ? getSessionDirectories(project, binding).length : undefined;
+          const project = binding?.projectId ? projectsById.get(binding.projectId) : selectedProject;
+          const rootCount = binding?.directories?.length ?? (binding && project ? getSessionDirectories(project, binding).length : undefined);
+          const activeDirectory = binding?.directories?.find((directory) => directory.directoryId === binding.directoryId) ?? binding?.directories?.[0];
           return {
             ...session,
             ...(status ? { status } : {}),
+            projectId: binding?.projectId,
+            projectName: project?.name,
+            directoryName: activeDirectory?.name || path.basename(binding?.cwd || session.cwd || "") || "Workspace",
+            cwd: binding?.cwd || session.cwd,
             ...(binding?.directoryId ? { directoryId: binding.directoryId } : {}),
             ...(rootCount ? { rootCount } : {}),
             ...(binding?.branch ? { branch: binding.branch } : {}),
@@ -595,7 +635,7 @@ export function createRouter(): express.Router {
     const binding = getSessionBinding(req.params.sessionId);
     if (!binding || !hasManagedWorktrees(binding)) return res.status(404).json({ error: "Managed worktrees not found" });
     const project = getProjectById(binding.projectId);
-    if (!project) return res.status(404).json({ error: "Project not found" });
+    if (!project) return res.status(409).json({ error: "This worktree session no longer has a project configuration" });
     try {
       const roots = await Promise.all(getRawManagedDirectories(binding).map(async (directory) => {
         if (!directory.worktreeRoot || !directory.branch || !directory.baseBranch) throw new Error(`Incomplete worktree binding for ${directory.name}`);
@@ -613,7 +653,7 @@ export function createRouter(): express.Router {
     const binding = getSessionBinding(sessionId);
     if (!binding || !hasManagedWorktrees(binding)) return res.status(404).json({ error: "Managed worktrees not found" });
     const project = getProjectById(binding.projectId);
-    if (!project) return res.status(404).json({ error: "Project not found" });
+    if (!project) return res.status(409).json({ error: "This worktree session no longer has a project configuration" });
     const runtime = await getSettledRuntime(sessionId);
     if (runtime?.session?.isStreaming) return res.status(409).json({ error: "Stop the session before removing its worktrees" });
     try {
@@ -642,7 +682,7 @@ export function createRouter(): express.Router {
     const binding = getSessionBinding(req.params.sessionId);
     if (!binding || !hasManagedWorktrees(binding)) return res.status(404).json({ error: "Managed worktrees not found" });
     const project = getProjectById(binding.projectId);
-    if (!project) return res.status(404).json({ error: "Project not found" });
+    if (!project) return res.status(409).json({ error: "This worktree session no longer has a project configuration" });
     const recreated: typeof binding.directories = [];
     try {
       for (const directory of getRawManagedDirectories(binding)) {
@@ -807,10 +847,10 @@ export function createRouter(): express.Router {
   });
 
   router.get("/api/projects/:id/git/branches", async (req, res) => {
-    const project = getProjectById(req.params.id);
-    if (!project) return res.status(404).json({ error: "Project not found" });
     const binding = getSessionBinding(req.query.sessionId);
-    if (binding && binding.projectId !== project.id) return res.status(400).json({ error: "Session does not belong to this project" });
+    const project = getProjectById(req.params.id) ?? (binding ? projectFromSessionBinding(binding) : undefined);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+    if (binding && binding.projectId && binding.projectId !== req.params.id) return res.status(400).json({ error: "Session does not belong to this project" });
     if (!binding && typeof req.query.directoryId === "string"
       && !project.directories.some((directory) => directory.id === req.query.directoryId)) {
       return res.status(400).json({ error: "Project directory not found" });
@@ -831,7 +871,7 @@ export function createRouter(): express.Router {
   router.use(createGitRouter());
 
   router.post("/api/chat", async (req, res) => {
-    const { sessionId, prompt, mentionText, projectId, directoryId, modelId, thinkingLevel, images, useWorktree, baseBranches, baseBranch } = req.body;
+    const { sessionId, prompt, mentionText, projectId, directoryId, standalonePath, modelId, thinkingLevel, images, useWorktree, baseBranches, baseBranch } = req.body;
     if (!prompt) {
       return res.status(400).json({ error: "prompt is required" });
     }
@@ -845,6 +885,11 @@ export function createRouter(): express.Router {
           return res.status(400).json({ error: "Select a starting directory" });
         }
       }
+      if (!sessionId && !projectId) {
+        if (typeof standalonePath !== "string" || !standalonePath.trim()) return res.status(400).json({ error: "Select a starting directory" });
+        const resolved = path.resolve(standalonePath.trim());
+        if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) return res.status(400).json({ error: "Starting directory not found" });
+      }
       if (!sessionId && useWorktree) {
         const project = getProjectById(projectId);
         if (!project) return res.status(400).json({ error: "Select a project before creating worktrees" });
@@ -857,6 +902,7 @@ export function createRouter(): express.Router {
       }
       const runtime = await getOrInitRuntime(sessionId, projectId, {
         directoryId: typeof directoryId === "string" ? directoryId : undefined,
+        standalonePath: typeof standalonePath === "string" ? standalonePath.trim() : undefined,
         useWorktree: !sessionId && useWorktree === true,
         baseBranches: baseBranches && typeof baseBranches === "object"
           ? Object.fromEntries(Object.entries(baseBranches).filter((entry): entry is [string, string] => typeof entry[1] === "string" && !!entry[1].trim()).map(([key, value]) => [key, value.trim()]))

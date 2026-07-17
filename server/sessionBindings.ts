@@ -5,6 +5,8 @@ import { SESSION_BINDINGS_FILE, SYLPH_DIR } from "./config.ts";
 export interface SessionDirectoryBinding {
   directoryId: string;
   name: string;
+  /** Original configured/source checkout. */
+  sourcePath?: string;
   /** Actual checkout used by this session (source checkout or managed worktree). */
   path: string;
   branch?: string;
@@ -14,8 +16,8 @@ export interface SessionDirectoryBinding {
 
 export interface SessionBinding {
   sessionId: string;
-  /** Indexed from the Pi session's latest `sylph.workspace` entry for new sessions. */
-  projectId: string;
+  /** Indexed project ownership. Missing means the virtual “No Project” group. */
+  projectId?: string;
   /** Per-chat starting root for relative commands; not the workspace authorization boundary. */
   directoryId?: string;
   cwd: string;

@@ -27,7 +27,7 @@ export function createMentionSearch(
     const activeProjectId = projectId();
     const activeSessionId = sessionId();
     const activeDirectoryId = directoryId();
-    if (!activeMention || !activeProjectId) {
+    if (!activeMention || (!activeProjectId && !activeSessionId)) {
       setResults([]);
       setLoading(false);
       return;
@@ -40,7 +40,8 @@ export function createMentionSearch(
     const controller = new AbortController();
     setLoading(true);
     const timer = window.setTimeout(() => {
-      const query = new URLSearchParams({ projectId: activeProjectId, q: activeMention.query });
+      const query = new URLSearchParams({ q: activeMention.query });
+      if (activeProjectId) query.set('projectId', activeProjectId);
       if (activeSessionId) query.set('sessionId', activeSessionId);
       else if (activeDirectoryId) query.set('directoryId', activeDirectoryId);
       api<MentionResponse>(`/api/fs/files?${query}`, { signal: controller.signal })

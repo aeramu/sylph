@@ -39,7 +39,7 @@ interface SessionBindingInfo {
   worktree?: boolean;
 }
 
-export default function ChatInterface(props: { activeSessionId?: string, activeProjectId?: string, onSelectProject?: (id: string) => void, onSessionCreated: (id: string, projectId?: string, firstMessage?: string, meta?: { directoryId?: string; branch?: string; worktree?: boolean }) => void, onTurnComplete?: () => void, projectRefreshTrigger?: number }) {
+export default function ChatInterface(props: { activeSessionId?: string, activeProjectId?: string, onSelectProject?: (id?: string) => void, onSessionCreated: (id: string, projectId?: string, firstMessage?: string, meta?: { directoryId?: string; branch?: string; worktree?: boolean }) => void, onTurnComplete?: () => void, onSessionRemoved?: (id: string) => void, projectRefreshTrigger?: number }) {
   const [messages, setMessages] = createStore<ChatMessage[]>([]);
   // Only needed during the brief new-chat window before /api/chat returns a
   // session id. Existing sessions derive processing from sessionStatuses.
@@ -57,6 +57,8 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   const [selectedBaseBranches, setSelectedBaseBranches] = createSignal<Record<string, string>>({});
   const [useWorktree, setUseWorktree] = createSignal(false);
   const [selectedDirectoryId, setSelectedDirectoryId] = createSignal('');
+  const [standalonePath, setStandalonePath] = createSignal('');
+  const [standaloneSuggestions, setStandaloneSuggestions] = createSignal<Array<{ name: string; path: string }>>([]);
   const [branchErrors, setBranchErrors] = createSignal<Record<string, string>>({});
   const [sessionBinding, setSessionBinding] = createSignal<SessionBindingInfo | null>(null);
   const {
@@ -191,13 +193,8 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     fetch(`/api/projects`).then(res => res.json()).then(data => {
       const list = data.projects || [];
       setProjects(list);
-      // Auto-select the first project on initial load so the composer
-      // doesn't sit on a "Select a Project" placeholder when projects
-      // already exist.
-      if (!props.activeProjectId && list.length > 0 && props.onSelectProject) {
-        props.onSelectProject(list[0].id);
-        setSelectedDirectoryId(list[0].directories[0]?.id || '');
-      }
+      // No Project is a first-class choice; never replace it implicitly with
+      // the first configured project.
     });
   };
 
@@ -253,6 +250,12 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     loadModels().catch(console.error);
     fetchCommands();
     connectSSE();
+    void fetch('/api/fs/list').then(async (res) => {
+      if (!res.ok) return;
+      const data = await res.json();
+      setStandalonePath(data.currentPath || '');
+      setStandaloneSuggestions(data.directories || []);
+    }).catch(() => {});
   });
 
   // Project list drives the "Select a Project" dropdown for new chats.
@@ -646,6 +649,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
           sessionId: props.activeSessionId,
           projectId: props.activeProjectId,
           directoryId: selectedDirectoryId() || undefined,
+          standalonePath: props.activeProjectId ? undefined : standalonePath().trim() || undefined,
           modelId: selectedModel() || undefined,
           thinkingLevel: selectedThinkingLevel(),
           images: images.length ? images : undefined,
@@ -701,6 +705,25 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       });
     } catch (err) {
       console.error('Failed to abort:', err);
+    }
+  };
+
+  const handleWorktreeRemove = async () => {
+    const sessionId = props.activeSessionId;
+    if (!sessionId || !sessionBinding()?.worktree) return;
+    if (!confirm(`Remove the worktree for ${sessionBinding()?.branch || 'this session'}?\n\nThe chat history and branch will be kept.`)) return;
+    try {
+      let res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/worktree`, { method: 'DELETE' });
+      let data = await res.json();
+      if (res.status === 409 && data.code === 'unmerged') {
+        if (!confirm(`This branch is not merged into its base branch.\n\nRemove the clean worktree anyway?`)) return;
+        res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/worktree?confirmUnmerged=true`, { method: 'DELETE' });
+        data = await res.json();
+      }
+      if (!res.ok) throw new Error(data.error || 'Failed to remove worktree');
+      props.onSessionRemoved?.(sessionId);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Failed to remove worktree');
     }
   };
 
@@ -903,17 +926,34 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
             <div class="top-project-row">
               <CustomSelect
                 triggerClass="project-selector"
-                value={props.activeProjectId || ''}
+                value={props.activeProjectId || '__none__'}
                 onChange={(val) => {
                   setUseWorktree(false);
-                  const project = projects().find((entry) => entry.id === val);
+                  const projectId = val === '__none__' ? undefined : val;
+                  const project = projects().find((entry) => entry.id === projectId);
                   setSelectedDirectoryId(project?.directories[0]?.id || '');
-                  if (props.onSelectProject) props.onSelectProject(val);
+                  if (props.onSelectProject) props.onSelectProject(projectId);
                 }}
-                options={projects().map(p => ({ value: p.id, label: p.name, icon: 'folder' }))}
+                options={[
+                  { value: '__none__', label: 'No Project', icon: 'folder' },
+                  ...projects().map(p => ({ value: p.id, label: p.name, icon: 'folder' })),
+                ]}
                 placeholder="Select a Project"
                 position="bottom"
               />
+              <Show when={!activeProject()}>
+                <input
+                  class="standalone-directory-input"
+                  value={standalonePath()}
+                  onInput={(event) => setStandalonePath(event.currentTarget.value)}
+                  list="standalone-directory-suggestions"
+                  placeholder="Starting directory"
+                  aria-label="Starting directory"
+                />
+                <datalist id="standalone-directory-suggestions">
+                  <For each={standaloneSuggestions()}>{(directory) => <option value={directory.path}>{directory.name}</option>}</For>
+                </datalist>
+              </Show>
               <Show when={activeProject() && activeProject()!.directories.length > 1}>
                 <CustomSelect
                   triggerClass="project-selector"
@@ -973,6 +1013,18 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
                 {(project) => <span class="composer-session-project" title={project.directories.map((directory) => directory.path).join('\n')}>
                   {project.name}<Show when={project.directories.length > 1}> · {project.directories.length} roots</Show><Show when={sessionBinding()?.branch}> · {sessionBinding()!.branch}</Show>
                 </span>}
+              </Show>
+              <Show when={sessionBinding()?.worktree}>
+                <button
+                  class="composer-session-worktree-remove"
+                  onClick={() => void handleWorktreeRemove()}
+                  title="Remove this session's worktree"
+                  aria-label="Remove this session's worktree"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/>
+                  </svg>
+                </button>
               </Show>
               <Show when={diffs().session.files.length > 0}>
                 <button
@@ -1073,7 +1125,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
               />
             </div>
           </Show>
-          <GitTab projectId={props.activeProjectId} directoryId={gitDirectoryId() || activeDirectory()?.id} sessionId={props.activeSessionId} refreshTrigger={gitRefreshTrigger()} />
+          <GitTab projectId={props.activeProjectId} directoryId={gitDirectoryId() || activeDirectory()?.id || sessionBinding()?.directoryId} sessionId={props.activeSessionId} refreshTrigger={gitRefreshTrigger()} />
         </Suspense>
       </Show>
       <Show when={panelOpen() && panelTab() === 'server'}>

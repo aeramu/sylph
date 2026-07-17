@@ -20,7 +20,7 @@ import { deleteSessionBinding, getSessionBinding, saveSessionBinding, type Sessi
 import { broadcast } from "./sse.ts";
 import { clearSessionStatuses, createExtensionUiContext, rejectPendingForSession } from "./uiBridge.ts";
 import { createPermissionExtension, isThirdPartyPermissionExtension } from "./permissions.ts";
-import { getRawManagedDirectories, projectForSession } from "./sessionWorkspace.ts";
+import { getRawManagedDirectories } from "./sessionWorkspace.ts";
 import { createProjectWorktrees, discardProjectWorktrees } from "./projectWorktrees.ts";
 import { appendWorkspaceMetadata, getWorkspaceMetadata, reconcileSessionBinding } from "./piSessionMetadata.ts";
 
@@ -238,7 +238,7 @@ export async function rollbackNewWorktreeSession(sessionId: string) {
   if (managedDirectories.length === 0) return;
   disposeRuntime(sessionId);
   const project = getProjects().find((entry) => entry.id === binding.projectId);
-  if (!project) throw new Error(`Project ${binding.projectId} no longer exists`);
+  if (!project) throw new Error("The project configuration for this managed worktree no longer exists");
   // discardProjectWorktrees aggregates failures and throws. Do not delete the
   // binding/session file unless it fully succeeds: they are the recovery
   // metadata for any checkout that remains.
@@ -255,6 +255,8 @@ export function getSessionEventSequence(sessionId: string) {
 // registration (and dedup) is the caller's responsibility.
 export interface NewSessionOptions {
   directoryId?: string;
+  /** Standalone cwd when creating a session without a project. */
+  standalonePath?: string;
   useWorktree?: boolean;
   /** Base branch per project directory; legacy baseBranch applies to all roots. */
   baseBranches?: Record<string, string>;
@@ -273,6 +275,23 @@ async function buildSessionRuntime(
   let runtimeProject: Project | undefined;
   let runtimeDirectoryId: string | undefined;
 
+  const workspaceProject = (binding: SessionBinding, configured?: Project): Project => {
+    const roots = binding.directories?.length
+      ? binding.directories.map((directory) => ({ id: directory.directoryId, name: directory.name, path: directory.path }))
+      : configured?.directories ?? [{ id: binding.directoryId || "root", name: path.basename(binding.cwd) || "workspace", path: binding.cwd }];
+    const activeId = binding.directoryId && roots.some((directory) => directory.id === binding.directoryId)
+      ? binding.directoryId
+      : roots[0].id;
+    const active = roots.find((directory) => directory.id === activeId)!;
+    return {
+      id: binding.projectId || `standalone:${binding.sessionId}`,
+      name: configured?.name || "No Project",
+      path: active.path,
+      directories: roots,
+      activeDirectoryId: active.id,
+    };
+  };
+
   if (sessionId) {
     // New Sylph sessions have a direct cwd/session-file binding. Legacy
     // sessions fall back to scanning project roots and are bound on resume.
@@ -284,11 +303,11 @@ async function buildSessionRuntime(
     if (binding) {
       if (!fs.existsSync(binding.cwd)) throw new Error(`Session working directory no longer exists: ${binding.cwd}`);
       targetCwd = binding.cwd;
-      runtimeProject = projects.find((entry) => entry.id === binding.projectId);
-      if (runtimeProject) runtimeProject = projectForSession(runtimeProject, binding);
+      const configuredProject = projects.find((entry) => entry.id === binding.projectId);
+      runtimeProject = workspaceProject(binding, configuredProject);
       runtimeDirectoryId = binding.directoryId
-        ?? (runtimeProject ? findProjectDirectoryByPath(runtimeProject, binding.cwd)?.id : undefined)
-        ?? runtimeProject?.directories[0]?.id;
+        ?? findProjectDirectoryByPath(runtimeProject, binding.cwd)?.id
+        ?? runtimeProject.directories[0]?.id;
       if (runtimeProject && !runtimeProject.directories.some((directory) => directory.id === runtimeDirectoryId)) {
         runtimeDirectoryId = runtimeProject.directories[0]?.id;
       }
@@ -311,8 +330,7 @@ async function buildSessionRuntime(
           if (embeddedBinding) {
             sessionManager = manager;
             targetCwd = embeddedBinding.cwd;
-            runtimeProject = projects.find((entry) => entry.id === embeddedBinding.projectId);
-            if (runtimeProject) runtimeProject = projectForSession(runtimeProject, embeddedBinding);
+            runtimeProject = workspaceProject(embeddedBinding, projects.find((entry) => entry.id === embeddedBinding.projectId));
             runtimeDirectoryId = embeddedBinding.directoryId;
           }
         }
@@ -333,8 +351,7 @@ async function buildSessionRuntime(
             const embeddedBinding = reconcileSessionBinding(sessionManager, sessionInfo.path);
             if (embeddedBinding) {
               targetCwd = embeddedBinding.cwd;
-              runtimeProject = projects.find((entry) => entry.id === embeddedBinding.projectId);
-              if (runtimeProject) runtimeProject = projectForSession(runtimeProject, embeddedBinding);
+              runtimeProject = workspaceProject(embeddedBinding, projects.find((entry) => entry.id === embeddedBinding.projectId));
               runtimeDirectoryId = embeddedBinding.directoryId;
             } else {
               targetCwd = dir;
@@ -351,21 +368,41 @@ async function buildSessionRuntime(
         } catch { /* ignore unreadable dirs */ }
       }
     }
-    if (!sessionManager) throw new Error(`Session ${sessionId} not found in any project`);
+    if (!sessionManager) throw new Error(`Session ${sessionId} not found`);
+    if (!getSessionBinding(sessionId)) {
+      // Raw Pi sessions become standalone only when explicitly opened; listing
+      // sessions remains read-only.
+      const cwd = sessionManager.getCwd?.() || targetCwd;
+      const standalone: SessionBinding = {
+        sessionId,
+        directoryId: "root",
+        cwd,
+        directories: [{ directoryId: "root", name: path.basename(cwd) || "workspace", sourcePath: cwd, path: cwd }],
+        sessionFile: sessionManager.getSessionFile?.(),
+        worktree: false,
+      };
+      appendWorkspaceMetadata(sessionManager, standalone);
+      saveSessionBinding(standalone);
+      targetCwd = cwd;
+      runtimeDirectoryId = "root";
+      runtimeProject = workspaceProject(standalone);
+    }
   } else {
     const project = projectId ? projects.find((entry) => entry.id === projectId) : undefined;
     if (project && typeof options.directoryId !== "string") throw new Error("Select a starting directory");
     const projectDirectory = project ? getProjectDirectory(project, options.directoryId) : undefined;
-    if (project && projectDirectory?.id !== options.directoryId) {
-      throw new Error("Project directory not found");
+    if (project && projectDirectory?.id !== options.directoryId) throw new Error("Project directory not found");
+    if (!project) {
+      if (typeof options.standalonePath !== "string" || !options.standalonePath.trim()) throw new Error("Select a starting directory");
+      targetCwd = path.resolve(options.standalonePath);
+      if (!fs.existsSync(targetCwd) || !fs.statSync(targetCwd).isDirectory()) throw new Error("Starting directory not found");
     }
-    runtimeProject = project;
-    runtimeDirectoryId = projectDirectory?.id;
+    runtimeDirectoryId = projectDirectory?.id ?? "root";
     if (projectDirectory) targetCwd = projectDirectory.path;
 
     const sessionDirectories: SessionDirectoryBinding[] = project?.directories.map((directory) => ({
-      directoryId: directory.id, name: directory.name, path: directory.path,
-    })) ?? [];
+      directoryId: directory.id, name: directory.name, sourcePath: directory.path, path: directory.path,
+    })) ?? [{ directoryId: "root", name: path.basename(targetCwd) || "workspace", sourcePath: targetCwd, path: targetCwd }];
     let createdWorktrees: SessionDirectoryBinding[] = [];
     if (options.useWorktree) {
       if (!project) throw new Error("Select a project before creating worktrees");
@@ -394,23 +431,22 @@ async function buildSessionRuntime(
     try {
       sessionManager = SessionManager.create(targetCwd);
       const resolvedSessionId = sessionManager.getSessionId();
-      if (project) {
-        const active = sessionDirectories.find((entry) => entry.directoryId === projectDirectory!.id)!;
-        const binding: SessionBinding = {
-          sessionId: resolvedSessionId,
-          projectId: project.id,
-          directoryId: projectDirectory!.id,
-          directories: sessionDirectories,
-          cwd: targetCwd,
-          sessionFile: sessionManager.getSessionFile?.(),
-          branch: active.branch,
-          baseBranch: active.baseBranch,
-          worktree: createdWorktrees.length > 0,
-          managedWorktreeRoot: active.worktreeRoot,
-        };
-        appendWorkspaceMetadata(sessionManager, binding);
-        saveSessionBinding(binding);
-      }
+      const active = sessionDirectories.find((entry) => entry.directoryId === runtimeDirectoryId)!;
+      const binding: SessionBinding = {
+        sessionId: resolvedSessionId,
+        ...(project ? { projectId: project.id } : {}),
+        directoryId: active.directoryId,
+        directories: sessionDirectories,
+        cwd: targetCwd,
+        sessionFile: sessionManager.getSessionFile?.(),
+        branch: active.branch,
+        baseBranch: active.baseBranch,
+        worktree: createdWorktrees.length > 0,
+        managedWorktreeRoot: active.worktreeRoot,
+      };
+      appendWorkspaceMetadata(sessionManager, binding);
+      saveSessionBinding(binding);
+      runtimeProject = workspaceProject(binding, project);
     } catch (error) {
       if (project && createdWorktrees.length) {
         try {
