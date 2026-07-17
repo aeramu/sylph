@@ -334,6 +334,38 @@
   outline: none;
 }
 
+.settings-description {
+  margin: 0 0 0.25rem;
+  color: var(--text-secondary);
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.settings-git-form {
+  overflow: visible;
+}
+
+.settings-git-form .custom-select-container {
+  width: 100%;
+}
+
+.settings-git-form .settings-model-selector {
+  width: 100%;
+  min-height: 2.65rem;
+  justify-content: space-between;
+  border: 1px solid var(--border-color);
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.24);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+.settings-git-form .custom-select-dropdown {
+  width: 100%;
+  min-width: 0;
+  max-height: min(380px, 50vh);
+}
+
 .settings-provider-input:focus {
   border-color: rgba(255, 255, 255, 0.24);
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.06);

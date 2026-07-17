@@ -9,5 +9,6 @@ export const EVICTION_INTERVAL_MS = 5 * 60 * 1000;
 
 export const SYLPH_DIR = path.join(os.homedir(), ".sylph");
 export const PROJECTS_FILE = path.join(SYLPH_DIR, "projects.json");
+export const SETTINGS_FILE = path.join(SYLPH_DIR, "settings.json");
 export const SESSION_BINDINGS_FILE = path.join(SYLPH_DIR, "session-bindings.json");
 export const WORKTREES_DIR = path.join(SYLPH_DIR, "worktrees");

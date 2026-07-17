@@ -2,7 +2,9 @@ export default function GitCommitBox(props: {
   message: string;
   stagedCount: number;
   busy: boolean;
+  generating: boolean;
   onMessage: (message: string) => void;
+  onGenerate: () => void;
   onCommit: () => void;
 }) {
   return (
@@ -20,9 +22,20 @@ export default function GitCommitBox(props: {
         title="Commit message (⌘ Enter or Ctrl Enter to commit)"
         rows="3"
       />
-      <button disabled={props.busy || !props.message.trim() || props.stagedCount === 0} onClick={props.onCommit}>
-        Commit
-      </button>
+      <div class="git-commit-actions">
+        <button
+          class="git-generate-button"
+          disabled={props.busy || props.generating || props.stagedCount === 0}
+          title="Generate a commit message from staged changes"
+          onClick={props.onGenerate}
+        >
+          <span class={props.generating ? 'git-generate-spinner' : ''} aria-hidden="true">✦</span>
+          {props.generating ? 'Generating…' : 'Generate message'}
+        </button>
+        <button class="git-commit-button" disabled={props.busy || props.generating || !props.message.trim() || props.stagedCount === 0} onClick={props.onCommit}>
+          Commit
+        </button>
+      </div>
     </div>
   );
 }

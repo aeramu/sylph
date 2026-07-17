@@ -1,10 +1,11 @@
-import { createResource, createSignal, For, onCleanup, Show } from 'solid-js';
-import type { ResourceInfo } from '../types';
+import { createEffect, createResource, createSignal, For, onCleanup, Show } from 'solid-js';
+import type { ModelOption, ResourceInfo } from '../types';
 import { renderMarkdown } from '../lib/markdown';
 import CodeView from './CodeView';
+import CustomSelect from './CustomSelect';
 import './SettingsModal.css';
 
-type SettingsSection = 'provider' | 'skills' | 'extensions';
+type SettingsSection = 'provider' | 'git' | 'skills' | 'extensions';
 
 interface SkillDetail {
   name: string;
@@ -24,6 +25,14 @@ interface ExtensionDetail {
   shortcuts: Array<{ shortcut: string; description?: string }>;
   events: Array<{ name: string; count: number }>;
   messageRenderers: string[];
+}
+
+interface AppSettings {
+  commitMessageModel: string;
+}
+
+interface ModelsResponse {
+  models?: Array<{ id: string; provider?: string; value?: string }>;
 }
 
 interface ProviderInfo {
@@ -63,6 +72,23 @@ const fetchResources = async (kind: 'skills' | 'extensions') => {
   return (data.resources || []) as ResourceInfo[];
 };
 
+const fetchAppSettings = async () => {
+  const res = await fetch('/api/settings');
+  if (!res.ok) throw new Error('Failed to load settings');
+  return await res.json() as AppSettings;
+};
+
+const fetchModels = async () => {
+  const res = await fetch('/api/models');
+  if (!res.ok) return [];
+  const data = await res.json() as ModelsResponse;
+  return (data.models || []).map((model): ModelOption => {
+    const value = model.value || `${model.provider}/${model.id}`;
+    const provider = model.provider || value.split('/')[0] || 'Other';
+    return { value, label: model.id, provider, searchText: `${provider} ${model.id} ${value}` };
+  });
+};
+
 const fetchProviders = async () => {
   const res = await fetch('/api/auth/providers');
   if (!res.ok) return [];
@@ -89,16 +115,25 @@ function SettingsMenuIcon(props: { kind: SettingsSection }) {
   return (
     <span class={`settings-menu-icon ${props.kind}`} aria-hidden="true">
       <Show when={props.kind === 'provider'} fallback={
-        <Show when={props.kind === 'skills'} fallback={
-          <svg viewBox="0 0 24 24" fill="none">
-            <path d="M8 3.75h8A4.25 4.25 0 0 1 20.25 8v8A4.25 4.25 0 0 1 16 20.25H8A4.25 4.25 0 0 1 3.75 16V8A4.25 4.25 0 0 1 8 3.75Z" />
-            <path d="M8.25 9.25h7.5M8.25 14.75h7.5M9.25 7.25v9.5M14.75 7.25v9.5" />
-          </svg>
+        <Show when={props.kind === 'git'} fallback={
+          <Show when={props.kind === 'skills'} fallback={
+            <svg viewBox="0 0 24 24" fill="none">
+              <path d="M8 3.75h8A4.25 4.25 0 0 1 20.25 8v8A4.25 4.25 0 0 1 16 20.25H8A4.25 4.25 0 0 1 3.75 16V8A4.25 4.25 0 0 1 8 3.75Z" />
+              <path d="M8.25 9.25h7.5M8.25 14.75h7.5M9.25 7.25v9.5M14.75 7.25v9.5" />
+            </svg>
+          }>
+            <svg viewBox="0 0 24 24" fill="none">
+              <path d="M12 3.75v3.5M12 16.75v3.5M3.75 12h3.5M16.75 12h3.5" />
+              <path d="m6.55 6.55 2.47 2.47M14.98 14.98l2.47 2.47M17.45 6.55l-2.47 2.47M9.02 14.98l-2.47 2.47" />
+              <circle cx="12" cy="12" r="2.75" />
+            </svg>
+          </Show>
         }>
           <svg viewBox="0 0 24 24" fill="none">
-            <path d="M12 3.75v3.5M12 16.75v3.5M3.75 12h3.5M16.75 12h3.5" />
-            <path d="m6.55 6.55 2.47 2.47M14.98 14.98l2.47 2.47M17.45 6.55l-2.47 2.47M9.02 14.98l-2.47 2.47" />
-            <circle cx="12" cy="12" r="2.75" />
+            <circle cx="6" cy="5" r="2" />
+            <circle cx="6" cy="19" r="2" />
+            <circle cx="18" cy="12" r="2" />
+            <path d="M6 7v10M8 6.5c5 0 3 5.5 8 5.5" />
           </svg>
         </Show>
       }>
@@ -136,10 +171,15 @@ export default function SettingsModal(props: { onClose: () => void }) {
   const [apiKey, setApiKey] = createSignal('');
   const [providerMessage, setProviderMessage] = createSignal<string | null>(null);
   const [providerBusy, setProviderBusy] = createSignal(false);
+  const [commitMessageModel, setCommitMessageModel] = createSignal('');
+  const [settingsMessage, setSettingsMessage] = createSignal<string | null>(null);
+  const [settingsBusy, setSettingsBusy] = createSignal(false);
   const [oauthFlow, setOauthFlow] = createSignal<OAuthFlowInfo | null>(null);
   const [oauthInput, setOauthInput] = createSignal('');
   let oauthPoll: ReturnType<typeof setInterval> | undefined;
 
+  const [appSettings] = createResource(fetchAppSettings);
+  const [models] = createResource(fetchModels);
   const [providers, { refetch: refetchProviders }] = createResource(fetchProviders);
   const [skills] = createResource(() => fetchResources('skills'));
   const [extensions] = createResource(() => fetchResources('extensions'));
@@ -149,10 +189,38 @@ export default function SettingsModal(props: { onClose: () => void }) {
   const currentResources = () => activeSection() === 'skills' ? (skills() || []) : (extensions() || []);
   const currentResourcesLoading = () => activeSection() === 'skills' ? skills.loading : extensions.loading;
   const selectedTitle = () => creatingProvider() ? 'Create Provider' : selectedProvider() || selectedSkill() || selectedExtension() || sectionTitle();
-  const sectionTitle = () => activeSection() === 'provider' ? 'Provider' : activeSection() === 'skills' ? 'Skills' : 'Extensions';
+  const sectionTitle = () => activeSection() === 'provider' ? 'Provider' : activeSection() === 'git' ? 'Git' : activeSection() === 'skills' ? 'Skills' : 'Extensions';
   const emptyLabel = () => activeSection() === 'skills' ? 'skills' : 'extensions';
   const selectedProviderInfo = () => (providers() || []).find((p) => p.id === selectedProvider()) || null;
   const canCreateProvider = () => !!newProviderId().trim() && !!newProviderBaseUrl().trim() && !!newProviderModelId().trim();
+
+  createEffect(() => {
+    const settings = appSettings();
+    if (settings) setCommitMessageModel(settings.commitMessageModel || '');
+  });
+
+  const saveCommitMessageModel = async (value: string) => {
+    const previous = commitMessageModel();
+    setCommitMessageModel(value);
+    setSettingsBusy(true);
+    setSettingsMessage(null);
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ commitMessageModel: value }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to save settings');
+      setCommitMessageModel(data.commitMessageModel || value);
+      setSettingsMessage('Saved for every project.');
+    } catch (err) {
+      setCommitMessageModel(previous);
+      setSettingsMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSettingsBusy(false);
+    }
+  };
 
   const stopOAuthPolling = () => {
     if (oauthPoll) clearInterval(oauthPoll);
@@ -180,6 +248,7 @@ export default function SettingsModal(props: { onClose: () => void }) {
     setSelectedProvider(null);
     setCreatingProvider(false);
     setProviderMessage(null);
+    setSettingsMessage(null);
     abandonOAuthFlow();
     setApiKey('');
     setMobileMenuOpen(false);
@@ -371,11 +440,11 @@ export default function SettingsModal(props: { onClose: () => void }) {
             <div class="settings-modal-title">Settings</div>
             <button onClick={props.onClose} class="settings-modal-close settings-sidebar-close">✕</button>
           </div>
-          <For each={(['provider', 'skills', 'extensions'] as SettingsSection[])}>
+          <For each={(['provider', 'git', 'skills', 'extensions'] as SettingsSection[])}>
             {(section) => (
               <button class={`settings-menu-item ${activeSection() === section ? 'active' : ''}`} onClick={() => switchSection(section)}>
                 <SettingsMenuIcon kind={section} />
-                <span>{section === 'provider' ? 'Provider' : section === 'skills' ? 'Skills' : 'Extensions'}</span>
+                <span>{section === 'provider' ? 'Provider' : section === 'git' ? 'Git' : section === 'skills' ? 'Skills' : 'Extensions'}</span>
               </button>
             )}
           </For>
@@ -589,6 +658,30 @@ export default function SettingsModal(props: { onClose: () => void }) {
                 </Show>
               </Show>
             }>
+              <Show when={activeSection() !== 'git'} fallback={
+                <div class="settings-detail">
+                  <div class="settings-provider-form settings-git-form">
+                    <label class="settings-provider-label">Commit message model</label>
+                    <p class="settings-description">Used to generate commit messages from staged diffs. This selection is stored globally and applies to every project.</p>
+                    <Show when={!models.loading && !appSettings.loading} fallback={<div class="settings-modal-empty">Loading models...</div>}>
+                      <CustomSelect
+                        triggerClass="settings-model-selector"
+                        value={commitMessageModel()}
+                        onChange={(value) => void saveCommitMessageModel(value)}
+                        options={models() || []}
+                        placeholder="Select a model"
+                        position="bottom"
+                        searchable
+                        searchPlaceholder="Search models..."
+                        noOptionsText="No configured models found"
+                        disabled={settingsBusy()}
+                        groupBy={(option) => option.provider}
+                      />
+                    </Show>
+                    <Show when={settingsMessage()}><div class="settings-provider-message">{settingsMessage()}</div></Show>
+                  </div>
+                </div>
+              }>
               <Show when={!((activeSection() === 'skills' && selectedSkill()) || (activeSection() === 'extensions' && selectedExtension()))} fallback={
                 <Show when={activeSection() === 'skills'} fallback={
                   <Show when={!extensionDetail.loading} fallback={<div class="settings-modal-empty">Loading extension...</div>}>
@@ -653,6 +746,7 @@ export default function SettingsModal(props: { onClose: () => void }) {
                     </div>
                   </Show>
                 </Show>
+              </Show>
               </Show>
             </Show>
           </div>
