@@ -16,12 +16,13 @@ import type {
 import { RUNTIME_IDLE_MS, EVICTION_INTERVAL_MS, WORKTREES_DIR } from "./config.ts";
 import { authStorage, modelRegistry } from "./auth.ts";
 import { findProjectDirectoryByPath, getProjectDirectory, getProjects, type Project } from "./projects.ts";
-import { deleteSessionBinding, getSessionBinding, saveSessionBinding, type SessionDirectoryBinding } from "./sessionBindings.ts";
+import { deleteSessionBinding, getSessionBinding, saveSessionBinding, type SessionBinding, type SessionDirectoryBinding } from "./sessionBindings.ts";
 import { broadcast } from "./sse.ts";
 import { clearSessionStatuses, createExtensionUiContext, rejectPendingForSession } from "./uiBridge.ts";
 import { createPermissionExtension, isThirdPartyPermissionExtension } from "./permissions.ts";
 import { getRawManagedDirectories, projectForSession } from "./sessionWorkspace.ts";
 import { createProjectWorktrees, discardProjectWorktrees } from "./projectWorktrees.ts";
+import { appendWorkspaceMetadata, getWorkspaceMetadata, reconcileSessionBinding } from "./piSessionMetadata.ts";
 
 interface RuntimeEntry {
   // Registered synchronously at the start of a build so concurrent callers for
@@ -275,7 +276,11 @@ async function buildSessionRuntime(
   if (sessionId) {
     // New Sylph sessions have a direct cwd/session-file binding. Legacy
     // sessions fall back to scanning project roots and are bound on resume.
-    const binding = getSessionBinding(sessionId);
+    let binding = getSessionBinding(sessionId);
+    if (binding?.sessionFile && fs.existsSync(binding.sessionFile)) {
+      const embeddedManager = SessionManager.open(binding.sessionFile);
+      if (embeddedManager.getSessionId() === sessionId) binding = reconcileSessionBinding(embeddedManager, binding.sessionFile) ?? binding;
+    }
     if (binding) {
       if (!fs.existsSync(binding.cwd)) throw new Error(`Session working directory no longer exists: ${binding.cwd}`);
       targetCwd = binding.cwd;
@@ -296,6 +301,25 @@ async function buildSessionRuntime(
     }
 
     if (!sessionManager) {
+      // If the external binding index was lost, embedded Sylph metadata can
+      // recover a session by ID even when its cwd is a detached worktree.
+      try {
+        const sessionInfo = (await SessionManager.listAll()).find((entry) => entry.id === sessionId);
+        if (sessionInfo?.path && fs.existsSync(sessionInfo.path)) {
+          const manager = SessionManager.open(sessionInfo.path);
+          const embeddedBinding = reconcileSessionBinding(manager, sessionInfo.path);
+          if (embeddedBinding) {
+            sessionManager = manager;
+            targetCwd = embeddedBinding.cwd;
+            runtimeProject = projects.find((entry) => entry.id === embeddedBinding.projectId);
+            if (runtimeProject) runtimeProject = projectForSession(runtimeProject, embeddedBinding);
+            runtimeDirectoryId = embeddedBinding.directoryId;
+          }
+        }
+      } catch { /* fall through to legacy cwd-scoped discovery */ }
+    }
+
+    if (!sessionManager) {
       const searchDirs = [
         ...projects.flatMap((project) => project.directories.map((directory) => directory.path)).filter((directory) => fs.existsSync(directory)),
         process.cwd(),
@@ -306,13 +330,21 @@ async function buildSessionRuntime(
           const sessionInfo = sessions.find((entry) => entry.id === sessionId);
           if (sessionInfo) {
             sessionManager = SessionManager.open(sessionInfo.path);
-            targetCwd = dir;
-            const project = projects.find((entry) => entry.directories.some((directory) => path.resolve(directory.path) === path.resolve(dir)));
-            const directory = project ? findProjectDirectoryByPath(project, dir) : undefined;
-            if (project) {
-              runtimeProject = project;
-              runtimeDirectoryId = directory?.id ?? project.directories[0]?.id;
-              saveSessionBinding({ sessionId, projectId: project.id, directoryId: runtimeDirectoryId, cwd: dir, sessionFile: sessionInfo.path });
+            const embeddedBinding = reconcileSessionBinding(sessionManager, sessionInfo.path);
+            if (embeddedBinding) {
+              targetCwd = embeddedBinding.cwd;
+              runtimeProject = projects.find((entry) => entry.id === embeddedBinding.projectId);
+              if (runtimeProject) runtimeProject = projectForSession(runtimeProject, embeddedBinding);
+              runtimeDirectoryId = embeddedBinding.directoryId;
+            } else {
+              targetCwd = dir;
+              const project = projects.find((entry) => entry.directories.some((directory) => path.resolve(directory.path) === path.resolve(dir)));
+              const directory = project ? findProjectDirectoryByPath(project, dir) : undefined;
+              if (project) {
+                runtimeProject = project;
+                runtimeDirectoryId = directory?.id ?? project.directories[0]?.id;
+                saveSessionBinding({ sessionId, projectId: project.id, directoryId: runtimeDirectoryId, cwd: dir, sessionFile: sessionInfo.path });
+              }
             }
             break;
           }
@@ -364,7 +396,7 @@ async function buildSessionRuntime(
       const resolvedSessionId = sessionManager.getSessionId();
       if (project) {
         const active = sessionDirectories.find((entry) => entry.directoryId === projectDirectory!.id)!;
-        saveSessionBinding({
+        const binding: SessionBinding = {
           sessionId: resolvedSessionId,
           projectId: project.id,
           directoryId: projectDirectory!.id,
@@ -375,7 +407,9 @@ async function buildSessionRuntime(
           baseBranch: active.baseBranch,
           worktree: createdWorktrees.length > 0,
           managedWorktreeRoot: active.worktreeRoot,
-        });
+        };
+        appendWorkspaceMetadata(sessionManager, binding);
+        saveSessionBinding(binding);
       }
     } catch (error) {
       if (project && createdWorktrees.length) {
@@ -410,8 +444,9 @@ async function buildSessionRuntime(
     throw error;
   }
 
-  const resolvedId = sessionManager.getSessionId();
-  const savedBinding = !sessionId ? getSessionBinding(resolvedId) : undefined;
+  const savedBinding = reconcileSessionBinding(sessionManager, sessionManager.getSessionFile?.());
+  // Lazily make legacy externally-bound sessions self-describing when resumed.
+  if (savedBinding && !getWorkspaceMetadata(sessionManager)) appendWorkspaceMetadata(sessionManager, savedBinding);
   if (savedBinding && savedBinding.sessionFile !== sessionManager.getSessionFile?.()) {
     saveSessionBinding({ ...savedBinding, sessionFile: sessionManager.getSessionFile?.() });
   }

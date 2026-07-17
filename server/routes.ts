@@ -18,8 +18,9 @@ import { createGitRouter } from "./gitRoutes.ts";
 import { findAvailableModel, isSameModel } from "./modelSelection.ts";
 import { getAgentBrowserDashboardStatus, startAgentBrowserDashboard } from "./agentBrowserDashboard.ts";
 import { getManagedWorktreeRemovalStatus, listGitBranches, recreateManagedWorktree, removeManagedWorktree } from "./git.ts";
-import { getProjectSessionBindings, getSessionBinding } from "./sessionBindings.ts";
+import { getProjectSessionBindings, getSessionBinding, saveSessionBinding } from "./sessionBindings.ts";
 import { getRawManagedDirectories, getSessionDirectories, getSessionDirectory, hasManagedWorktrees, projectForSession } from "./sessionWorkspace.ts";
+import { reconcileSessionBinding, recoverSessionBindingsFromPi } from "./piSessionMetadata.ts";
 import { WORKTREES_DIR } from "./config.ts";
 
 function handleError(res: express.Response, err: any) {
@@ -501,7 +502,7 @@ export function createRouter(): express.Router {
         const project = getProjects().find((entry) => entry.id === projectId);
         if (!project) return res.status(404).json({ error: "Project not found" });
         targetDir = project.path;
-        bindings = getProjectSessionBindings(projectId);
+        bindings = await recoverSessionBindingsFromPi(projectId);
       }
 
       const selectedProject = projectId ? getProjectById(projectId) : undefined;
@@ -539,9 +540,28 @@ export function createRouter(): express.Router {
         } catch { /* malformed session binding */ }
       }
 
+      // Embedded Sylph metadata is authoritative when available. Reconcile the
+      // fast binding index before project filtering. Sessions created before
+      // Sylph metadata existed retain the old cwd-to-project migration path.
+      for (const session of byId.values()) {
+        if (session.path && fs.existsSync(session.path)) {
+          try { reconcileSessionBinding(SessionManager.open(session.path), session.path); } catch { /* malformed legacy session */ }
+        }
+        if (projectId && selectedProject && !getSessionBinding(session.id)) {
+          const directory = selectedProject.directories.find((entry) => path.resolve(entry.path) === path.resolve(session.cwd));
+          if (directory) saveSessionBinding({
+            sessionId: session.id,
+            projectId,
+            directoryId: directory.id,
+            cwd: session.cwd,
+            sessionFile: session.path,
+          });
+        }
+      }
+      bindings = projectId ? getProjectSessionBindings(projectId) : bindings;
       const bindingById = new Map(bindings.map((binding) => [binding.sessionId, binding]));
       const sessions = Array.from(byId.values())
-        .filter((session) => !projectId || !bindingById.has(session.id) || bindingById.get(session.id)?.projectId === projectId)
+        .filter((session) => !projectId || bindingById.get(session.id)?.projectId === projectId)
         .map((session) => {
           const binding = bindingById.get(session.id);
           const status = getPendingUiRequests(session.id).length > 0

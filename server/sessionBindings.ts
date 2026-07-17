@@ -14,12 +14,14 @@ export interface SessionDirectoryBinding {
 
 export interface SessionBinding {
   sessionId: string;
+  /** Indexed from the Pi session's latest `sylph.workspace` entry for new sessions. */
   projectId: string;
   /** Per-chat starting root for relative commands; not the workspace authorization boundary. */
   directoryId?: string;
   cwd: string;
   /** Every first-class root used by the session. */
   directories?: SessionDirectoryBinding[];
+  /** Physical Pi JSONL locator; index-only because a session cannot portably point to itself. */
   sessionFile?: string;
   branch?: string;
   baseBranch?: string;

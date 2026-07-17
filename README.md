@@ -23,6 +23,8 @@ A project can contain multiple first-class directory roots (for example, separat
 
 Worktree mode is project-wide: Sylph creates one isolated Git worktree per directory, using independently selected base branches and a shared generated task branch name. Creation and rollback are atomic across roots. The Git panel includes a repository selector and always resolves operations through the session-specific checkout.
 
+Sylph stores versioned project/workspace ownership in each Pi session as a `sylph.workspace` custom entry. `session-bindings.json` remains a fast, rebuildable index and keeps machine-local fields such as the physical session-file path and permission approvals.
+
 Sylph embeds a native permission gate for its runtimes. Workspace roots are allowed; sensitive files and external paths require confirmation; catastrophic operations are denied; and persistent session grants are stored with the session and written to an audit log. This is an interactive policy layer, not an OS sandbox—child processes still run with the Sylph server user's operating-system permissions.
 
 ## Scripts

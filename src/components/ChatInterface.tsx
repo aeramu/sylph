@@ -914,7 +914,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
                 placeholder="Select a Project"
                 position="bottom"
               />
-              <Show when={activeProject()}>
+              <Show when={activeProject() && activeProject()!.directories.length > 1}>
                 <CustomSelect
                   triggerClass="project-selector"
                   value={selectedDirectoryId()}
@@ -924,7 +924,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
                   position="bottom"
                 />
               </Show>
-              <Show when={activeProject()}>
+              <Show when={activeProject() && (activeProject()!.directories.length > 1 || Object.keys(branchErrors()).length === 0)}>
                 <label class="worktree-toggle" title="Create isolated Git worktrees for every project directory">
                   <input
                     type="checkbox"
@@ -960,7 +960,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
                   </For>
                 </div>
               </Show>
-              <Show when={activeProject() && Object.keys(branchErrors()).length > 0}>
+              <Show when={activeProject() && activeProject()!.directories.length > 1 && Object.keys(branchErrors()).length > 0}>
                 <span class="worktree-unavailable" title={Object.entries(branchErrors()).map(([id, error]) => `${activeProject()!.directories.find((directory) => directory.id === id)?.name}: ${error}`).join('\n')}>
                   Worktrees unavailable for {Object.keys(branchErrors()).length} root(s)
                 </span>
