@@ -4,7 +4,7 @@
   --sidebar-width: 260px;
   display: grid;
   grid-template-columns: var(--sidebar-width) 1fr;
-  height: 100vh;
+  height: var(--app-viewport-height);
   width: 100%;
   overflow: hidden;
   transition: grid-template-columns 0.25s ease;

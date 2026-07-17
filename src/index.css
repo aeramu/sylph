@@ -12,6 +12,11 @@
   --danger: #ef4444;
   --success: #22c55e;
   --system-msg: #3b82f6;
+
+  /* App.tsx updates these from VisualViewport while a mobile keyboard is
+     open. The dvh fallback handles browsers without that API. */
+  --app-viewport-height: 100dvh;
+  --app-viewport-offset-top: 0px;
   
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
@@ -33,6 +38,7 @@ body {
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
+  min-height: 100dvh;
   overflow-x: hidden;
   background-image:
     radial-gradient(circle at 15% 50%, rgba(99, 102, 241, 0.05), transparent 25%),
@@ -43,7 +49,8 @@ body {
 #root {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: var(--app-viewport-height);
+  transform: translateY(var(--app-viewport-offset-top));
 }
 
 /* Scrollbar styling */

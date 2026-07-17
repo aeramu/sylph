@@ -1,4 +1,4 @@
-import { createSignal, lazy, Show, Suspense } from 'solid-js';
+import { createSignal, onCleanup, onMount, lazy, Show, Suspense } from 'solid-js';
 import type { DraftSession } from './types';
 import ChatInterface from './components/ChatInterface';
 import SessionSidebar from './components/SessionSidebar';
@@ -24,6 +24,40 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = createSignal(false);
   const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
   const [sidebarWidth, setSidebarWidth] = createSignal(260);
+
+  // Mobile Safari can keep 100vh at the pre-keyboard height. Mirror the
+  // visual viewport into CSS so the composer remains above the keyboard both
+  // when typing and when the searchable model picker focuses its input.
+  onMount(() => {
+    const viewport = window.visualViewport;
+    let frame = 0;
+
+    const updateViewport = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const height = viewport?.height ?? window.innerHeight;
+        const offsetTop = viewport?.offsetTop ?? 0;
+        document.documentElement.style.setProperty('--app-viewport-height', `${height}px`);
+        document.documentElement.style.setProperty('--app-viewport-offset-top', `${offsetTop}px`);
+      });
+    };
+
+    updateViewport();
+    window.addEventListener('resize', updateViewport);
+    window.addEventListener('orientationchange', updateViewport);
+    viewport?.addEventListener('resize', updateViewport);
+    viewport?.addEventListener('scroll', updateViewport);
+
+    onCleanup(() => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('resize', updateViewport);
+      window.removeEventListener('orientationchange', updateViewport);
+      viewport?.removeEventListener('resize', updateViewport);
+      viewport?.removeEventListener('scroll', updateViewport);
+      document.documentElement.style.removeProperty('--app-viewport-height');
+      document.documentElement.style.removeProperty('--app-viewport-offset-top');
+    });
+  });
 
   const toggleSidebar = () => {
     if (window.matchMedia('(max-width: 768px)').matches) {
