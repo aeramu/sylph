@@ -41,6 +41,74 @@ describe("Sylph permissions", () => {
     expect(evaluateToolCall(policy, tool("write", { path: path.join(api, ".env") }), frontend)).toMatchObject({ decision: "ask" });
   });
 
+  it("allows reads within loaded structured skill directories", () => {
+    const { parent, frontend, policy } = workspace();
+    const skillDir = path.join(parent, "external-skill");
+    const referencesDir = path.join(skillDir, "references");
+    fs.mkdirSync(referencesDir, { recursive: true });
+    const skillFile = path.join(skillDir, "SKILL.md");
+    const referenceFile = path.join(referencesDir, "reference.md");
+    const siblingFile = path.join(parent, "sibling.txt");
+    fs.writeFileSync(skillFile, "# Skill");
+    fs.writeFileSync(referenceFile, "reference");
+    fs.writeFileSync(siblingFile, "secret");
+    policy.allowedReadRoots = new Set([fs.realpathSync(skillDir)]);
+
+    expect(evaluateToolCall(policy, tool("read", { path: skillFile }), frontend)).toMatchObject({ decision: "allow" });
+    expect(evaluateToolCall(policy, tool("read", { path: referenceFile }), frontend)).toMatchObject({ decision: "allow" });
+    expect(evaluateToolCall(policy, tool("ls", { path: referencesDir }), frontend)).toMatchObject({ decision: "allow" });
+    expect(evaluateToolCall(policy, tool("bash", { command: `cat ${JSON.stringify(referenceFile)}` }), frontend)).toMatchObject({ decision: "allow" });
+    expect(evaluateToolCall(policy, tool("read", { path: siblingFile }), frontend)).toMatchObject({ decision: "ask" });
+    expect(evaluateToolCall(policy, tool("write", { path: referenceFile }), frontend)).toMatchObject({ decision: "ask" });
+    expect(evaluateToolCall(policy, tool("bash", { command: `cd ${JSON.stringify(referencesDir)} && cat ./reference.md` }), frontend)).toMatchObject({ decision: "ask" });
+    expect(evaluateToolCall(policy, tool("bash", { command: JSON.stringify(path.join(skillDir, "scripts", "run.sh")) }), frontend)).toMatchObject({ decision: "ask" });
+    expect(evaluateToolCall(policy, tool("bash", { command: `node ${JSON.stringify(path.join(skillDir, "scripts", "run.js"))}` }), frontend)).toMatchObject({ decision: "ask" });
+  });
+
+  it("keeps sensitive files and escaping symlinks in loaded skill directories gated", () => {
+    const { parent, frontend, policy } = workspace();
+    const skillDir = path.join(parent, "external-skill");
+    fs.mkdirSync(skillDir);
+    const envFile = path.join(skillDir, ".env");
+    const outsideFile = path.join(parent, "outside.txt");
+    const linkedOutsideFile = path.join(skillDir, "linked-outside.txt");
+    fs.writeFileSync(envFile, "TOKEN=secret");
+    fs.writeFileSync(outsideFile, "secret");
+    fs.symlinkSync(outsideFile, linkedOutsideFile);
+    policy.allowedReadRoots = [fs.realpathSync(skillDir)];
+
+    expect(evaluateToolCall(policy, tool("read", { path: envFile }), frontend)).toMatchObject({ decision: "ask" });
+    expect(evaluateToolCall(policy, tool("read", { path: linkedOutsideFile }), frontend)).toMatchObject({ decision: "ask" });
+  });
+
+  it("matches explicitly loaded skill files by canonical path", () => {
+    const { parent, frontend, policy } = workspace();
+    const skillDir = path.join(parent, "external-skill");
+    fs.mkdirSync(skillDir);
+    const skillFile = path.join(skillDir, "SKILL.md");
+    fs.writeFileSync(skillFile, "# Skill");
+    const link = path.join(parent, "skill-link.md");
+    fs.symlinkSync(skillFile, link);
+    policy.allowedReadFiles = [fs.realpathSync(skillFile)];
+
+    expect(evaluateToolCall(policy, tool("read", { path: link }), frontend)).toMatchObject({ decision: "allow" });
+  });
+
+  it("does not follow a swapped skill-file symlink", () => {
+    const { parent, frontend, policy } = workspace();
+    const original = path.join(parent, "original-skill.md");
+    const replacement = path.join(parent, "replacement.md");
+    const link = path.join(parent, "SKILL.md");
+    fs.writeFileSync(original, "# Skill");
+    fs.writeFileSync(replacement, "secret");
+    fs.symlinkSync(original, link);
+    policy.allowedReadFiles = [fs.realpathSync(link)];
+    fs.unlinkSync(link);
+    fs.symlinkSync(replacement, link);
+
+    expect(evaluateToolCall(policy, tool("read", { path: link }), frontend)).toMatchObject({ decision: "ask" });
+  });
+
   it("resolves symlinks before checking root containment", () => {
     const { parent, frontend, policy } = workspace();
     const outside = path.join(parent, "secret");
