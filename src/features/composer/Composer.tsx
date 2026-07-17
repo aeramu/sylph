@@ -3,51 +3,18 @@ import type { Attachment, CommandInfo, ContextInfo, FileMentionInfo, ModelOption
 import { ACCEPT_ATTR } from '../../lib/attachments';
 import CustomSelect, { type CustomSelectApi } from '../../shared/ui/CustomSelect';
 import ContextIndicator from './ContextIndicator';
-import { escapeHtml } from '../../lib/html';
-import { fuzzyScore } from '../../lib/fuzzyScore';
 import { createMentionSearch, type ActiveMention } from '../../lib/mentionSearch';
 import AttachmentList from './components/AttachmentList';
 import AutocompletePopup from './components/AutocompletePopup';
 import ThinkingSelector from './components/ThinkingSelector';
 import { createAttachments } from './createAttachments';
 import { createSpeechInput } from './createSpeechInput';
+import { detectActiveMention, filterCommands, formatMention, highlightMentions } from './createAutocomplete';
 import './Composer.css';
 
 // Built-in slash commands handled locally by the composer (they run a UI
 // action instead of being sent to the agent). Their `run` is filled in below.
 interface BuiltinCommand extends CommandInfo { builtin: true; run: () => void }
-
-function highlightMentions(text: string): string {
-  if (!text) return '';
-  const pattern = /@\{[^}\n]+\}|(^|\s)@[^\s{}]+/g;
-  let out = '';
-  let last = 0;
-  let match: RegExpExecArray | null;
-
-  while ((match = pattern.exec(text))) {
-    const raw = match[0];
-    const leading = match[1] || '';
-    let mention = leading ? raw.slice(leading.length) : raw;
-    // A bare mention that ends a sentence ("@src/app.ts.") shouldn't highlight
-    // the trailing punctuation — the server strips it before resolving, so the
-    // highlight would otherwise overpromise what actually gets sent.
-    if (!mention.startsWith('@{')) {
-      const stripped = mention.replace(/[.,;:!?)\]}'"]+$/, '');
-      if (stripped.length > 1) mention = stripped;
-    }
-    const mentionStart = match.index + leading.length;
-
-    out += escapeHtml(text.slice(last, mentionStart));
-    out += `<span class="input-mention-highlight">${escapeHtml(mention)}</span>`;
-    last = mentionStart + mention.length;
-  }
-
-  out += escapeHtml(text.slice(last));
-  // Preserve final blank lines in the mirror layer so caret/scroll alignment
-  // doesn't collapse when the textarea ends with a newline.
-  if (text.endsWith('\n')) out += ' ';
-  return out;
-}
 
 // Imperative surface the extension UI bridge needs (setEditorText / pasteToEditor).
 export interface ComposerApi {
@@ -233,15 +200,12 @@ export default function Composer(props: {
   });
 
   const updateActiveMention = (text = input(), rawPos = textareaRef?.selectionStart ?? caretPos() ?? text.length) => {
-    const pos = Math.min(rawPos, text.length);
-    const before = text.slice(0, pos);
-    const match = before.match(/(^|\s)@([^\s{}]*)$/);
-    if (!match) {
+    const next = detectActiveMention(text, rawPos);
+    if (!next) {
       setActiveMention((prev) => prev === null ? prev : null);
       return;
     }
 
-    const next = { query: match[2], start: pos - match[2].length - 1, end: pos };
     // Arrow-key navigation fires keyup/caret sync even though the mention did
     // not change. Returning the existing object prevents Solid from treating it
     // as a new mention, which would re-query /api/fs/files and reset selection.
@@ -264,22 +228,7 @@ export default function Composer(props: {
     if (activeMention()) return null;
     const text = input();
     if (dismissedCommand() === text) return null;
-    const match = text.match(/^\/([^\s]*)$/);
-    if (!match) return null;
-
-    const query = match[1].toLowerCase();
-    const all: CommandInfo[] = [...builtinCommands, ...props.commands];
-    if (query === '') return all.length > 0 ? all : null;
-
-    const scored: { cmd: CommandInfo; score: number }[] = [];
-    for (const cmd of all) {
-      const score = fuzzyScore(query, cmd.name.toLowerCase());
-      if (score !== null) scored.push({ cmd, score });
-    }
-    // Best match first; ties keep the original order (Array.sort is stable).
-    scored.sort((a, b) => b.score - a.score);
-
-    return scored.length > 0 ? scored.map(s => s.cmd) : null;
+    return filterCommands(text, [...builtinCommands, ...props.commands]);
   });
 
   // Drop-up render order (best match nearest the input). Kept null-safe so the
@@ -352,13 +301,6 @@ export default function Composer(props: {
       textareaRef.setSelectionRange(replaced.length, replaced.length);
       syncCaret();
     });
-  };
-
-  const formatMention = (path: string) => {
-    // Keep common paths readable in the textarea: @src/App.tsx.
-    // Fall back to braced mentions only when the path needs an explicit
-    // boundary, e.g. spaces: @{docs/my note.md}.
-    return /[\s{}]/.test(path) ? `@{${path}}` : `@${path}`;
   };
 
   const applyMention = (file: FileMentionInfo, options: { trailingSpace: boolean; keepOpen: boolean }) => {
