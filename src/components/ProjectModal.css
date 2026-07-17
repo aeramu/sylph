@@ -102,9 +102,9 @@
 }
 
 .project-field input:focus {
-  border-color: rgba(99, 102, 241, 0.72);
-  background: rgba(99, 102, 241, 0.055);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+  border-color: rgba(190, 195, 205, 0.48);
+  background: rgba(255, 255, 255, 0.055);
+  box-shadow: 0 0 0 3px rgba(190, 195, 205, 0.08);
 }
 
 .project-field input::placeholder { color: #5f6472; }
@@ -162,7 +162,7 @@
 
 .project-directory-remove:hover:not(:disabled) { color: var(--danger); background: rgba(239, 68, 68, 0.09); }
 .project-directory-remove:disabled { cursor: default; opacity: 0.25; }
-.project-directory-fields { display: grid; grid-template-columns: minmax(105px, 0.28fr) minmax(260px, 1fr); gap: 0.75rem; padding-right: 2rem; }
+.project-directory-fields { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(105px, 0.28fr); gap: 0.75rem; padding-right: 2rem; }
 .project-path-input-wrap { position: relative; }
 .project-path-input-wrap input { padding-left: 2.35rem; padding-right: 2rem; font-family: var(--font-mono); font-size: 0.76rem; }
 .project-path-icon { position: absolute; z-index: 1; left: 0.75rem; top: 50%; display: flex; transform: translateY(-50%); color: #737886; pointer-events: none; }
@@ -213,8 +213,10 @@
   text-align: left;
 }
 
-.project-path-suggestions button:hover,
-.project-path-suggestions button.highlighted { background: rgba(99, 102, 241, 0.12); color: var(--text-primary); }
+.project-path-suggestions button.highlighted {
+  background: rgba(255, 255, 255, 0.075);
+  color: var(--text-primary);
+}
 .project-suggestion-name { color: #d7d9e0; font-size: 0.76rem; font-weight: 600; }
 .project-suggestion-path { overflow: hidden; color: #646978; font-family: var(--font-mono); font-size: 0.65rem; text-overflow: ellipsis; white-space: nowrap; }
 .project-path-empty { padding: 0.85rem; color: #676b78; font-size: 0.75rem; text-align: center; }

@@ -13,6 +13,11 @@ interface DirectorySuggestion {
   path: string;
 }
 
+function folderName(folderPath: string) {
+  const normalized = folderPath.trim().replace(/[\\/]+$/, '');
+  return normalized.split(/[\\/]/).pop() || '';
+}
+
 function FolderIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -67,10 +72,6 @@ function DirectoryRow(props: {
     if (!suggestion) return;
     setFolderPath(suggestion.path);
     props.onChange('path', suggestion.path);
-    if (!alias().trim()) {
-      setAlias(suggestion.name);
-      props.onChange('name', suggestion.name);
-    }
     setSuggestionsOpen(false);
   };
 
@@ -116,10 +117,6 @@ function DirectoryRow(props: {
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/></svg>
       </button>
       <div class="project-directory-fields">
-        <label class="project-field compact">
-          <span>Alias</span>
-          <input value={alias()} onInput={(event) => { setAlias(event.currentTarget.value); props.onChange('name', event.currentTarget.value); }} placeholder={props.index === 0 ? 'frontend' : 'api'} />
-        </label>
         <label class="project-field path-field">
           <span>Folder</span>
           <div class="project-path-input-wrap">
@@ -152,7 +149,7 @@ function DirectoryRow(props: {
                         role="option"
                         aria-selected={highlightedSuggestion() === suggestionIndex()}
                         class={highlightedSuggestion() === suggestionIndex() ? 'highlighted' : ''}
-                        onMouseEnter={() => setHighlightedSuggestion(suggestionIndex())}
+                        onMouseMove={() => setHighlightedSuggestion(suggestionIndex())}
                         onMouseDown={(event) => event.preventDefault()}
                         onClick={() => selectSuggestion(suggestion)}
                       >
@@ -167,6 +164,14 @@ function DirectoryRow(props: {
             </Show>
           </div>
         </label>
+        <label class="project-field compact">
+          <span>Alias</span>
+          <input
+            value={alias()}
+            onInput={(event) => { setAlias(event.currentTarget.value); props.onChange('name', event.currentTarget.value); }}
+            placeholder={folderName(folderPath()) || (props.index === 0 ? 'frontend' : 'api')}
+          />
+        </label>
       </div>
     </div>
   );
@@ -179,7 +184,12 @@ export default function AddProjectModal(props: {
   onDelete?: () => Promise<void> | void;
 }) {
   const editing = () => !!props.project;
-  const initialDirectories = (): DirectoryDraft[] => props.project?.directories.map((directory) => ({ ...directory })) ?? [{ name: '', path: '' }];
+  const initialDirectories = (): DirectoryDraft[] => props.project?.directories.map((directory) => ({
+    ...directory,
+    // The folder name is the implicit alias. Only surface a value when the
+    // user has intentionally customized it.
+    name: directory.name === folderName(directory.path) ? '' : directory.name,
+  })) ?? [{ name: '', path: '' }];
   const [projectName, setProjectName] = createSignal(props.project?.name ?? '');
   const [directories, setDirectories] = createSignal<DirectoryDraft[]>(initialDirectories());
   const [saving, setSaving] = createSignal(false);
