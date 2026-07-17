@@ -1031,6 +1031,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
                 ]}
                 placeholder="Select a Project"
                 position="bottom"
+                typeahead
               />
               <Show when={!activeProject()}>
                 <div class="standalone-directory-picker">

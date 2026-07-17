@@ -23,6 +23,8 @@ interface CustomSelectProps {
   triggerClass?: string;
   position?: 'top' | 'bottom';
   searchable?: boolean;
+  /** Filter by typing while the trigger/dropdown is focused, without a search field. */
+  typeahead?: boolean;
   searchPlaceholder?: string;
   noOptionsText?: string;
   disabled?: boolean;
@@ -82,6 +84,8 @@ export default function CustomSelect(props: CustomSelectProps) {
   let searchInputRef: HTMLInputElement | undefined;
   let optionsRef: HTMLDivElement | undefined;
   let triggerRef: HTMLButtonElement | undefined;
+  let typeaheadResetTimer: number | undefined;
+  let typeaheadExpired = false;
 
   props.api?.({
     open: () => setIsOpen(true),
@@ -101,11 +105,14 @@ export default function CustomSelect(props: CustomSelectProps) {
 
   onCleanup(() => {
     document.removeEventListener('mousedown', handleClickOutside);
+    if (typeaheadResetTimer) window.clearTimeout(typeaheadResetTimer);
   });
 
   createEffect(() => {
     if (!isOpen()) {
       setQuery('');
+      typeaheadExpired = false;
+      if (typeaheadResetTimer) window.clearTimeout(typeaheadResetTimer);
       return;
     }
     // On open, focus the search field (searchable) or the trigger so the
@@ -204,6 +211,25 @@ export default function CustomSelect(props: CustomSelectProps) {
   };
 
   const handleKeyNav = (e: KeyboardEvent) => {
+    const typeaheadCharacter = props.typeahead
+      && e.key.length === 1
+      && !e.ctrlKey && !e.metaKey && !e.altKey;
+    if (typeaheadCharacter) {
+      e.preventDefault();
+      if (!isOpen()) setIsOpen(true);
+      setQuery((current) => typeaheadExpired ? e.key : `${current}${e.key}`);
+      typeaheadExpired = false;
+      if (typeaheadResetTimer) window.clearTimeout(typeaheadResetTimer);
+      // Keep the current filtered result visible. The next character after a
+      // pause starts a fresh query instead of appending to the stale buffer.
+      typeaheadResetTimer = window.setTimeout(() => { typeaheadExpired = true; }, 750);
+      return;
+    }
+    if (props.typeahead && isOpen() && e.key === 'Backspace') {
+      e.preventDefault();
+      setQuery((current) => current.slice(0, -1));
+      return;
+    }
     if (!isOpen()) {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
