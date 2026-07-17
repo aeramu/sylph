@@ -1,20 +1,22 @@
-import { createSignal, createEffect, createMemo, For, lazy, Show, Suspense, onCleanup, onMount } from 'solid-js';
+import { createSignal, createEffect, createMemo, Show, onCleanup, onMount } from 'solid-js';
 import { createStore, produce } from 'solid-js/store';
 import type { Attachment, ChatMessage, CommandInfo, ContextInfo, ExtWidget, ProjectInfo } from '../../types';
 import { applyAgentEvent } from '../../lib/chatEvents';
 import { trackSessionEvent, setSessionStatus, sessionStatuses } from '../../lib/sessionStatus';
-import { hasRenderableContent, mapHistoryToMessages } from '../../lib/messages';
+import { mapHistoryToMessages } from '../../lib/messages';
 import { computeSessionDiffs, emptyDiffSummary } from '../../lib/sessionDiff';
-import { stripAnsi } from '../../lib/markdown';
 import { getChatDraft, setChatDraft } from '../../lib/chatDraft';
 import './ChatInterface.css';
-import CustomSelect from '../../shared/ui/CustomSelect';
 import Composer, { type ComposerApi } from '../composer/Composer';
-import MessageBubble from './MessageBubble';
-import UiRequestModal, { type UiRequest } from './UiRequestModal';
-import QuestionsModal, { type QuestionsRequest } from './QuestionsModal';
-import RightPanel, { type PanelTabId } from '../../shared/ui/RightPanel';
-import DiffStats from '../changes/DiffStats';
+import ChatHeader from './components/ChatHeader';
+import MessageTimeline from './components/MessageTimeline';
+import NewChatSetup from './components/NewChatSetup';
+import SessionBar from './components/SessionBar';
+import ExtensionUiHost from './components/ExtensionUiHost';
+import ChatRightPanel from './components/ChatRightPanel';
+import type { UiRequest } from './UiRequestModal';
+import type { QuestionsRequest } from './QuestionsModal';
+import type { PanelTabId } from '../../shared/ui/RightPanel';
 import { startPointerResize } from '../../lib/resize';
 import { SessionEventBuffer } from '../../lib/sessionEventBuffer';
 import { createModelPreferences } from '../../lib/modelPreferences';
@@ -25,10 +27,7 @@ import {
   abortSession, getSession, listBranches, listCommands, listDirectories, listProjects, recreateWorktree,
   removeWorktree, respondToUi, sendChat, type GitBranchOption, type SessionBindingInfo,
 } from './api';
-
-const BrowserTab = lazy(() => import('../browser/BrowserTab'));
-const ChangesTab = lazy(() => import('../changes/ChangesTab'));
-const GitTab = lazy(() => import('../git/GitTab'));
+import { connectSessionStream, PendingSessionEvents, type SessionScopedEvent } from './createSessionStream';
 
 export default function ChatInterface(props: { activeSessionId?: string, activeProjectId?: string, onSelectProject?: (id?: string) => void, newSessionRequest?: { id: number; standalonePath?: string }, onSessionCreated: (id: string, projectId?: string, firstMessage?: string, meta?: { directoryId?: string; branch?: string; worktree?: boolean }) => void, onTurnComplete?: () => void, onSessionRemoved?: (id: string) => void, projectRefreshTrigger?: number }) {
   const [messages, setMessages] = createStore<ChatMessage[]>([]);
@@ -240,8 +239,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   // True from submitting a prompt with no active session until that session
   // commits (or the request fails). Buffering is gated on it so an idle
   // new-chat screen doesn't accumulate events from unrelated sessions.
-  let awaitingSessionCommit = false;
-  let pendingEventBuffer: any[] = [];
+  const pendingSessionEvents = new PendingSessionEvents<SessionScopedEvent>();
   // Guards fetchHistory against stale responses when switching sessions fast.
   let historyRequestSeq = 0;
   const historyEventBuffer = new SessionEventBuffer<any>();
@@ -256,10 +254,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
 
   let messagesAreaRef: HTMLDivElement | undefined;
   let messagesEndRef: HTMLDivElement | undefined;
-  let eventSource: EventSource | null = null;
-  // Distinguish the initial connection from a recovery after SSE dropped.
-  // The latter may have missed events, so its session snapshot must be fresh.
-  let hasConnectedOnce = false;
+  let disconnectSessionStream: (() => void) | undefined;
   let chatDragCounter = 0;
   const [isChatDragOver, setIsChatDragOver] = createSignal(false);
 
@@ -395,17 +390,11 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       // this session's events: while /api/chat was in flight, other sessions
       // may have streamed into the buffer too.
       pendingSessionId = null;
-      awaitingSessionCommit = false;
-      const buffered = pendingEventBuffer;
-      pendingEventBuffer = [];
-      for (const e of buffered) {
-        if (e.sessionId === id) dispatchSessionEvent(e);
-      }
+      for (const event of pendingSessionEvents.commit(id)) dispatchSessionEvent(event);
       return;
     }
     pendingSessionId = null;
-    awaitingSessionCommit = false;
-    pendingEventBuffer = [];
+    pendingSessionEvents.cancel();
     setNewSessionProcessing(false);
     setMessages([]);
     setPinnedToBottom(true); // fresh session — follow from the bottom
@@ -484,39 +473,20 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   };
 
   onCleanup(() => {
-    if (eventSource) eventSource.close();
+    disconnectSessionStream?.();
     if (standaloneSuggestionTimer) window.clearTimeout(standaloneSuggestionTimer);
     standaloneSuggestionController?.abort();
   });
 
   const connectSSE = () => {
-    eventSource = new EventSource('/api/stream');
-
-    eventSource.onopen = () => {
-      console.log('SSE connection opened');
-    };
-
-    eventSource.onerror = (err) => {
-      console.error('SSE error', err);
-      setIsConnected(false);
-    };
-
-    eventSource.onmessage = (e) => {
-      const data = JSON.parse(e.data);
-
-      if (data.type === 'connection_established') {
-        const isReconnect = hasConnectedOnce && !isConnected();
-        hasConnectedOnce = true;
-        setIsConnected(true);
-        if (isReconnect) void fetchHistory();
-        return;
-      }
-
-      // Status tracking sees every session's events, before the
-      // active-session gating below drops the foreign ones.
-      trackSessionEvent(data);
-      handleSessionEvent(data);
-    };
+    disconnectSessionStream = connectSessionStream({
+      onConnectionChange: setIsConnected,
+      onReconnect: () => void fetchHistory(),
+      onEvent: (event) => {
+        trackSessionEvent(event);
+        handleSessionEvent(event);
+      },
+    });
   };
 
   const applyEvent = (event: any) => {
@@ -541,8 +511,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       if (props.activeSessionId) {
         if (event.sessionId !== props.activeSessionId) return;
         if (historyEventBuffer.capture(event)) return;
-      } else if (awaitingSessionCommit) {
-        pendingEventBuffer.push(event);
+      } else if (pendingSessionEvents.capture(event)) {
         return;
       } else {
         return;
@@ -675,13 +644,12 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     // response; buffer this session's SSE events until then.
     const isNewSession = !props.activeSessionId;
     if (isNewSession) {
-      awaitingSessionCommit = true;
+      pendingSessionEvents.begin();
       setNewSessionProcessing(true);
     }
     const stopBuffering = () => {
       if (isNewSession) {
-        awaitingSessionCommit = false;
-        pendingEventBuffer = [];
+        pendingSessionEvents.cancel();
         setNewSessionProcessing(false);
       }
     };
@@ -828,428 +796,65 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       </Show>
 
       <Show when={props.activeSessionId}>
-        <div class="chat-header">
-          <h1 class="chat-header-title" title={activeSessionTitle()}>{activeSessionTitle()}</h1>
-          <Show when={activeProject()} keyed>
-            {(project) => <span class="chat-header-project" title={project.directories.map((directory) => directory.path).join('\n')}>
-              {project.name}
-            </span>}
-          </Show>
-          <Show when={!panelOpen()}>
-            <div class="chat-header-panel-tabs" aria-label="Right sidebar tabs">
-              <button
-                class="chat-header-panel-tab"
-                onClick={() => openPanelTab('server')}
-                title="Open server status"
-                aria-label="Open server status"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <rect x="3" y="4" width="18" height="7"></rect>
-                  <rect x="3" y="13" width="18" height="7"></rect>
-                  <line x1="7" y1="7.5" x2="7.01" y2="7.5"></line>
-                  <line x1="7" y1="16.5" x2="7.01" y2="16.5"></line>
-                </svg>
-                <span class={`chat-header-panel-tab-dot ${isConnected() ? 'connected' : 'disconnected'}`} />
-              </button>
-              <button
-                class="chat-header-panel-tab"
-                onClick={() => openPanelTab('browser')}
-                title="Open agent browser"
-                aria-label="Open agent browser"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <rect x="3" y="4" width="18" height="16" rx="2"></rect>
-                  <line x1="3" y1="9" x2="21" y2="9"></line>
-                  <circle cx="6.5" cy="6.5" r="0.5" fill="currentColor" stroke="none"></circle>
-                  <circle cx="9" cy="6.5" r="0.5" fill="currentColor" stroke="none"></circle>
-                </svg>
-              </button>
-              <button
-                class="chat-header-panel-tab"
-                onClick={() => openPanelTab('changes')}
-                title="Open changes"
-                aria-label="Open changes"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                  <polyline points="14 2 14 8 20 8"></polyline>
-                  <line x1="8" y1="13" x2="14" y2="13"></line>
-                  <line x1="11" y1="10" x2="11" y2="16"></line>
-                  <line x1="8" y1="18" x2="14" y2="18"></line>
-                </svg>
-              </button>
-              <button
-                class="chat-header-panel-tab"
-                onClick={() => openPanelTab('git')}
-                title="Open Git"
-                aria-label="Open Git"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <circle cx="18" cy="18" r="3"></circle>
-                  <circle cx="6" cy="6" r="3"></circle>
-                  <circle cx="6" cy="18" r="3"></circle>
-                  <path d="M6 9v6"></path>
-                  <path d="M8.5 7.5 15.5 16.5"></path>
-                </svg>
-              </button>
-              <button
-                class="chat-header-panel-tab"
-                onClick={togglePanel}
-                title="Open right sidebar"
-                aria-label="Open right sidebar"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <rect x="3" y="4" width="18" height="16" rx="2"></rect>
-                  <line x1="15" y1="4" x2="15" y2="20"></line>
-                </svg>
-              </button>
-            </div>
-          </Show>
-        </div>
+        <ChatHeader
+          title={activeSessionTitle()}
+          project={activeProject()}
+          connected={isConnected()}
+          panelOpen={panelOpen()}
+          onOpenTab={openPanelTab}
+          onTogglePanel={togglePanel}
+        />
       </Show>
 
-      <div class="messages-area" ref={messagesAreaRef} onScroll={handleScroll}>
-        <For each={messages}>
-          {(msg, i) => (
-            <>
-              <Show when={hasRenderableContent(msg)}>
-                <MessageBubble msg={msg} onImageClick={setLightboxUrl} />
-              </Show>
-              <Show when={turnChipFor(i())} keyed>
-                {(chip) => (
-                  <div class="turn-diff-row">
-                    <button
-                      class="diff-stats-chip"
-                      onClick={() => openChangesPanel(chip.turn)}
-                      title={`Show file changes from turn ${chip.turn}`}
-                    >
-                      <DiffStats files={chip.files} added={chip.added} deleted={chip.deleted} />
-                    </button>
-                  </div>
-                )}
-              </Show>
-            </>
-          )}
-        </For>
-
-        {isProcessing() && !messages.find(m => m.isStreaming) && (
-          <div class="message assistant">
-            <div class="message-bubble">
-              <div class="thinking-indicator">
-                <div class="thinking-dot"></div>
-                <div class="thinking-dot"></div>
-                <div class="thinking-dot"></div>
-              </div>
-            </div>
-          </div>
-        )}
-        <div ref={messagesEndRef} />
-      </div>
+      <MessageTimeline
+        messages={messages}
+        processing={isProcessing()}
+        onScroll={handleScroll}
+        onImageClick={setLightboxUrl}
+        turnChipFor={turnChipFor}
+        onOpenTurn={(turn) => openChangesPanel(turn)}
+        areaRef={(element) => { messagesAreaRef = element; }}
+        endRef={(element) => { messagesEndRef = element; }}
+      />
 
       <div class="input-wrapper">
-        <Show when={Object.keys(widgets()).length > 0}>
-          <For each={Object.entries(widgets())}>
-            {([, widget]) => (
-              <div class={`ext-widget ext-widget-${widget.placement || 'aboveEditor'}`}>
-                <For each={widget.lines}>{(line) => <div class="ext-widget-line">{line}</div>}</For>
-              </div>
-            )}
-          </For>
-        </Show>
-        <Show when={uiRequest()} keyed>
-          {(req) => <UiRequestModal request={req} onRespond={handleUiRespond} />}
-        </Show>
-        <Show when={questionsRequest()} keyed>
-          {(req) => <QuestionsModal request={req} onRespond={handleUiRespond} />}
-        </Show>
-        {/* Hidden (not unmounted) while a UI request is active so draft text
-            and attachments survive permission prompts. */}
-        <div style={uiRequest() || questionsRequest() ? 'display: none;' : ''}>
-          {messages.length === 0 && (
-            <div class="top-project-row">
-              <CustomSelect
-                triggerClass={`project-selector ${!props.activeProjectId ? 'no-project' : ''}`}
-                value={props.activeProjectId || '__none__'}
-                onChange={(val) => {
-                  setUseWorktree(false);
-                  const projectId = val === '__none__' ? undefined : val;
-                  const project = projects().find((entry) => entry.id === projectId);
-                  setSelectedDirectoryId(project?.directories[0]?.id || '');
-                  if (props.onSelectProject) props.onSelectProject(projectId);
-                }}
-                options={[
-                  { value: '__none__', label: 'No Project', icon: 'project' },
-                  ...projects().map(p => ({ value: p.id, label: p.name, icon: 'project' })),
-                ]}
-                placeholder="Select a Project"
-                position="bottom"
-                typeahead
-              />
-              <Show when={!activeProject()}>
-                <div class="standalone-directory-picker">
-                  <svg class="standalone-directory-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h5l2 2h8A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z" />
-                  </svg>
-                  <input
-                    class="standalone-directory-input"
-                    value={standalonePath()}
-                    onFocus={() => void loadStandaloneSuggestions(standalonePath())}
-                    onInput={(event) => {
-                      setStandalonePath(event.currentTarget.value);
-                      scheduleStandaloneSuggestions(event.currentTarget.value);
-                    }}
-                    onKeyDown={handleStandaloneDirectoryKeyDown}
-                    onBlur={() => window.setTimeout(() => setStandaloneSuggestionsOpen(false), 140)}
-                    placeholder="Starting directory"
-                    aria-label="Starting directory"
-                    aria-expanded={standaloneSuggestionsOpen()}
-                    aria-controls="standalone-directory-suggestions"
-                    aria-autocomplete="list"
-                    autocomplete="off"
-                    spellcheck={false}
-                  />
-                  <Show when={standaloneSuggestionsLoading()}><span class="standalone-directory-loading" aria-label="Loading folders" /></Show>
-                  <Show when={standaloneSuggestionsOpen()}>
-                    <div ref={standaloneSuggestionsRef} id="standalone-directory-suggestions" class="standalone-directory-suggestions" role="listbox">
-                      <Show when={standaloneSuggestions().length > 0} fallback={<div class="standalone-directory-empty">No subdirectories found</div>}>
-                        <For each={standaloneSuggestions()}>
-                          {(directory, index) => (
-                            <button
-                              type="button"
-                              role="option"
-                              aria-selected={standaloneSuggestionIndex() === index()}
-                              class={standaloneSuggestionIndex() === index() ? 'highlighted' : ''}
-                              onMouseEnter={() => setStandaloneSuggestionIndex(index())}
-                              onMouseDown={(event) => event.preventDefault()}
-                              onClick={() => selectStandaloneSuggestion(directory)}
-                            >
-                              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                <path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h5l2 2h8A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z" />
-                              </svg>
-                              <span>{directory.name}</span>
-                              <small>{directory.path}</small>
-                            </button>
-                          )}
-                        </For>
-                      </Show>
-                    </div>
-                  </Show>
-                </div>
-              </Show>
-              <Show when={activeProject() && activeProject()!.directories.length > 1}>
-                <CustomSelect
-                  triggerClass="project-selector"
-                  value={selectedDirectoryId()}
-                  onChange={(value) => { setUseWorktree(false); setSelectedDirectoryId(value); }}
-                  options={activeProject()!.directories.map((directory) => ({ value: directory.id, label: directory.name, icon: 'folder' }))}
-                  placeholder="Select a Directory"
-                  position="bottom"
-                />
-              </Show>
-              <Show when={activeProject() && (activeProject()!.directories.length > 1 || Object.keys(branchErrors()).length === 0)}>
-                <label class="worktree-toggle" title="Create isolated Git worktrees for every project directory">
-                  <input
-                    type="checkbox"
-                    checked={useWorktree()}
-                    disabled={Object.keys(branchErrors()).length > 0}
-                    onChange={(event) => setUseWorktree(event.currentTarget.checked)}
-                  />
-                  <span>Worktrees</span>
-                </label>
-              </Show>
-              <Show when={useWorktree() && activeProject()}>
-                <div class="workspace-branch-selectors">
-                  <For each={activeProject()!.directories}>
-                    {(directory) => (
-                      <div class="workspace-branch-row">
-                        <span>{directory.name}</span>
-                        <CustomSelect
-                          triggerClass="branch-selector"
-                          value={selectedBaseBranches()[directory.id] || ''}
-                          onChange={(value) => setSelectedBaseBranches((previous) => ({ ...previous, [directory.id]: value }))}
-                          options={(branchesByDirectory()[directory.id] || []).map((branch) => ({
-                            value: branch.name,
-                            label: branch.name,
-                            group: branch.remote ? 'Remote branches' : 'Local branches',
-                          }))}
-                          placeholder="Base branch"
-                          position="bottom"
-                          searchable
-                          searchPlaceholder={`Search ${directory.name} branches…`}
-                        />
-                      </div>
-                    )}
-                  </For>
-                </div>
-              </Show>
-              <Show when={activeProject() && activeProject()!.directories.length > 1 && Object.keys(branchErrors()).length > 0}>
-                <span class="worktree-unavailable" title={Object.entries(branchErrors()).map(([id, error]) => `${activeProject()!.directories.find((directory) => directory.id === id)?.name}: ${error}`).join('\n')}>
-                  Worktrees unavailable for {Object.keys(branchErrors()).length} root(s)
-                </span>
-              </Show>
-            </div>
-          )}
-          <Show when={props.activeSessionId}>
-            <div class="composer-session-bar">
-              <Show when={activeProject()} keyed>
-                {(project) => <span class="composer-session-project" title={project.directories.map((directory) => directory.path).join('\n')}>
-                  {project.directories.map((directory) => directory.name).join(' · ')}<Show when={sessionBinding()?.branch}> — {sessionBinding()!.branch}</Show>
-                </span>}
-              </Show>
-              <Show when={sessionBinding()?.worktreeMissing}>
-                <span class="composer-session-worktree-missing">Missing</span>
-                <button
-                  class="composer-session-worktree-restore"
-                  onClick={() => void handleWorktreeRestore()}
-                  title="Restore this session's worktree"
-                  aria-label="Restore this session's worktree"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/>
-                  </svg>
-                  <span>Restore worktree</span>
-                </button>
-              </Show>
-              <Show when={sessionBinding()?.worktree && !sessionBinding()?.worktreeMissing}>
-                <button
-                  class="composer-session-worktree-remove"
-                  onClick={() => void handleWorktreeRemove()}
-                  title="Remove this session's worktree"
-                  aria-label="Remove this session's worktree"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/>
-                  </svg>
-                </button>
-              </Show>
-              <Show when={diffs().session.files.length > 0}>
-                <button
-                  class="diff-stats-chip session"
-                  onClick={() => openChangesPanel()}
-                  title="Show all file changes from this session"
-                >
-                  <DiffStats
-                    files={diffs().session.files.length}
-                    added={diffs().session.added}
-                    deleted={diffs().session.deleted}
-                  />
-                </button>
-              </Show>
-            </div>
+        <ExtensionUiHost widgets={widgets()} statuses={statusEntries} uiRequest={uiRequest()} questionsRequest={questionsRequest()} onRespond={handleUiRespond}>
+          <Show when={messages.length === 0}>
+            <NewChatSetup
+              activeProjectId={props.activeProjectId} activeProject={activeProject()} projects={projects()} selectedDirectoryId={selectedDirectoryId()}
+              standalonePath={standalonePath()} suggestions={standaloneSuggestions()} suggestionsOpen={standaloneSuggestionsOpen()}
+              suggestionIndex={standaloneSuggestionIndex()} suggestionsLoading={standaloneSuggestionsLoading()} useWorktree={useWorktree()}
+              branches={branchesByDirectory()} selectedBranches={selectedBaseBranches()} branchErrors={branchErrors()}
+              onSelectProject={(projectId) => { setUseWorktree(false); const project = projects().find((entry) => entry.id === projectId); setSelectedDirectoryId(project?.directories[0]?.id || ''); props.onSelectProject?.(projectId); }}
+              onSelectDirectory={(value) => { setUseWorktree(false); setSelectedDirectoryId(value); }}
+              onStandaloneInput={(value) => { setStandalonePath(value); scheduleStandaloneSuggestions(value); }}
+              onStandaloneFocus={() => void loadStandaloneSuggestions(standalonePath())} onStandaloneKeyDown={handleStandaloneDirectoryKeyDown}
+              onStandaloneBlur={() => window.setTimeout(() => setStandaloneSuggestionsOpen(false), 140)} onSelectSuggestion={selectStandaloneSuggestion}
+              onSuggestionIndex={setStandaloneSuggestionIndex} onSuggestionsRef={(element) => { standaloneSuggestionsRef = element; }}
+              onUseWorktree={setUseWorktree} onSelectBranch={(directoryId, branch) => setSelectedBaseBranches((previous) => ({ ...previous, [directoryId]: branch }))}
+            />
           </Show>
+          <Show when={props.activeSessionId}><SessionBar project={activeProject()} binding={sessionBinding()} diff={diffs().session}
+            onRestore={() => void handleWorktreeRestore()} onRemove={() => void handleWorktreeRemove()} onOpenChanges={() => openChangesPanel()}/></Show>
           <Composer
-            isConnected={isConnected()}
-            isProcessing={isProcessing()}
-            disabled={!!uiRequest() || !!questionsRequest() || !!sessionBinding()?.worktreeMissing}
-            commands={commandsList()}
-            projectId={props.activeProjectId}
-            directoryId={activeDirectory()?.id}
-            sessionId={props.activeSessionId}
-            draftKey={chatDraftKey()}
-            draftText={getChatDraft(chatDraftKey())}
-            onDraftChange={(text) => setChatDraft(chatDraftKey(), text)}
-            models={models()}
-            selectedModel={selectedModel()}
-            onSelectModel={selectModel}
-            thinkingLevels={thinkingLevelOptions()}
-            selectedThinkingLevel={selectedThinkingLevel()}
-            onSelectThinkingLevel={selectThinkingLevel}
-            contextInfo={contextInfo()}
-            onSubmit={handleSubmit}
-            onStop={handleStop}
-            api={(api) => { composerApi = api; }}
+            isConnected={isConnected()} isProcessing={isProcessing()} disabled={!!uiRequest() || !!questionsRequest() || !!sessionBinding()?.worktreeMissing}
+            commands={commandsList()} projectId={props.activeProjectId} directoryId={activeDirectory()?.id} sessionId={props.activeSessionId}
+            draftKey={chatDraftKey()} draftText={getChatDraft(chatDraftKey())} onDraftChange={(text) => setChatDraft(chatDraftKey(), text)}
+            models={models()} selectedModel={selectedModel()} onSelectModel={selectModel} thinkingLevels={thinkingLevelOptions()}
+            selectedThinkingLevel={selectedThinkingLevel()} onSelectThinkingLevel={selectThinkingLevel} contextInfo={contextInfo()}
+            onSubmit={handleSubmit} onStop={handleStop} api={(api) => { composerApi = api; }}
           />
-        </div>
-        <Show when={Object.keys(statusEntries).length > 0}>
-          <div class="ext-status-entries">
-            <For each={Object.keys(statusEntries)}>
-              {(key) => (
-                // Statuses arrive ANSI-styled (pi extensions color them for
-                // the TUI footer); render the text, drop the escapes.
-                <span class="ext-status-entry" title={key}>{stripAnsi(statusEntries[key])}</span>
-              )}
-            </For>
-          </div>
-        </Show>
+        </ExtensionUiHost>
       </div>
     </div>
 
-    <Show when={panelOpen()}>
-      <div
-        class="right-panel-overlay"
-        onClick={closePanel}
-      />
-      <div
-        class="right-panel-resize-handle"
-        onPointerDown={startPanelResize}
-        title="Resize right sidebar"
-        aria-label="Resize right sidebar"
-      />
-    </Show>
-    <RightPanel
-      class={panelOpen() ? 'panel-open' : ''}
-      tabs={[{ id: 'server', label: 'Server' }, { id: 'browser', label: 'Browser' }, { id: 'changes', label: 'Changes' }, { id: 'git', label: 'Git' }]}
-      activeTab={panelTab()}
-      onSelectTab={selectPanelTab}
-      onClose={closePanel}
-    >
-      <Show when={panelOpen() && panelTab() === 'browser'}>
-        <Suspense>
-          <BrowserTab />
-        </Suspense>
-      </Show>
-      <Show when={panelOpen() && panelTab() === 'changes'}>
-        <Suspense>
-          <ChangesTab
-            diff={diffTurn() != null ? (diffs().turns.get(diffTurn()!) ?? emptyDiffSummary()) : diffs().session}
-            turnFilter={diffTurn()}
-            onClearFilter={() => setDiffTurn(null)}
-          />
-        </Suspense>
-      </Show>
-      <Show when={panelOpen() && panelTab() === 'git'}>
-        <Suspense>
-          <Show when={activeProject() && activeProject()!.directories.length > 1}>
-            <div class="git-root-selector">
-              <span>Repository</span>
-              <CustomSelect
-                value={gitDirectoryId() || activeProject()!.directories[0]?.id || ''}
-                onChange={setGitDirectoryId}
-                options={activeProject()!.directories.map((directory) => ({ value: directory.id, label: directory.name, icon: 'folder' }))}
-                placeholder="Select repository"
-                position="bottom"
-              />
-            </div>
-          </Show>
-          <GitTab projectId={props.activeProjectId} directoryId={gitDirectoryId() || activeDirectory()?.id || sessionBinding()?.directoryId} sessionId={props.activeSessionId} refreshTrigger={gitRefreshTrigger()} />
-        </Suspense>
-      </Show>
-      <Show when={panelOpen() && panelTab() === 'server'}>
-        <div class="server-status-panel">
-          <div class="server-status-panel-card">
-            <div
-              class={`server-status-indicator ${isConnected() ? 'connected' : 'disconnected'}`}
-              title={isConnected() ? 'Server connected' : 'Server disconnected'}
-              aria-label={isConnected() ? 'Server connected' : 'Server disconnected'}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <rect x="3" y="4" width="18" height="7"></rect>
-                <rect x="3" y="13" width="18" height="7"></rect>
-                <line x1="7" y1="7.5" x2="7.01" y2="7.5"></line>
-                <line x1="7" y1="16.5" x2="7.01" y2="16.5"></line>
-              </svg>
-              <span class="server-status-dot" />
-            </div>
-            <div>
-              <div class="server-status-panel-title">Server</div>
-              <div class={`server-status-panel-value ${isConnected() ? 'connected' : 'disconnected'}`}>
-                {isConnected() ? 'Connected' : 'Disconnected'}
-              </div>
-            </div>
-          </div>
-        </div>
-      </Show>
-    </RightPanel>
+    <ChatRightPanel
+      open={panelOpen()} tab={panelTab()} connected={isConnected()} project={activeProject()} projectId={props.activeProjectId}
+      sessionId={props.activeSessionId} directoryId={activeDirectory()?.id || sessionBinding()?.directoryId} gitDirectoryId={gitDirectoryId()}
+      gitRefreshTrigger={gitRefreshTrigger()} diff={diffTurn() != null ? (diffs().turns.get(diffTurn()!) ?? emptyDiffSummary()) : diffs().session}
+      turnFilter={diffTurn()} onSelectTab={selectPanelTab} onClose={closePanel} onResize={startPanelResize}
+      onGitDirectory={setGitDirectoryId} onClearTurn={() => setDiffTurn(null)}
+    />
     </div>
   );
 }
