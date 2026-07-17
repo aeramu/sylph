@@ -24,35 +24,21 @@ import { getRightPanelState, setRightPanelState } from '../../lib/rightPanelStat
 import { createId } from '../../lib/id';
 import { ApiError } from '../../lib/api';
 import {
-  abortSession, getSession, listBranches, listCommands, listDirectories, listProjects, recreateWorktree,
-  removeWorktree, respondToUi, sendChat, type GitBranchOption, type SessionBindingInfo,
+  abortSession, getSession, listCommands, listProjects, recreateWorktree,
+  removeWorktree, respondToUi, sendChat, type SessionBindingInfo,
 } from './api';
 import { connectSessionStream, PendingSessionEvents, type SessionScopedEvent } from './createSessionStream';
+import { createNewChatSetup } from './createNewChatSetup';
+import { createChatSession } from './createChatSession';
 
 export default function ChatInterface(props: { activeSessionId?: string, activeProjectId?: string, onSelectProject?: (id?: string) => void, newSessionRequest?: { id: number; standalonePath?: string }, onSessionCreated: (id: string, projectId?: string, firstMessage?: string, meta?: { directoryId?: string; branch?: string; worktree?: boolean }) => void, onTurnComplete?: () => void, onSessionRemoved?: (id: string) => void, projectRefreshTrigger?: number }) {
   const [messages, setMessages] = createStore<ChatMessage[]>([]);
-  // Only needed during the brief new-chat window before /api/chat returns a
-  // session id. Existing sessions derive processing from sessionStatuses.
-  const [newSessionProcessing, setNewSessionProcessing] = createSignal(false);
-  const isProcessing = () => {
-    if (!props.activeSessionId) return newSessionProcessing();
-    const status = sessionStatuses[props.activeSessionId];
-    return status === 'working' || status === 'needsInput';
-  };
+  const chatSession = createChatSession({ sessionId: () => props.activeSessionId, projectId: () => props.activeProjectId, messages });
+  const { setNewSessionProcessing, isProcessing, draftKey: chatDraftKey, title: activeSessionTitle } = chatSession;
   const [isConnected, setIsConnected] = createSignal(false);
   const [lightboxUrl, setLightboxUrl] = createSignal<string | null>(null);
   const [commandsList, setCommandsList] = createSignal<CommandInfo[]>([]);
   const [projects, setProjects] = createSignal<ProjectInfo[]>([]);
-  const [branchesByDirectory, setBranchesByDirectory] = createSignal<Record<string, GitBranchOption[]>>({});
-  const [selectedBaseBranches, setSelectedBaseBranches] = createSignal<Record<string, string>>({});
-  const [useWorktree, setUseWorktree] = createSignal(false);
-  const [selectedDirectoryId, setSelectedDirectoryId] = createSignal('');
-  const [standalonePath, setStandalonePath] = createSignal('');
-  const [standaloneSuggestions, setStandaloneSuggestions] = createSignal<Array<{ name: string; path: string }>>([]);
-  const [standaloneSuggestionsOpen, setStandaloneSuggestionsOpen] = createSignal(false);
-  const [standaloneSuggestionIndex, setStandaloneSuggestionIndex] = createSignal(0);
-  const [standaloneSuggestionsLoading, setStandaloneSuggestionsLoading] = createSignal(false);
-  const [branchErrors, setBranchErrors] = createSignal<Record<string, string>>({});
   const [sessionBinding, setSessionBinding] = createSignal<SessionBindingInfo | null>(null);
   const {
     models,
@@ -68,19 +54,20 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   const [statusEntries, setStatusEntries] = createStore<Record<string, string>>({});
   const [widgets, setWidgets] = createSignal<Record<string, ExtWidget>>({});
   const activeProject = () => projects().find((p) => p.id === props.activeProjectId);
+  const newChatSetup = createNewChatSetup({ project: activeProject, projectId: () => props.activeProjectId, sessionId: () => props.activeSessionId });
+  const {
+    branches: branchesByDirectory, selectedBranches: selectedBaseBranches, useWorktree, directoryId: selectedDirectoryId,
+    standalonePath, suggestions: standaloneSuggestions, suggestionsOpen: standaloneSuggestionsOpen,
+    suggestionIndex: standaloneSuggestionIndex, suggestionsLoading: standaloneSuggestionsLoading, branchErrors,
+    setUseWorktree, setDirectoryId: setSelectedDirectoryId, setStandalonePath, setSuggestionsOpen: setStandaloneSuggestionsOpen,
+    setSuggestionIndex: setStandaloneSuggestionIndex, loadSuggestions: loadStandaloneSuggestions,
+    scheduleSuggestions: scheduleStandaloneSuggestions, selectSuggestion: selectStandaloneSuggestion, selectBranch: selectBaseBranch,
+  } = newChatSetup;
   const activeDirectory = () => {
     const project = activeProject();
     if (!project) return undefined;
     const directoryId = sessionBinding()?.directoryId || selectedDirectoryId();
     return project.directories.find((directory) => directory.id === directoryId);
-  };
-  const chatDraftKey = () => props.activeSessionId
-    ? `session:${props.activeSessionId}`
-    : `project:${props.activeProjectId ?? 'none'}:new`;
-  const activeSessionTitle = () => {
-    const firstUserMessage = messages.find((m) => m.role === 'user' && m.content?.trim());
-    const title = firstUserMessage?.content.trim().split('\n')[0] || 'New Chat';
-    return title.length > 80 ? `${title.slice(0, 80)}…` : title;
   };
   // Context-window usage for the active session (drives the composer's
   // context indicator). Seeded by /api/sessions/:sessionId, refreshed by SSE events.
@@ -169,42 +156,6 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
 
   let composerApi: ComposerApi | undefined;
   let standaloneSuggestionsRef: HTMLDivElement | undefined;
-  let standaloneSuggestionTimer: number | undefined;
-  let standaloneSuggestionController: AbortController | undefined;
-
-  const loadStandaloneSuggestions = async (value: string, open = true) => {
-    standaloneSuggestionController?.abort();
-    const controller = new AbortController();
-    standaloneSuggestionController = controller;
-    setStandaloneSuggestionsLoading(true);
-    try {
-      const data = await listDirectories(value, controller.signal);
-      if (controller.signal.aborted) return;
-      setStandaloneSuggestions(data.directories || []);
-      setStandaloneSuggestionIndex(0);
-      if (!value.trim() && data.currentPath) setStandalonePath(data.currentPath);
-      if (open) setStandaloneSuggestionsOpen(true);
-    } catch (error) {
-      if (!(error instanceof DOMException && error.name === 'AbortError')) setStandaloneSuggestions([]);
-    } finally {
-      if (!controller.signal.aborted) setStandaloneSuggestionsLoading(false);
-    }
-  };
-
-  const scheduleStandaloneSuggestions = (value: string) => {
-    if (standaloneSuggestionTimer) window.clearTimeout(standaloneSuggestionTimer);
-    setStandaloneSuggestionIndex(0);
-    standaloneSuggestionTimer = window.setTimeout(() => void loadStandaloneSuggestions(value), 180);
-  };
-
-  const selectStandaloneSuggestion = (suggestion: { path: string } | undefined) => {
-    if (!suggestion) return;
-    setStandalonePath(suggestion.path);
-    // Keep browsing from the selected folder so users can drill down without
-    // repeatedly reopening the picker.
-    void loadStandaloneSuggestions(suggestion.path);
-  };
-
   const handleStandaloneDirectoryKeyDown = (event: KeyboardEvent) => {
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault();
@@ -338,49 +289,6 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     }
   });
 
-  // Worktree mode is project-wide: discover a base branch independently for
-  // every repository. Creation remains disabled if any root is not Git-ready.
-  let branchRequest = 0;
-  createEffect(() => {
-    const projectId = props.activeProjectId;
-    const sessionId = props.activeSessionId;
-    const project = activeProject();
-    if (sessionId || !projectId || !project) {
-      setBranchesByDirectory({});
-      setSelectedBaseBranches({});
-      setBranchErrors({});
-      return;
-    }
-    const request = ++branchRequest;
-    setBranchErrors({});
-    void Promise.all(project.directories.map(async (directory) => {
-      try {
-        const branches = await listBranches(projectId, directory.id);
-        return { directory, branches };
-      } catch (error) {
-        return { directory, branches: [] as GitBranchOption[], error: error instanceof Error ? error.message : 'Git branches unavailable' };
-      }
-    })).then((results) => {
-      if (request !== branchRequest) return;
-      const nextBranches: Record<string, GitBranchOption[]> = {};
-      const nextSelected: Record<string, string> = {};
-      const nextErrors: Record<string, string> = {};
-      for (const result of results) {
-        nextBranches[result.directory.id] = result.branches;
-        const previous = selectedBaseBranches()[result.directory.id];
-        const current = result.branches.find((branch) => branch.current);
-        nextSelected[result.directory.id] = result.branches.some((branch) => branch.name === previous)
-          ? previous
-          : (current?.name || result.branches[0]?.name || '');
-        if (result.error || !nextSelected[result.directory.id]) nextErrors[result.directory.id] = result.error || 'No Git branches found';
-      }
-      setBranchesByDirectory(nextBranches);
-      setSelectedBaseBranches(nextSelected);
-      setBranchErrors(nextErrors);
-      if (Object.keys(nextErrors).length) setUseWorktree(false);
-    });
-  });
-
   createEffect(() => {
     const id = props.activeSessionId; // track
     if (id && pendingSessionId === id) {
@@ -474,8 +382,6 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
 
   onCleanup(() => {
     disconnectSessionStream?.();
-    if (standaloneSuggestionTimer) window.clearTimeout(standaloneSuggestionTimer);
-    standaloneSuggestionController?.abort();
   });
 
   const connectSSE = () => {
@@ -831,7 +737,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
               onStandaloneFocus={() => void loadStandaloneSuggestions(standalonePath())} onStandaloneKeyDown={handleStandaloneDirectoryKeyDown}
               onStandaloneBlur={() => window.setTimeout(() => setStandaloneSuggestionsOpen(false), 140)} onSelectSuggestion={selectStandaloneSuggestion}
               onSuggestionIndex={setStandaloneSuggestionIndex} onSuggestionsRef={(element) => { standaloneSuggestionsRef = element; }}
-              onUseWorktree={setUseWorktree} onSelectBranch={(directoryId, branch) => setSelectedBaseBranches((previous) => ({ ...previous, [directoryId]: branch }))}
+              onUseWorktree={setUseWorktree} onSelectBranch={selectBaseBranch}
             />
           </Show>
           <Show when={props.activeSessionId}><SessionBar project={activeProject()} binding={sessionBinding()} diff={diffs().session}

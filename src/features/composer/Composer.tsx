@@ -6,17 +6,11 @@ import ContextIndicator from './ContextIndicator';
 import { escapeHtml } from '../../lib/html';
 import { fuzzyScore } from '../../lib/fuzzyScore';
 import { createMentionSearch, type ActiveMention } from '../../lib/mentionSearch';
-import {
-  getSpeechRecognitionConstructor,
-  mergeSpeechTranscript,
-  readSpeechTranscript,
-  speechRecognitionErrorMessage,
-  type SpeechRecognitionLike,
-} from '../../lib/speechRecognition';
 import AttachmentList from './components/AttachmentList';
 import AutocompletePopup from './components/AutocompletePopup';
 import ThinkingSelector from './components/ThinkingSelector';
 import { createAttachments } from './createAttachments';
+import { createSpeechInput } from './createSpeechInput';
 import './Composer.css';
 
 // Built-in slash commands handled locally by the composer (they run a UI
@@ -90,9 +84,6 @@ export default function Composer(props: {
     attachments, isDragOver, addFiles, remove: removeAttachment, reset: resetAttachments, take: takeAttachments,
     handleFileInput, handlePaste, handleDrop, handleDragEnter, handleDragLeave,
   } = createAttachments();
-  const [isListening, setIsListening] = createSignal(false);
-  const [isStartingVoice, setIsStartingVoice] = createSignal(false);
-  const [voiceError, setVoiceError] = createSignal<string | null>(null);
   const [selectedIndex, setSelectedIndex] = createSignal(0);
   const [caretPos, setCaretPos] = createSignal<number | null>(null);
   const [activeMention, setActiveMention] = createSignal<ActiveMention | null>(null);
@@ -112,7 +103,6 @@ export default function Composer(props: {
   let thinkingSliderRef: HTMLDivElement | undefined;
   let thinkingSliderInputRef: HTMLInputElement | undefined;
   let modelSelectApi: CustomSelectApi | undefined;
-  let speechRecognition: SpeechRecognitionLike | undefined;
   let skipNextMentionSync = false;
 
   const updateInput = (text: string) => {
@@ -120,25 +110,23 @@ export default function Composer(props: {
     props.onDraftChange(text);
   };
 
-  const cancelVoiceInput = () => {
-    const active = speechRecognition;
-    speechRecognition = undefined;
-    if (active) {
-      active.onstart = null;
-      active.onresult = null;
-      active.onerror = null;
-      active.onend = null;
-      try { active.abort(); } catch { /* Already stopped. */ }
-    }
-    setIsListening(false);
-    setIsStartingVoice(false);
-  };
+  const speechInput = createSpeechInput({
+    input,
+    updateInput,
+    updateTextarea: (text) => {
+      if (!textareaRef) return;
+      textareaRef.value = text;
+      textareaRef.setSelectionRange(text.length, text.length);
+    },
+    focus: () => textareaRef?.focus(),
+  });
+  const { isListening, isStarting: isStartingVoice, error: voiceError, supported: voiceInputSupported, toggle: toggleVoiceInput, cancel: cancelVoiceInput } = speechInput;
 
   createEffect(on(
     () => props.draftKey,
     () => {
       cancelVoiceInput();
-      setVoiceError(null);
+      speechInput.resetError();
       const text = props.draftText;
       setInput(text);
       resetAttachments();
@@ -399,78 +387,6 @@ export default function Composer(props: {
       textareaRef?.setSelectionRange(nextPos, nextPos);
       setCaretPos(nextPos);
     });
-  };
-
-  const voiceInputSupported = () => typeof window !== 'undefined' && !!getSpeechRecognitionConstructor(window);
-
-  const startVoiceInput = () => {
-    const Recognition = typeof window !== 'undefined'
-      ? getSpeechRecognitionConstructor(window)
-      : undefined;
-    if (!Recognition) {
-      setVoiceError('Voice input is not supported in this browser');
-      return;
-    }
-
-    cancelVoiceInput();
-    setVoiceError(null);
-    const baseInput = input();
-    const recognition = new Recognition();
-    speechRecognition = recognition;
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = navigator.language || 'en-US';
-    recognition.onstart = () => {
-      if (speechRecognition !== recognition) return;
-      setIsStartingVoice(false);
-      setIsListening(true);
-    };
-    recognition.onresult = (event) => {
-      if (speechRecognition !== recognition) return;
-      const text = mergeSpeechTranscript(baseInput, readSpeechTranscript(event.results));
-      updateInput(text);
-      if (textareaRef) {
-        textareaRef.value = text;
-        textareaRef.setSelectionRange(text.length, text.length);
-      }
-    };
-    recognition.onerror = (event) => {
-      if (speechRecognition !== recognition) return;
-      const message = speechRecognitionErrorMessage(event.error);
-      if (message) setVoiceError(message);
-    };
-    recognition.onend = () => {
-      if (speechRecognition !== recognition) return;
-      speechRecognition = undefined;
-      setIsStartingVoice(false);
-      setIsListening(false);
-      requestAnimationFrame(() => textareaRef?.focus());
-    };
-
-    setIsStartingVoice(true);
-    try {
-      recognition.start();
-    } catch {
-      speechRecognition = undefined;
-      setIsStartingVoice(false);
-      setVoiceError('Could not start voice input');
-    }
-  };
-
-  const stopVoiceInput = () => {
-    const active = speechRecognition;
-    if (!active) return;
-    setIsStartingVoice(false);
-    try {
-      active.stop();
-    } catch {
-      cancelVoiceInput();
-    }
-  };
-
-  const toggleVoiceInput = () => {
-    if (isListening() || isStartingVoice()) stopVoiceInput();
-    else startVoiceInput();
   };
 
   const handleSubmit = (e?: Event) => {
