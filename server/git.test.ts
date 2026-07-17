@@ -25,7 +25,6 @@ function testProject(id: string, projectPath: string): Project {
     name: id,
     path: projectPath,
     directories: [{ id: directoryId, name: id, path: projectPath }],
-    primaryDirectoryId: directoryId,
   };
 }
 

@@ -143,22 +143,11 @@
   transition: border-color 0.15s, background 0.15s;
 }
 
-.project-directory-card.primary { border-color: rgba(99, 102, 241, 0.27); background: rgba(99, 102, 241, 0.045); }
-.project-directory-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.65rem; }
-
-.project-primary-choice {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  color: var(--text-secondary);
-  cursor: pointer;
-  font-size: 0.7rem;
-}
-
-.project-primary-choice input { accent-color: var(--accent); }
-.project-directory-card.primary .project-primary-choice { color: #b9baff; }
-
 .project-directory-remove {
+  position: absolute;
+  z-index: 2;
+  top: 0.55rem;
+  right: 0.55rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -173,7 +162,7 @@
 
 .project-directory-remove:hover:not(:disabled) { color: var(--danger); background: rgba(239, 68, 68, 0.09); }
 .project-directory-remove:disabled { cursor: default; opacity: 0.25; }
-.project-directory-fields { display: grid; grid-template-columns: minmax(105px, 0.28fr) minmax(260px, 1fr); gap: 0.75rem; }
+.project-directory-fields { display: grid; grid-template-columns: minmax(105px, 0.28fr) minmax(260px, 1fr); gap: 0.75rem; padding-right: 2rem; }
 .project-path-input-wrap { position: relative; }
 .project-path-input-wrap input { padding-left: 2.35rem; padding-right: 2rem; font-family: var(--font-mono); font-size: 0.76rem; }
 .project-path-icon { position: absolute; z-index: 1; left: 0.75rem; top: 50%; display: flex; transform: translateY(-50%); color: #737886; pointer-events: none; }

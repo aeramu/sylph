@@ -35,7 +35,7 @@ export function createGitRouter(): express.Router {
       res.locals.directoryId = sessionDirectory.directoryId;
     } else {
       res.locals.project = projectAtDirectory(project, req.query.directoryId);
-      res.locals.directoryId = res.locals.project.primaryDirectoryId;
+      res.locals.directoryId = res.locals.project.activeDirectoryId;
     }
     next();
   });

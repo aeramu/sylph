@@ -24,9 +24,7 @@ function FolderIcon() {
 function DirectoryRow(props: {
   directory: DirectoryDraft;
   index: number;
-  primary: boolean;
   removable: boolean;
-  onPrimary: () => void;
   onChange: (field: keyof DirectoryDraft, value: string) => void;
   onRemove: () => void;
 }) {
@@ -67,16 +65,10 @@ function DirectoryRow(props: {
   });
 
   return (
-    <div class={`project-directory-card ${props.primary ? 'primary' : ''}`}>
-      <div class="project-directory-card-header">
-        <label class="project-primary-choice" title="Use this directory as the default for relative commands">
-          <input type="radio" name="primary-directory" checked={props.primary} onChange={props.onPrimary} />
-          <span>{props.primary ? 'Default directory' : 'Make default'}</span>
-        </label>
-        <button class="project-directory-remove" onClick={props.onRemove} disabled={!props.removable} title="Remove directory" aria-label={`Remove directory ${props.index + 1}`}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/></svg>
-        </button>
-      </div>
+    <div class="project-directory-card">
+      <button class="project-directory-remove" onClick={props.onRemove} disabled={!props.removable} title="Remove directory" aria-label={`Remove directory ${props.index + 1}`}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/></svg>
+      </button>
       <div class="project-directory-fields">
         <label class="project-field compact">
           <span>Alias</span>
@@ -144,7 +136,6 @@ export default function AddProjectModal(props: {
   const initialDirectories = (): DirectoryDraft[] => props.project?.directories.map((directory) => ({ ...directory })) ?? [{ name: '', path: '' }];
   const [projectName, setProjectName] = createSignal(props.project?.name ?? '');
   const [directories, setDirectories] = createSignal<DirectoryDraft[]>(initialDirectories());
-  const [primaryIndex, setPrimaryIndex] = createSignal(Math.max(0, props.project?.directories.findIndex((directory) => directory.id === props.project?.primaryDirectoryId) ?? 0));
   const [saving, setSaving] = createSignal(false);
   const [deleting, setDeleting] = createSignal(false);
   const [errorMsg, setErrorMsg] = createSignal('');
@@ -160,7 +151,6 @@ export default function AddProjectModal(props: {
   const addDirectory = () => setDirectories((items) => [...items, { name: '', path: '' }]);
   const removeDirectory = (index: number) => {
     setDirectories((items) => items.filter((_, itemIndex) => itemIndex !== index));
-    setPrimaryIndex((current) => current === index ? 0 : current > index ? current - 1 : current);
   };
 
   const save = async () => {
@@ -173,11 +163,10 @@ export default function AddProjectModal(props: {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: projectName().trim() || undefined,
-          directories: directories().map((directory, index) => ({
+          directories: directories().map((directory) => ({
             id: directory.id,
             name: directory.name.trim() || undefined,
             path: directory.path.trim(),
-            primary: index === primaryIndex(),
           })).filter((directory) => directory.path),
         }),
       });
@@ -217,7 +206,7 @@ export default function AddProjectModal(props: {
           <div>
             <div class="project-modal-kicker">{editing() ? 'Project settings' : 'New workspace'}</div>
             <h2 id="project-modal-title">{editing() ? 'Edit Project' : 'Add Project'}</h2>
-            <p>{editing() ? 'Update its name, roots, aliases, and default directory.' : 'Group related folders into one multi-root workspace.'}</p>
+            <p>{editing() ? 'Update its name, roots, and aliases.' : 'Group related folders into one multi-root workspace.'}</p>
           </div>
           <button onClick={props.onClose} class="project-modal-close" aria-label="Close">✕</button>
         </div>
@@ -246,9 +235,7 @@ export default function AddProjectModal(props: {
                   <DirectoryRow
                     directory={directory}
                     index={index()}
-                    primary={primaryIndex() === index()}
                     removable={directories().length > 1}
-                    onPrimary={() => setPrimaryIndex(index())}
                     onChange={(field, value) => updateDirectory(index(), field, value)}
                     onRemove={() => removeDirectory(index())}
                   />

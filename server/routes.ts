@@ -327,7 +327,7 @@ export function createRouter(): express.Router {
       if (!stat.isDirectory()) return { error: `Not a directory: ${normalized}` };
       if (paths.has(normalized)) return { error: `Duplicate directory: ${normalized}` };
       paths.add(normalized);
-      directories.push({ id: entry.id, name: entry.name, path: normalized, primary: entry.primary === true });
+      directories.push({ id: entry.id, name: entry.name, path: normalized });
     }
     return { directories, paths };
   }
@@ -336,7 +336,7 @@ export function createRouter(): express.Router {
     const { path: legacyPath, name } = req.body ?? {};
     const requestedDirectories = Array.isArray(req.body?.directories)
       ? req.body.directories
-      : typeof legacyPath === "string" ? [{ path: legacyPath, primary: true }] : [];
+      : typeof legacyPath === "string" ? [{ path: legacyPath }] : [];
     const validated = validateProjectDirectories(requestedDirectories);
     if ("error" in validated) return res.status(400).json({ error: validated.error });
 
@@ -772,6 +772,13 @@ export function createRouter(): express.Router {
 
     let newWorktreeSessionId: string | undefined;
     try {
+      if (!sessionId && projectId) {
+        const project = getProjectById(projectId);
+        if (!project) return res.status(400).json({ error: "Project not found" });
+        if (typeof directoryId !== "string" || !project.directories.some((directory) => directory.id === directoryId)) {
+          return res.status(400).json({ error: "Select a starting directory" });
+        }
+      }
       if (!sessionId && useWorktree) {
         const project = getProjectById(projectId);
         if (!project) return res.status(400).json({ error: "Select a project before creating worktrees" });

@@ -283,9 +283,9 @@ async function buildSessionRuntime(
       if (runtimeProject) runtimeProject = projectForSession(runtimeProject, binding);
       runtimeDirectoryId = binding.directoryId
         ?? (runtimeProject ? findProjectDirectoryByPath(runtimeProject, binding.cwd)?.id : undefined)
-        ?? runtimeProject?.primaryDirectoryId;
+        ?? runtimeProject?.directories[0]?.id;
       if (runtimeProject && !runtimeProject.directories.some((directory) => directory.id === runtimeDirectoryId)) {
-        runtimeDirectoryId = runtimeProject.primaryDirectoryId;
+        runtimeDirectoryId = runtimeProject.directories[0]?.id;
       }
       if (binding.sessionFile && fs.existsSync(binding.sessionFile)) {
         sessionManager = SessionManager.open(binding.sessionFile);
@@ -311,7 +311,7 @@ async function buildSessionRuntime(
             const directory = project ? findProjectDirectoryByPath(project, dir) : undefined;
             if (project) {
               runtimeProject = project;
-              runtimeDirectoryId = directory?.id ?? project.primaryDirectoryId;
+              runtimeDirectoryId = directory?.id ?? project.directories[0]?.id;
               saveSessionBinding({ sessionId, projectId: project.id, directoryId: runtimeDirectoryId, cwd: dir, sessionFile: sessionInfo.path });
             }
             break;
@@ -322,8 +322,9 @@ async function buildSessionRuntime(
     if (!sessionManager) throw new Error(`Session ${sessionId} not found in any project`);
   } else {
     const project = projectId ? projects.find((entry) => entry.id === projectId) : undefined;
+    if (project && typeof options.directoryId !== "string") throw new Error("Select a starting directory");
     const projectDirectory = project ? getProjectDirectory(project, options.directoryId) : undefined;
-    if (project && options.directoryId && projectDirectory?.id !== options.directoryId) {
+    if (project && projectDirectory?.id !== options.directoryId) {
       throw new Error("Project directory not found");
     }
     runtimeProject = project;
@@ -481,7 +482,7 @@ export function getIntrospectionRuntime() {
   if (!introspectionRuntimePromise) {
     introspectionRuntimePromise = (async () => {
       const projects = getProjects();
-      const cwd = projects.find(p => fs.existsSync(p.path))?.path || process.cwd();
+      const cwd = projects.flatMap((project) => project.directories).find((directory) => fs.existsSync(directory.path))?.path || process.cwd();
       return buildRuntime(SessionManager.inMemory(cwd), cwd);
     })().catch(err => {
       introspectionRuntimePromise = null; // allow retry on failure

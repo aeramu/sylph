@@ -34,10 +34,8 @@ export function projectForSession(project: Project, binding: SessionBinding): Pr
     ...directory,
     path: path.resolve(sessionDirectories.get(directory.id)?.path ?? directory.path),
   }));
-  const active = directories.find((directory) => directory.id === binding.directoryId)
-    ?? directories.find((directory) => directory.id === project.primaryDirectoryId)
-    ?? directories[0];
-  return { ...project, path: active.path, directories, primaryDirectoryId: active.id };
+  const active = directories.find((directory) => directory.id === binding.directoryId) ?? directories[0];
+  return { ...project, path: active.path, directories, activeDirectoryId: active.id };
 }
 
 export function hasManagedWorktrees(binding: SessionBinding) {

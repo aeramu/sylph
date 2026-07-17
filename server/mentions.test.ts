@@ -28,7 +28,7 @@ function workspace(): Project {
       { id: "web", name: "web", path: web },
       { id: "api", name: "api", path: api },
     ],
-    primaryDirectoryId: "web",
+    activeDirectoryId: "web",
   };
 }
 

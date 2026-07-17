@@ -63,10 +63,9 @@ export interface ProjectDirectoryInfo {
 export interface ProjectInfo {
   id: string;
   name: string;
-  /** Primary directory path (legacy-compatible convenience field). */
+  /** First directory path (legacy-compatible convenience field). */
   path: string;
   directories: ProjectDirectoryInfo[];
-  primaryDirectoryId: string;
 }
 
 // Live state of a session shown in the sidebar: mid-turn, blocked on a user

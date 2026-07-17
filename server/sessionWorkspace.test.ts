@@ -7,7 +7,6 @@ const project: Project = {
   id: "project",
   name: "Product",
   path: "/source/frontend",
-  primaryDirectoryId: "frontend",
   directories: [
     { id: "frontend", name: "frontend", path: "/source/frontend" },
     { id: "api", name: "api", path: "/source/api" },

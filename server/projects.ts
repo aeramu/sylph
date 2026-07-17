@@ -12,10 +12,11 @@ export interface ProjectDirectory {
 export interface Project {
   id: string;
   name: string;
-  /** Primary directory path, retained for compatibility with older callers and stores. */
+  /** First directory path, retained for compatibility with older callers and stores. */
   path: string;
   directories: ProjectDirectory[];
-  primaryDirectoryId: string;
+  /** Runtime-only directory represented by `path`; absent on stored project configuration. */
+  activeDirectoryId?: string;
 }
 
 type StoredProject = Partial<Project> & Pick<Project, "id" | "name">;
@@ -31,7 +32,7 @@ function directoryId(projectId: string, index: number) {
   return `${projectId}-dir-${index + 1}`;
 }
 
-/** Normalize legacy `{ path }` projects and keep `path` equal to the primary root. */
+/** Normalize legacy `{ path }` projects and keep `path` equal to the first root. */
 export function normalizeProject(value: StoredProject): Project | undefined {
   if (!value || typeof value.id !== "string" || typeof value.name !== "string") return undefined;
 
@@ -63,14 +64,11 @@ export function normalizeProject(value: StoredProject): Project | undefined {
     usedNames.add(uniqueName.toLowerCase());
   }
 
-  const requestedPrimary = typeof value.primaryDirectoryId === "string" ? value.primaryDirectoryId : undefined;
-  const primary = directories.find((entry) => entry.id === requestedPrimary) ?? directories[0];
   return {
     id: value.id,
     name: value.name,
-    path: primary.path,
+    path: directories[0].path,
     directories,
-    primaryDirectoryId: primary.id,
   };
 }
 
@@ -94,7 +92,7 @@ export function getProjectDirectory(project: Project, directoryId: unknown): Pro
     const directory = project.directories.find((entry) => entry.id === directoryId);
     if (directory) return directory;
   }
-  return project.directories.find((entry) => entry.id === project.primaryDirectoryId) ?? project.directories[0];
+  return project.directories.find((entry) => entry.id === project.activeDirectoryId) ?? project.directories[0];
 }
 
 export function findProjectDirectoryByPath(project: Project, directoryPath: string): ProjectDirectory | undefined {
@@ -103,8 +101,8 @@ export function findProjectDirectoryByPath(project: Project, directoryPath: stri
 }
 
 /**
- * Return a project view whose `path` and primary directory represent the root
- * used by one chat. Other roots remain available for workspace mentions.
+ * Return a project view whose `path` represents the root used by one chat.
+ * Other roots remain available for workspace mentions.
  */
 export function projectAtDirectory(project: Project, directoryId: unknown, overridePath?: string): Project {
   const selected = getProjectDirectory(project, directoryId);
@@ -112,7 +110,7 @@ export function projectAtDirectory(project: Project, directoryId: unknown, overr
   return {
     ...project,
     path: selectedPath,
-    primaryDirectoryId: selected.id,
+    activeDirectoryId: selected.id,
     directories: project.directories.map((entry) => entry.id === selected.id ? { ...entry, path: selectedPath } : entry),
   };
 }
@@ -121,7 +119,6 @@ export interface ProjectDirectoryInput {
   id?: unknown;
   name?: unknown;
   path: string;
-  primary?: boolean;
 }
 
 function buildProject(id: string, input: { name?: unknown; directories: ProjectDirectoryInput[] }, existing?: Project): Project {
@@ -136,14 +133,12 @@ function buildProject(id: string, input: { name?: unknown; directories: ProjectD
     const requestedId = typeof entry.id === "string" && existingIds.has(entry.id) ? entry.id : undefined;
     return { id: requestedId ?? `${id}-dir-${randomUUID()}`, name, path: resolvedPath };
   });
-  const primaryIndex = Math.max(0, input.directories.findIndex((entry) => entry.primary));
-  const primary = directories[primaryIndex] ?? directories[0];
+  const first = directories[0];
   return {
     id,
-    name: typeof input.name === "string" && input.name.trim() ? input.name.trim() : primary.name,
-    path: primary.path,
+    name: typeof input.name === "string" && input.name.trim() ? input.name.trim() : first.name,
+    path: first.path,
     directories,
-    primaryDirectoryId: primary.id,
   };
 }
 

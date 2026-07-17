@@ -30,7 +30,7 @@ export type MentionEntry = { name: string; path: string; kind: "file" | "directo
 type MentionRoot = { directory: ProjectDirectory; path: string; prefix: string };
 
 function mentionRoots(project: Project): MentionRoot[] {
-  const active = getProjectDirectory(project, project.primaryDirectoryId);
+  const active = getProjectDirectory(project, project.activeDirectoryId);
   return project.directories.map((directory) => ({
     directory,
     // project.path may be a session worktree checkout for the active root.
@@ -47,7 +47,7 @@ function parseMentionRoot(project: Project, mentionPath: string): { root: Mentio
     const matched = roots.find((entry) => entry.directory.name.toLowerCase() === alias.toLowerCase());
     if (matched) return { root: matched, relPath: slash < 0 ? "" : mentionPath.slice(slash + 1) };
   }
-  const active = roots.find((entry) => entry.directory.id === project.primaryDirectoryId) ?? roots[0];
+  const active = roots.find((entry) => entry.directory.id === project.activeDirectoryId) ?? roots[0];
   return { root: active, relPath: mentionPath };
 }
 

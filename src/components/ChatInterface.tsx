@@ -76,8 +76,8 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   const activeDirectory = () => {
     const project = activeProject();
     if (!project) return undefined;
-    const directoryId = sessionBinding()?.directoryId || selectedDirectoryId() || project.primaryDirectoryId;
-    return project.directories.find((directory) => directory.id === directoryId) || project.directories[0];
+    const directoryId = sessionBinding()?.directoryId || selectedDirectoryId();
+    return project.directories.find((directory) => directory.id === directoryId);
   };
   const chatDraftKey = () => props.activeSessionId
     ? `session:${props.activeSessionId}`
@@ -104,7 +104,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     const project = activeProject();
     if (!project) { setGitDirectoryId(''); return; }
     if (!project.directories.some((directory) => directory.id === gitDirectoryId())) {
-      setGitDirectoryId(activeDirectory()?.id || project.primaryDirectoryId);
+      setGitDirectoryId(activeDirectory()?.id || project.directories[0]?.id || '');
     }
   });
 
@@ -196,7 +196,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       // already exist.
       if (!props.activeProjectId && list.length > 0 && props.onSelectProject) {
         props.onSelectProject(list[0].id);
-        setSelectedDirectoryId(list[0].primaryDirectoryId);
+        setSelectedDirectoryId(list[0].directories[0]?.id || '');
       }
     });
   };
@@ -274,7 +274,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       return;
     }
     if (!project.directories.some((directory) => directory.id === selectedDirectoryId())) {
-      setSelectedDirectoryId(project.primaryDirectoryId);
+      setSelectedDirectoryId(project.directories[0]?.id || '');
     }
   });
 
@@ -645,7 +645,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
           mentionText: userMessage,
           sessionId: props.activeSessionId,
           projectId: props.activeProjectId,
-          directoryId: selectedDirectoryId() || activeProject()?.primaryDirectoryId,
+          directoryId: selectedDirectoryId() || undefined,
           modelId: selectedModel() || undefined,
           thinkingLevel: selectedThinkingLevel(),
           images: images.length ? images : undefined,
@@ -907,17 +907,17 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
                 onChange={(val) => {
                   setUseWorktree(false);
                   const project = projects().find((entry) => entry.id === val);
-                  setSelectedDirectoryId(project?.primaryDirectoryId || '');
+                  setSelectedDirectoryId(project?.directories[0]?.id || '');
                   if (props.onSelectProject) props.onSelectProject(val);
                 }}
                 options={projects().map(p => ({ value: p.id, label: p.name, icon: 'folder' }))}
                 placeholder="Select a Project"
                 position="bottom"
               />
-              <Show when={activeProject() && activeProject()!.directories.length > 1}>
+              <Show when={activeProject()}>
                 <CustomSelect
                   triggerClass="project-selector"
-                  value={selectedDirectoryId() || activeProject()!.primaryDirectoryId}
+                  value={selectedDirectoryId()}
                   onChange={(value) => { setUseWorktree(false); setSelectedDirectoryId(value); }}
                   options={activeProject()!.directories.map((directory) => ({ value: directory.id, label: directory.name, icon: 'folder' }))}
                   placeholder="Select a Directory"
@@ -1065,7 +1065,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
             <div class="git-root-selector">
               <span>Repository</span>
               <CustomSelect
-                value={gitDirectoryId() || activeProject()!.primaryDirectoryId}
+                value={gitDirectoryId() || activeProject()!.directories[0]?.id || ''}
                 onChange={setGitDirectoryId}
                 options={activeProject()!.directories.map((directory) => ({ value: directory.id, label: directory.name, icon: 'folder' }))}
                 placeholder="Select repository"

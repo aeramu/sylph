@@ -15,7 +15,7 @@ export interface SessionDirectoryBinding {
 export interface SessionBinding {
   sessionId: string;
   projectId: string;
-  /** Default root for relative commands; not the workspace authorization boundary. */
+  /** Per-chat starting root for relative commands; not the workspace authorization boundary. */
   directoryId?: string;
   cwd: string;
   /** Every first-class root used by the session. */

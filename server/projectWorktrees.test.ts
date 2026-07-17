@@ -36,7 +36,6 @@ function multiProject(): Project {
     id: "product",
     name: "Product",
     path: frontend,
-    primaryDirectoryId: "frontend",
     directories: [
       { id: "frontend", name: "frontend", path: frontend },
       { id: "api", name: "api", path: api },
