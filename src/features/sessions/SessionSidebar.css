@@ -239,14 +239,14 @@
 .session-main { min-width: 0; flex: 1; }
 .session-title {
   overflow: hidden;
-  color: #bfc1c7;
+  color: #9699a2;
   font-size: 0.88rem;
-  font-weight: 400;
+  font-weight: 500;
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.session-item:hover .session-title { color: #d0d2d7; }
+.session-item:hover .session-title { color: #b9bcc4; }
 .session-item.active .session-title { color: #e0e1e5; }
 .session-subtitle {
   margin-top: 0.24rem;
