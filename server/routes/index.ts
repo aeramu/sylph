@@ -1,4 +1,5 @@
 import express from "express";
+import { registerArtifactRoutes } from "./artifactRoutes.ts";
 import { registerAuthRoutes } from "./authRoutes.ts";
 import { registerChatRoutes } from "./chatRoutes.ts";
 import { registerDashboardRoutes } from "./dashboardRoutes.ts";
@@ -20,6 +21,7 @@ export function createRouter(): express.Router {
   registerStreamRoutes(router);
   registerProjectRoutes(router);
   registerFilesystemRoutes(router);
+  registerArtifactRoutes(router);
   registerSessionRoutes(router);
   registerSessionWorkspaceRoutes(router);
   registerWorktreeRoutes(router);

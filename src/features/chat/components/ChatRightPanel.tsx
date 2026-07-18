@@ -4,21 +4,24 @@ import type { DiffSummary } from '../../../lib/sessionDiff';
 import CustomSelect from '../../../shared/ui/CustomSelect';
 import RightPanel, { type PanelTabId } from '../../../shared/ui/RightPanel';
 
+const ArtifactsTab = lazy(() => import('../../artifacts/ArtifactsTab'));
 const BrowserTab = lazy(() => import('../../browser/BrowserTab'));
 const ChangesTab = lazy(() => import('../../changes/ChangesTab'));
 const GitTab = lazy(() => import('../../git/GitTab'));
 
 export default function ChatRightPanel(props: {
   open: boolean; tab: PanelTabId; connected: boolean; project?: ProjectInfo; projectId?: string; sessionId?: string;
-  directoryId?: string; gitDirectoryId: string; gitRefreshTrigger: number; diff: DiffSummary; turnFilter: number | null;
+  directoryId?: string; gitDirectoryId: string; gitRefreshTrigger: number; artifactPath?: string; artifactRefreshTrigger: number;
+  diff: DiffSummary; turnFilter: number | null;
   onSelectTab: (tab: PanelTabId) => void; onClose: () => void; onResize: (event: PointerEvent) => void;
   onGitDirectory: (id: string) => void; onClearTurn: () => void;
 }) {
   return <>
     <Show when={props.open}><div class="right-panel-overlay" onClick={props.onClose}/><div class="right-panel-resize-handle" onPointerDown={props.onResize} title="Resize right sidebar" aria-label="Resize right sidebar"/></Show>
-    <RightPanel class={props.open ? 'panel-open' : ''} tabs={[{ id: 'server', label: 'Server' }, { id: 'browser', label: 'Browser' }, { id: 'changes', label: 'Changes' }, { id: 'git', label: 'Git' }]}
+    <RightPanel class={props.open ? 'panel-open' : ''} tabs={[{ id: 'server', label: 'Server' }, { id: 'browser', label: 'Browser' }, { id: 'artifacts', label: 'Artifacts' }, { id: 'changes', label: 'Changes' }, { id: 'git', label: 'Git' }]}
       activeTab={props.tab} onSelectTab={props.onSelectTab} onClose={props.onClose}>
       <Show when={props.open && props.tab === 'browser'}><Suspense><BrowserTab/></Suspense></Show>
+      <Show when={props.open && props.tab === 'artifacts'}><Suspense><ArtifactsTab sessionId={props.sessionId} requestedPath={props.artifactPath} refreshTrigger={props.artifactRefreshTrigger}/></Suspense></Show>
       <Show when={props.open && props.tab === 'changes'}><Suspense><ChangesTab diff={props.diff} turnFilter={props.turnFilter} onClearFilter={props.onClearTurn}/></Suspense></Show>
       <Show when={props.open && props.tab === 'git'}><Suspense>
         <Show when={props.project && props.project.directories.length > 0} fallback={<div class="git-empty">Add a folder to use Git.</div>}>

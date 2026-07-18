@@ -7,8 +7,45 @@ import { getProjectById, projectAtDirectory } from "../projects.ts";
 import { getSessionBinding } from "../sessionBindings.ts";
 import { projectForSession, projectFromSessionBinding } from "../sessionWorkspace.ts";
 import { walkProject, fuzzyPathScore, MENTION_MAX_RESULTS, type MentionEntry } from "../mentions.ts";
+import { artifactMimeType, isTextArtifact, resolveArtifactPath } from "../artifacts.ts";
+
+const MAX_FILE_READ_BYTES = 10 * 1024 * 1024;
 
 export function registerFilesystemRoutes(router: express.Router): void {
+  // Read a file through an explicitly scoped filesystem root. Artifacts use
+  // paths relative to the current session's private artifact directory.
+  router.get("/api/fs/read", async (req, res) => {
+    try {
+      if (req.query.scope !== "artifacts") return res.status(400).json({ error: "Unsupported filesystem scope" });
+      const sessionId = typeof req.query.sessionId === "string" ? req.query.sessionId : "";
+      if (!getSessionBinding(sessionId)) return res.status(404).json({ error: "Session not found" });
+      const requestedPath = typeof req.query.path === "string" ? req.query.path : "";
+      let resolved: ReturnType<typeof resolveArtifactPath>;
+      try {
+        resolved = resolveArtifactPath(sessionId, requestedPath);
+      } catch (error) {
+        return res.status(400).json({ error: error instanceof Error ? error.message : "Invalid file path" });
+      }
+      if (!fs.existsSync(resolved.absolutePath) || !fs.statSync(resolved.absolutePath).isFile()) {
+        return res.status(404).json({ error: "File not found" });
+      }
+      const stat = await fs.promises.stat(resolved.absolutePath);
+      if (stat.size > MAX_FILE_READ_BYTES) return res.status(413).json({ error: "File is too large to preview" });
+      const mimeType = artifactMimeType(resolved.absolutePath);
+      const text = isTextArtifact(resolved.absolutePath, mimeType);
+      const content = await fs.promises.readFile(resolved.absolutePath, text ? "utf8" : "base64");
+      res.json({
+        path: resolved.relativePath,
+        mimeType,
+        size: stat.size,
+        encoding: text ? "utf8" : "base64",
+        content,
+      });
+    } catch (err) {
+      handleError(res, err);
+    }
+  });
+
   router.get("/api/fs/files", async (req, res) => {
     try {
       const binding = getSessionBinding(req.query.sessionId);

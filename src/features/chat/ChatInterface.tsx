@@ -92,6 +92,8 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   const [panelTab, setPanelTab] = createSignal<PanelTabId>('changes');
   const [panelWidth, setPanelWidth] = createSignal(420);
   const [gitRefreshTrigger, setGitRefreshTrigger] = createSignal(0);
+  const [artifactRefreshTrigger, setArtifactRefreshTrigger] = createSignal(0);
+  const [requestedArtifactPath, setRequestedArtifactPath] = createSignal<string>();
   const [gitDirectoryId, setGitDirectoryId] = createSignal('');
   // null = whole session; a number filters the Changes tab to that turn.
   const [diffTurn, setDiffTurn] = createSignal<number | null>(null);
@@ -296,6 +298,8 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     setShowStartingFolder(false);
     setUiRequest(null);
     setQuestionsRequest(null);
+    setRequestedArtifactPath(undefined);
+    setArtifactRefreshTrigger((value) => value + 1);
     const savedPanel = getRightPanelState(id);
     setPanelOpen(savedPanel.open);
     setPanelTab(savedPanel.tab);
@@ -387,8 +391,14 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       setProcessing: (processing) => {
         if (!props.activeSessionId) setNewSessionProcessing(processing);
       },
-      onTurnComplete: props.onTurnComplete,
-      onSuccessfulFileMutation: () => setGitRefreshTrigger((value) => value + 1),
+      onTurnComplete: () => {
+        setArtifactRefreshTrigger((value) => value + 1);
+        props.onTurnComplete?.();
+      },
+      onSuccessfulFileMutation: () => {
+        setGitRefreshTrigger((value) => value + 1);
+        setArtifactRefreshTrigger((value) => value + 1);
+      },
     });
   };
 
@@ -474,6 +484,13 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       case 'setHiddenThinkingLabel':
       case 'setToolsExpanded':
         // These affect streaming/UX presentation; no visual surface needed yet.
+        break;
+      case 'showArtifact':
+        if (typeof data.path === 'string' && data.path) {
+          setRequestedArtifactPath(data.path);
+          setArtifactRefreshTrigger((value) => value + 1);
+          openPanelTab('artifacts');
+        }
         break;
       default:
         break;
@@ -731,7 +748,8 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     <ChatRightPanel
       open={panelOpen()} tab={panelTab()} connected={isConnected()} project={activeProject()} projectId={props.activeProjectId}
       sessionId={props.activeSessionId} directoryId={activeDirectory()?.id || sessionBinding()?.directoryId} gitDirectoryId={gitDirectoryId()}
-      gitRefreshTrigger={gitRefreshTrigger()} diff={diffTurn() != null ? (diffs().turns.get(diffTurn()!) ?? emptyDiffSummary()) : diffs().session}
+      gitRefreshTrigger={gitRefreshTrigger()} artifactPath={requestedArtifactPath()} artifactRefreshTrigger={artifactRefreshTrigger()}
+      diff={diffTurn() != null ? (diffs().turns.get(diffTurn()!) ?? emptyDiffSummary()) : diffs().session}
       turnFilter={diffTurn()} onSelectTab={selectPanelTab} onClose={closePanel} onResize={startPanelResize}
       onGitDirectory={setGitDirectoryId} onClearTurn={() => setDiffTurn(null)}
     />

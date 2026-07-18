@@ -1,0 +1,165 @@
+.artifacts-tab {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.artifacts-empty,
+.artifact-state {
+  padding: 2rem 1rem;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.artifact-error {
+  color: var(--danger);
+}
+
+.artifacts-list {
+  flex: 0 0 auto;
+  max-height: 34%;
+  overflow: auto;
+  padding: 0.55rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.artifact-list-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.48rem 0.55rem;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  font: inherit;
+  font-size: 0.82rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.artifact-list-item:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.artifact-list-item.active {
+  color: var(--text-primary);
+  background: rgba(124, 108, 240, 0.14);
+}
+
+.artifact-list-item svg {
+  flex: none;
+}
+
+.artifact-list-path {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artifact-list-size {
+  flex: none;
+  color: var(--text-secondary);
+  font-size: 0.74rem;
+}
+
+.artifact-viewer {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.artifact-viewer-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.65rem 0.8rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.artifact-viewer-heading {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.artifact-viewer-heading strong,
+.artifact-viewer-heading span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artifact-viewer-heading strong {
+  color: var(--text-primary);
+  font-size: 0.85rem;
+}
+
+.artifact-viewer-heading span {
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+}
+
+.artifact-download {
+  flex: none;
+  color: var(--accent);
+  font-size: 0.78rem;
+  text-decoration: none;
+}
+
+.artifact-download:hover {
+  text-decoration: underline;
+}
+
+.artifact-markdown {
+  padding: 1rem;
+  overflow: auto;
+}
+
+.artifact-code {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.artifact-code .cm-editor {
+  height: 100%;
+}
+
+.artifact-code .cm-scroller {
+  overflow: auto;
+}
+
+.artifact-media {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 1rem;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.artifact-media img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
+
+.artifact-pdf {
+  flex: 1;
+  min-height: 480px;
+  width: 100%;
+  border: 0;
+  background: white;
+}

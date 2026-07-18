@@ -171,6 +171,11 @@ export function createExtensionUiContext(sessionId: string): any {
   const setToolsExpanded = (expanded: boolean) =>
     fire("setToolsExpanded", { expanded });
 
+  // Sylph-native artifact presentation. The artifact remains an ordinary file
+  // in session scratch; this event only tells the browser which one to open.
+  const showArtifact = (path: string) =>
+    fire("showArtifact", { path });
+
   // --- Synchronous getters: no async round-trip possible, return defaults ---
 
   const getEditorText = () => "";
@@ -195,7 +200,7 @@ export function createExtensionUiContext(sessionId: string): any {
     notify, setStatus, setWidget,
     setWorkingMessage, setWorkingVisible, setWorkingIndicator,
     setHiddenThinkingLabel, setTitle, pasteToEditor, setEditorText,
-    setToolsExpanded,
+    setToolsExpanded, showArtifact,
     // Sync getters
     getEditorText, getToolsExpanded,
     // TUI-only no-ops

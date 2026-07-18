@@ -207,26 +207,6 @@ body {
     padding-right: 0.75rem;
   }
 
-  /* Compact mobile header: align with hamburger and keep only the title. */
-  .chat-header {
-    top: 0.65rem;
-    left: calc(0.75rem + 40px + 0.5rem);
-    right: 0.75rem;
-    height: 40px;
-    padding: 0 0.75rem;
-    align-items: center;
-  }
-
-  .chat-header-title {
-    width: 100%;
-    font-size: 0.9rem;
-    text-align: left;
-  }
-
-  .chat-header-project {
-    display: none;
-  }
-
   /* The model dropdown is left-anchored to its trigger (~3rem in): keep it
      from running off the right edge of small screens. */
   .custom-select-dropdown.is-searchable {

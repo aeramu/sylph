@@ -14,6 +14,7 @@ import { workspacePrompt } from "./workspacePrompt.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const askUserQuestionExtensionPath = path.join(__dirname, "../askUserQuestion.ts");
+const showArtifactExtensionPath = path.join(__dirname, "../showArtifact.ts");
 
 export interface RuntimeFactoryOptions {
   uiContext?: any;
@@ -35,8 +36,19 @@ export async function buildRuntime(sessionManager: any, cwd: string, options: Ru
       })) : []),
       ...(scratchPath ? [{ id: "sylph-scratch", name: "session scratch", path: scratchPath, access: "read-write" as const, temporary: true }] : []),
     ];
+    const artifactsPath = scratchPath ? path.join(scratchPath, "artifacts") : undefined;
+    if (artifactsPath) {
+      fs.mkdirSync(artifactsPath, { recursive: true, mode: 0o700 });
+      try { fs.chmodSync(artifactsPath, 0o700); } catch { /* best effort on filesystems without Unix modes */ }
+    }
     const scratchEnvironment: Record<string, string> = scratchPath
-      ? { TMPDIR: scratchPath, TMP: scratchPath, TEMP: scratchPath, SYLPH_SCRATCH_DIR: scratchPath }
+      ? {
+          TMPDIR: scratchPath,
+          TMP: scratchPath,
+          TEMP: scratchPath,
+          SYLPH_SCRATCH_DIR: scratchPath,
+          SYLPH_ARTIFACTS_DIR: artifactsPath!,
+        }
       : {};
     const initialApprovals = getSessionBinding(boundSessionId)?.permissionApprovals ?? [];
     const auditFile = path.join(getAgentDir(), "logs", "sylph-permissions.jsonl");
@@ -50,7 +62,7 @@ export async function buildRuntime(sessionManager: any, cwd: string, options: Ru
       authStorage,
       modelRegistry,
       resourceLoaderOptions: {
-        additionalExtensionPaths: [askUserQuestionExtensionPath],
+        additionalExtensionPaths: [askUserQuestionExtensionPath, showArtifactExtensionPath],
         skillsOverride: (base) => {
           allowedSkillFiles.clear();
           allowedSkillRoots.clear();
@@ -112,7 +124,8 @@ export async function buildRuntime(sessionManager: any, cwd: string, options: Ru
           if (scratchPath) additions.push([
             `A private temporary directory is available at ${scratchPath}.`,
             "For temporary/intermediate files, use $TMPDIR or $SYLPH_SCRATCH_DIR instead of /tmp. They point to that directory and are already authorized for this session.",
-            "Scratch files are not project files and may be cleaned up later; put durable user-requested changes in the workspace.",
+            `User-facing artifacts belong in ${artifactsPath} (also available as $SYLPH_ARTIFACTS_DIR). After completing an artifact there, call show_artifact with its path relative to that directory to display it to the user. Keep intermediate files outside the artifacts directory.`,
+            "Scratch files and artifacts are not project files and may be cleaned up later; put durable user-requested project changes in the workspace.",
           ].join("\n"));
           return additions.length ? [...base, ...additions] : base;
         },
