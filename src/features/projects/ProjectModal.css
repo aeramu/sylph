@@ -97,7 +97,7 @@
   background: rgba(255, 255, 255, 0.035);
   color: var(--text-primary);
   font: inherit;
-  font-size: 0.84rem;
+  font-size: 1rem;
   transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
 }
 
@@ -164,7 +164,7 @@
 .project-directory-remove:disabled { cursor: default; opacity: 0.25; }
 .project-directory-fields { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(105px, 0.28fr); gap: 0.75rem; padding-right: 2rem; }
 .project-path-input-wrap { position: relative; }
-.project-path-input-wrap input { padding-left: 2.35rem; padding-right: 2rem; font-family: var(--font-mono); font-size: 0.76rem; }
+.project-path-input-wrap input { padding-left: 2.35rem; padding-right: 2rem; font-family: var(--font-mono); font-size: 1rem; }
 .project-path-icon { position: absolute; z-index: 1; left: 0.75rem; top: 50%; display: flex; transform: translateY(-50%); color: #737886; pointer-events: none; }
 
 .project-path-loading {

@@ -149,7 +149,8 @@
   background: rgba(255, 255, 255, 0.025);
   color: var(--text-secondary);
   font-family: var(--font-mono);
-  font-size: 0.72rem;
+  font-size: 1rem;
+  line-height: 1.25;
 }
 
 .standalone-directory-input:focus {
