@@ -11,6 +11,10 @@ afterEach(() => {
 });
 
 describe("project service validation", () => {
+  it("accepts an empty directory list", () => {
+    expect(validateProjectDirectories([])).toEqual({ directories: [], paths: new Set() });
+  });
+
   it("normalizes valid directories", () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), "sylph-project-service-"));
     temporary.push(directory);

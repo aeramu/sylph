@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Project } from "./projects.ts";
 import type { SessionBinding } from "./sessionBindings.ts";
-import { getRawManagedDirectories, getSessionDirectories, getSessionDirectory, hasManagedWorktrees, projectForSession } from "./sessionWorkspace.ts";
+import { getRawManagedDirectories, getSessionDirectories, getSessionDirectory, hasManagedWorktrees, projectForSession, sourceProjectForSession } from "./sessionWorkspace.ts";
 
 const project: Project = {
   id: "project",
@@ -33,6 +33,24 @@ describe("session workspace roots", () => {
     expect(getRawManagedDirectories(binding)).toHaveLength(2);
   });
 
+  it("keeps roots attached only to the session", () => {
+    const binding: SessionBinding = {
+      sessionId: "session",
+      projectId: "project",
+      directoryId: "frontend",
+      cwd: "/source/frontend",
+      directories: [
+        { directoryId: "frontend", name: "frontend", sourcePath: "/source/frontend", path: "/source/frontend" },
+        { directoryId: "api", name: "api", sourcePath: "/source/api", path: "/source/api" },
+        { directoryId: "docs", name: "docs", sourcePath: "/source/docs", path: "/worktrees/docs" },
+      ],
+    };
+    const view = projectForSession(project, binding);
+    expect(view.directories.map((directory) => directory.name)).toEqual(["frontend", "api", "docs"]);
+    expect(view.directories[2].path).toBe("/worktrees/docs");
+    expect(sourceProjectForSession(project, binding).directories[2].path).toBe("/source/docs");
+  });
+
   it("normalizes legacy singular bindings without losing secondary roots", () => {
     const binding: SessionBinding = {
       sessionId: "legacy",
@@ -49,6 +67,13 @@ describe("session workspace roots", () => {
       expect.objectContaining({ directoryId: "api", path: "/source/api" }),
     ]);
     expect(getRawManagedDirectories(binding)).toHaveLength(1);
+  });
+
+  it("does not expose scratch as a fake workspace directory", () => {
+    const binding: SessionBinding = { sessionId: "scratch", workspaceKind: "scratch", cwd: "/private/scratch", directories: [] };
+    expect(getSessionDirectories(project, binding)).toEqual([]);
+    expect(projectForSession(project, binding).directories).toEqual([]);
+    expect(() => getSessionDirectory(project, binding, undefined)).toThrow(/no workspace directories/i);
   });
 
   it("rejects unknown requested roots instead of falling back silently", () => {

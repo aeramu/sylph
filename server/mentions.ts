@@ -31,6 +31,7 @@ type MentionRoot = { directory: ProjectDirectory; path: string; prefix: string }
 
 function mentionRoots(project: Project): MentionRoot[] {
   const active = getProjectDirectory(project, project.activeDirectoryId);
+  if (!active) return [];
   return project.directories.map((directory) => ({
     directory,
     // project.path may be a session worktree checkout for the active root.

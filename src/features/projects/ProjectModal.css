@@ -133,6 +133,7 @@
 
 .project-add-root:hover { background: rgba(99, 102, 241, 0.16); border-color: rgba(99, 102, 241, 0.5); }
 .project-directory-list { display: flex; flex-direction: column; gap: 0.75rem; margin-top: 1rem; }
+.project-directory-empty { padding: 1rem; border: 1px dashed rgba(255,255,255,.1); border-radius: 12px; color: #747987; font-size: .76rem; text-align: center; }
 
 .project-directory-card {
   position: relative;
@@ -162,64 +163,8 @@
 
 .project-directory-remove:hover:not(:disabled) { color: var(--danger); background: rgba(239, 68, 68, 0.09); }
 .project-directory-remove:disabled { cursor: default; opacity: 0.25; }
-.project-directory-fields { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(105px, 0.28fr); gap: 0.75rem; padding-right: 2rem; }
-.project-path-input-wrap { position: relative; }
-.project-path-input-wrap input { padding-left: 2.35rem; padding-right: 2rem; font-family: var(--font-mono); font-size: 0.76rem; }
-.project-path-icon { position: absolute; z-index: 1; left: 0.75rem; top: 50%; display: flex; transform: translateY(-50%); color: #737886; pointer-events: none; }
-
-.project-path-loading {
-  position: absolute;
-  z-index: 2;
-  top: 50%;
-  right: 0.75rem;
-  width: 12px;
-  height: 12px;
-  margin-top: -6px;
-  border: 2px solid rgba(255, 255, 255, 0.15);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: project-spin 0.7s linear infinite;
-}
-
-@keyframes project-spin { to { transform: rotate(360deg); } }
-
-.project-path-suggestions {
-  position: absolute;
-  z-index: 80;
-  top: calc(100% + 6px);
-  right: 0;
-  left: 0;
-  max-height: 220px;
-  padding: 0.3rem;
-  overflow-y: auto;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 11px;
-  background: #171a22;
-  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.55);
-}
-
-.project-path-suggestions button {
-  display: grid;
-  grid-template-columns: auto minmax(70px, auto) minmax(0, 1fr);
-  align-items: center;
-  gap: 0.55rem;
-  width: 100%;
-  padding: 0.55rem 0.6rem;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  text-align: left;
-}
-
-.project-path-suggestions button.highlighted {
-  background: rgba(255, 255, 255, 0.075);
-  color: var(--text-primary);
-}
-.project-suggestion-name { color: #d7d9e0; font-size: 0.76rem; font-weight: 600; }
-.project-suggestion-path { overflow: hidden; color: #646978; font-family: var(--font-mono); font-size: 0.65rem; text-overflow: ellipsis; white-space: nowrap; }
-.project-path-empty { padding: 0.85rem; color: #676b78; font-size: 0.75rem; text-align: center; }
+.project-directory-card .directory-picker-fields { padding-right: 2rem; }
+.project-directory-card .directory-picker-suggestions { z-index: 80; max-height: 220px; }
 
 .project-alias-hint {
   display: flex;
@@ -256,7 +201,7 @@
 @media (max-width: 640px) {
   .project-modal { width: calc(100vw - 1rem); max-height: calc(100vh - 1rem); border-radius: 15px; }
   .project-modal-header, .project-modal-body, .project-modal-footer { padding-right: 1rem; padding-left: 1rem; }
-  .project-directory-fields { grid-template-columns: 1fr; }
+  .project-directory-card .directory-picker-fields { padding-right: 2rem; }
   .project-roots-heading { align-items: stretch; flex-direction: column; }
   .project-add-root { align-self: flex-start; }
   .project-modal-footer { align-items: stretch; flex-direction: column-reverse; }

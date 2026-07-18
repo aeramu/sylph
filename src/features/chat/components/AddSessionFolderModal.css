@@ -1,0 +1,24 @@
+.session-folder-overlay { z-index: 180; background: rgba(4, 6, 12, 0.74); backdrop-filter: blur(9px); }
+.session-folder-modal { width: min(620px, calc(100vw - 2rem)); max-height: min(760px, calc(100vh - 2rem)); overflow: visible; border-radius: 18px; background: #101218; }
+.session-folder-header { display: flex; justify-content: space-between; gap: 1.2rem; padding: 1.4rem 1.5rem 1.2rem; border-bottom: 1px solid var(--border-color); background: linear-gradient(145deg, rgba(99, 102, 241, 0.09), transparent 58%); border-radius: 18px 18px 0 0; }
+.session-folder-header h2 { margin: 0; color: var(--text-primary); font-size: 1.25rem; }
+.session-folder-header p { margin: 0.4rem 0 0; color: var(--text-secondary); font-size: 0.8rem; line-height: 1.45; }
+.session-folder-kicker { margin-bottom: 0.3rem; color: var(--accent); font-size: 0.67rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+.session-folder-close { width: 30px; height: 30px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.session-folder-close:hover { border-color: var(--border-color); background: rgba(255,255,255,.05); color: var(--text-primary); }
+.session-folder-body { display: flex; flex-direction: column; gap: 1rem; padding: 1.25rem 1.5rem; overflow: visible; }
+.session-folder-field { display: flex; flex-direction: column; gap: .4rem; min-width: 0; }
+.session-folder-field > span { color: #d7d9e0; font-size: .77rem; font-weight: 650; }
+.session-folder-field small, .session-folder-alias-hint { color: #717683; font-size: .69rem; }
+.session-folder-field code, .session-folder-alias-hint code { color: #a9acb7; }
+.session-folder-alias-hint { margin-top: -.55rem; }
+.session-folder-body .directory-picker-suggestions { max-height: 180px; }
+.session-folder-error { padding: .7rem .8rem; border: 1px solid rgba(239,68,68,.25); border-radius: 9px; background: rgba(239,68,68,.07); color: #fca5a5; font-size: .74rem; }
+.session-folder-footer { display: flex; justify-content: flex-end; gap: .6rem; padding: .95rem 1.5rem; border-top: 1px solid var(--border-color); background: rgba(0,0,0,.16); border-radius: 0 0 18px 18px; }
+.session-folder-footer button { padding: .58rem .9rem; border-radius: 9px; cursor: pointer; font: inherit; font-size: .75rem; font-weight: 600; }
+.session-folder-footer button:disabled { cursor: not-allowed; opacity: .45; }
+.session-folder-cancel, .starting-folder-clear { border: 1px solid var(--border-color); background: transparent; color: var(--text-secondary); }
+.starting-folder-clear { margin-right: auto; }
+.session-folder-submit { border: 1px solid rgba(99,102,241,.7); background: var(--accent); color: white; }
+.starting-folder-body .directory-picker-suggestions { max-height: 260px; }
+@media (max-width: 640px) { .session-folder-modal { width: calc(100vw - 1rem); } .session-folder-header, .session-folder-body, .session-folder-footer { padding-right: 1rem; padding-left: 1rem; } .session-folder-alias-hint { margin-top: -.35rem; } }

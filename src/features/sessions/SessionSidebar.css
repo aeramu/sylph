@@ -219,6 +219,7 @@
 }
 
 .session-group-content { margin-top: 0.25rem; padding-left: 1.25rem; }
+.session-group.neutral .session-group-content { padding-left: 0; }
 
 .session-item {
   position: relative;
@@ -296,9 +297,13 @@
 }
 .session-live-status.needs-input { color: #d1a15d; }
 .session-typing { display: inline-flex; align-items: center; gap: 2px; }
-.session-typing-dot { width: 4px; height: 4px; border-radius: 50%; background: currentColor; animation: bounce 1.4s infinite ease-in-out both; }
+.session-typing-dot { width: 4px; height: 4px; border-radius: 50%; background: currentColor; animation: session-typing-bounce 1.4s infinite ease-in-out both; }
 .session-typing-dot:nth-child(1) { animation-delay: -0.32s; }
 .session-typing-dot:nth-child(2) { animation-delay: -0.16s; }
+@keyframes session-typing-bounce {
+  0%, 80%, 100% { transform: scale(0); }
+  40% { transform: scale(1); }
+}
 .session-live-status-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; box-shadow: 0 0 5px currentColor; }
 .session-status-icon { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; color: #999be0; font-size: 0.72rem; }
 .session-status-icon.error { color: #dc7c7c; font-weight: 700; }

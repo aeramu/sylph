@@ -27,14 +27,27 @@ describe("HTTP application", () => {
     expect(await response.json()).toMatchObject({ projects: expect.any(Array) });
   });
 
-  it("serializes project validation errors", async () => {
+  it("creates a named project without directories", async () => {
+    const name = `Empty project ${Date.now()}`;
+    const response = await fetch(`${baseUrl}/api/projects`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, directories: [] }),
+    });
+    expect(response.status).toBe(200);
+    const project = await response.json() as { id: string; name: string; path: string; directories: unknown[] };
+    expect(project).toMatchObject({ name, path: "", directories: [] });
+    expect((await fetch(`${baseUrl}/api/projects/${encodeURIComponent(project.id)}`, { method: "DELETE" })).status).toBe(200);
+  });
+
+  it("requires a project name when no directories are provided", async () => {
     const response = await fetch(`${baseUrl}/api/projects`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ directories: [] }),
     });
     expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: "At least one directory is required" });
+    expect(await response.json()).toEqual({ error: "Project name is required without a directory" });
   });
 
   it("rejects chat requests without a prompt before initializing a runtime", async () => {

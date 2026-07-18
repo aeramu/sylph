@@ -2,11 +2,13 @@ import fs from "fs";
 import path from "path";
 import { SessionManager, type AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { WORKTREES_DIR } from "../config.ts";
+import { createScratchSessionManager } from "../sessionScratch.ts";
 import { findProjectDirectoryByPath, getProjectDirectory, getProjects, type Project } from "../projects.ts";
 import { getSessionBinding, saveSessionBinding, type SessionBinding, type SessionDirectoryBinding } from "../sessionBindings.ts";
 import { createExtensionUiContext } from "../uiBridge.ts";
 import { createProjectWorktrees, discardProjectWorktrees } from "../projectWorktrees.ts";
 import { appendWorkspaceMetadata, getWorkspaceMetadata, reconcileSessionBinding } from "../piSessionMetadata.ts";
+import { projectForSession } from "../sessionWorkspace.ts";
 import { broadcast } from "../sse.ts";
 import { buildRuntime } from "./runtimeFactory.ts";
 import { getContextInfo } from "./contextUsage.ts";
@@ -39,22 +41,12 @@ export async function buildSessionRuntime(
   let runtimeProject: Project | undefined;
   let runtimeDirectoryId: string | undefined;
 
-  const workspaceProject = (binding: SessionBinding, configured?: Project): Project => {
-    const roots = binding.directories?.length
-      ? binding.directories.map((directory) => ({ id: directory.directoryId, name: directory.name, path: directory.path }))
-      : configured?.directories ?? [{ id: binding.directoryId || "root", name: path.basename(binding.cwd) || "workspace", path: binding.cwd }];
-    const activeId = binding.directoryId && roots.some((directory) => directory.id === binding.directoryId)
-      ? binding.directoryId
-      : roots[0].id;
-    const active = roots.find((directory) => directory.id === activeId)!;
-    return {
-      id: binding.projectId || `standalone:${binding.sessionId}`,
-      name: configured?.name || "No Project",
-      path: active.path,
-      directories: roots,
-      activeDirectoryId: active.id,
-    };
-  };
+  const workspaceProject = (binding: SessionBinding, configured?: Project): Project | undefined => binding.workspaceKind === "scratch" ? undefined : projectForSession(configured ?? {
+    id: binding.projectId || `standalone:${binding.sessionId}`,
+    name: "No Project",
+    path: binding.cwd,
+    directories: [{ id: binding.directoryId || "root", name: path.basename(binding.cwd) || "workspace", path: binding.cwd }],
+  }, binding);
 
   if (sessionId) {
     // New Sylph sessions have a direct cwd/session-file binding. Legacy
@@ -70,8 +62,8 @@ export async function buildSessionRuntime(
       const configuredProject = projects.find((entry) => entry.id === binding.projectId);
       runtimeProject = workspaceProject(binding, configuredProject);
       runtimeDirectoryId = binding.directoryId
-        ?? findProjectDirectoryByPath(runtimeProject, binding.cwd)?.id
-        ?? runtimeProject.directories[0]?.id;
+        ?? (runtimeProject ? findProjectDirectoryByPath(runtimeProject, binding.cwd)?.id : undefined)
+        ?? runtimeProject?.directories[0]?.id;
       if (runtimeProject && !runtimeProject.directories.some((directory) => directory.id === runtimeDirectoryId)) {
         runtimeDirectoryId = runtimeProject.directories[0]?.id;
       }
@@ -153,23 +145,25 @@ export async function buildSessionRuntime(
     }
   } else {
     const project = projectId ? projects.find((entry) => entry.id === projectId) : undefined;
-    if (project && typeof options.directoryId !== "string") throw new Error("Select a starting directory");
-    const projectDirectory = project ? getProjectDirectory(project, options.directoryId) : undefined;
-    if (project && projectDirectory?.id !== options.directoryId) throw new Error("Project directory not found");
-    if (!project) {
-      if (typeof options.standalonePath !== "string" || !options.standalonePath.trim()) throw new Error("Select a starting directory");
-      targetCwd = path.resolve(options.standalonePath);
+    if (project?.directories.length && typeof options.directoryId !== "string") throw new Error("Select a starting directory");
+    const projectDirectory = project?.directories.length ? getProjectDirectory(project, options.directoryId) : undefined;
+    if (project?.directories.length && projectDirectory?.id !== options.directoryId) throw new Error("Project directory not found");
+    const standalonePath = typeof options.standalonePath === "string" ? options.standalonePath.trim() : "";
+    const scratchWorkspace = (!project || project.directories.length === 0) && !standalonePath;
+    if ((!project || project.directories.length === 0) && standalonePath) {
+      targetCwd = path.resolve(standalonePath);
       if (!fs.existsSync(targetCwd) || !fs.statSync(targetCwd).isDirectory()) throw new Error("Starting directory not found");
     }
-    runtimeDirectoryId = projectDirectory?.id ?? "root";
+    runtimeDirectoryId = projectDirectory?.id ?? (scratchWorkspace ? undefined : "root");
     if (projectDirectory) targetCwd = projectDirectory.path;
 
-    const sessionDirectories: SessionDirectoryBinding[] = project?.directories.map((directory) => ({
-      directoryId: directory.id, name: directory.name, sourcePath: directory.path, path: directory.path,
-    })) ?? [{ directoryId: "root", name: path.basename(targetCwd) || "workspace", sourcePath: targetCwd, path: targetCwd }];
+    const sessionDirectories: SessionDirectoryBinding[] = project?.directories.length
+      ? project.directories.map((directory) => ({ directoryId: directory.id, name: directory.name, sourcePath: directory.path, path: directory.path }))
+      : (scratchWorkspace ? [] : [{ directoryId: "root", name: path.basename(targetCwd) || "workspace", sourcePath: targetCwd, path: targetCwd }]);
+    if (!runtimeDirectoryId && sessionDirectories.length === 1) runtimeDirectoryId = sessionDirectories[0].directoryId;
     let createdWorktrees: SessionDirectoryBinding[] = [];
     if (options.useWorktree) {
-      if (!project) throw new Error("Select a project before creating worktrees");
+      if (!project?.directories.length) throw new Error("Add a project directory before creating worktrees");
       const created = await createProjectWorktrees(project, {
         managedRoot: WORKTREES_DIR,
         baseBranches: options.baseBranches,
@@ -193,20 +187,29 @@ export async function buildSessionRuntime(
     }
 
     try {
-      sessionManager = SessionManager.create(targetCwd);
+      // The private scratch path depends on the session id. Reserve the id in
+      // memory first, create its directory, then create the persistent manager
+      // with that same id so Pi's immutable header cwd is correct from birth.
+      if (scratchWorkspace) {
+        sessionManager = createScratchSessionManager();
+        targetCwd = sessionManager.getCwd();
+      } else {
+        sessionManager = SessionManager.create(targetCwd);
+      }
       const resolvedSessionId = sessionManager.getSessionId();
-      const active = sessionDirectories.find((entry) => entry.directoryId === runtimeDirectoryId)!;
+      const active = sessionDirectories.find((entry) => entry.directoryId === runtimeDirectoryId);
       const binding: SessionBinding = {
         sessionId: resolvedSessionId,
+        workspaceKind: scratchWorkspace ? "scratch" : "directories",
         ...(project ? { projectId: project.id } : {}),
-        directoryId: active.directoryId,
+        ...(active ? { directoryId: active.directoryId } : {}),
         directories: sessionDirectories,
         cwd: targetCwd,
         sessionFile: sessionManager.getSessionFile?.(),
-        branch: active.branch,
-        baseBranch: active.baseBranch,
+        branch: active?.branch,
+        baseBranch: active?.baseBranch,
         worktree: createdWorktrees.length > 0,
-        managedWorktreeRoot: active.worktreeRoot,
+        managedWorktreeRoot: active?.worktreeRoot,
       };
       appendWorkspaceMetadata(sessionManager, binding);
       saveSessionBinding(binding);

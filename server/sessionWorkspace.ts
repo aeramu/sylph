@@ -4,8 +4,10 @@ import { getProjectDirectory } from "./projects.ts";
 import type { SessionBinding, SessionDirectoryBinding } from "./sessionBindings.ts";
 
 export function getSessionDirectories(project: Project, binding: SessionBinding): SessionDirectoryBinding[] {
+  if (binding.workspaceKind === "scratch") return [];
   if (Array.isArray(binding.directories) && binding.directories.length > 0) return binding.directories;
   const active = getProjectDirectory(project, binding.directoryId);
+  if (!active) return [];
   return project.directories.map((directory) => ({
     directoryId: directory.id,
     name: directory.name,
@@ -25,35 +27,61 @@ export function getSessionDirectory(project: Project, binding: SessionBinding, d
     if (!match) throw new Error("Project directory not found in session");
     return match;
   }
-  return directories.find((directory) => directory.directoryId === binding.directoryId) ?? directories[0];
+  const directory = directories.find((entry) => entry.directoryId === binding.directoryId) ?? directories[0];
+  if (!directory) throw new Error("Session has no workspace directories");
+  return directory;
 }
 
 export function projectFromSessionBinding(binding: SessionBinding, fallbackName = "No Project"): Project {
-  const directories = binding.directories?.length
-    ? binding.directories.map((directory) => ({
-        id: directory.directoryId,
-        name: directory.name,
-        path: path.resolve(directory.sourcePath ?? directory.path),
-      }))
-    : [{ id: binding.directoryId || "root", name: fallbackName, path: path.resolve(binding.cwd) }];
+  const directories = binding.workspaceKind === "scratch"
+    ? []
+    : binding.directories?.length
+      ? binding.directories.map((directory) => ({
+          id: directory.directoryId,
+          name: directory.name,
+          path: path.resolve(directory.sourcePath ?? directory.path),
+        }))
+      : [{ id: binding.directoryId || "root", name: fallbackName, path: path.resolve(binding.cwd) }];
   const active = directories.find((directory) => directory.id === binding.directoryId) ?? directories[0];
   return {
     id: binding.projectId || `standalone:${binding.sessionId}`,
     name: fallbackName,
-    path: active.path,
+    path: active?.path ?? path.resolve(binding.cwd),
     directories,
-    activeDirectoryId: active.id,
+    ...(active ? { activeDirectoryId: active.id } : {}),
   };
 }
 
 export function projectForSession(project: Project, binding: SessionBinding): Project {
-  const sessionDirectories = new Map(getSessionDirectories(project, binding).map((directory) => [directory.directoryId, directory]));
-  const directories = project.directories.map((directory) => ({
-    ...directory,
-    path: path.resolve(sessionDirectories.get(directory.id)?.path ?? directory.path),
+  // The binding is a session-owned workspace snapshot and may contain roots
+  // attached after the project was configured. Do not drop those roots merely
+  // because they are absent from projects.json.
+  const directories = getSessionDirectories(project, binding).map((directory) => ({
+    id: directory.directoryId,
+    name: directory.name,
+    path: path.resolve(directory.path),
   }));
   const active = directories.find((directory) => directory.id === binding.directoryId) ?? directories[0];
-  return { ...project, path: active.path, directories, activeDirectoryId: active.id };
+  return { ...project, path: active?.path ?? path.resolve(binding.cwd), directories, ...(active ? { activeDirectoryId: active.id } : {}) };
+}
+
+/** Source checkouts for worktree lifecycle operations, including session-only roots. */
+export function sourceProjectForSession(project: Project | undefined, binding: SessionBinding): Project {
+  const fallback = projectFromSessionBinding(binding, project?.name);
+  const configured = new Map(project?.directories.map((directory) => [directory.id, directory]) ?? []);
+  const directories = getSessionDirectories(project ?? fallback, binding).map((directory) => ({
+    id: directory.directoryId,
+    name: directory.name,
+    path: path.resolve(directory.sourcePath ?? configured.get(directory.directoryId)?.path ?? directory.path),
+  }));
+  const active = directories.find((directory) => directory.id === binding.directoryId) ?? directories[0];
+  return {
+    id: project?.id ?? fallback.id,
+    name: project?.name ?? fallback.name,
+    path: active?.path ?? path.resolve(binding.cwd),
+    directories,
+    ...(active ? { activeDirectoryId: active.id } : {}),
+  };
 }
 
 export function hasManagedWorktrees(binding: SessionBinding) {

@@ -7,7 +7,7 @@ const root = fs.mkdtempSync(path.join(os.tmpdir(), "sylph-scratch-test-"));
 const scratchRoot = path.join(root, "scratch");
 
 vi.mock("./config.ts", () => ({ SCRATCH_DIR: scratchRoot }));
-const { ensureSessionScratch, removeSessionScratch } = await import("./sessionScratch.ts");
+const { createScratchSessionManager, ensureSessionScratch, removeSessionScratch } = await import("./sessionScratch.ts");
 
 afterEach(() => fs.rmSync(scratchRoot, { recursive: true, force: true }));
 
@@ -20,6 +20,13 @@ describe("session scratch", () => {
     expect(second).toBe(first);
     expect(fs.statSync(first).isDirectory()).toBe(true);
     if (process.platform !== "win32") expect(fs.statSync(first).mode & 0o777).toBe(0o700);
+  });
+
+  it("creates a Pi session directly in its own scratch directory", () => {
+    const manager = createScratchSessionManager();
+    expect(manager.getCwd()).toBe(path.join(scratchRoot, manager.getSessionId()));
+    expect(fs.existsSync(manager.getCwd())).toBe(true);
+    expect(manager.getHeader()?.cwd).toBe(manager.getCwd());
   });
 
   it("removes scratch data when its owning session is deleted", () => {

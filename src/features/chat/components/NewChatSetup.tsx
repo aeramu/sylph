@@ -1,7 +1,12 @@
 import { For, Show } from 'solid-js';
 import type { ProjectInfo } from '../../../types';
 import CustomSelect from '../../../shared/ui/CustomSelect';
+import { folderName } from '../../../shared/ui/DirectoryPicker';
 import type { GitBranchOption } from '../api';
+
+function FolderIcon() {
+  return <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h5l2 2h8A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/></svg>;
+}
 
 export default function NewChatSetup(props: {
   activeProjectId?: string;
@@ -9,23 +14,13 @@ export default function NewChatSetup(props: {
   projects: ProjectInfo[];
   selectedDirectoryId: string;
   standalonePath: string;
-  suggestions: Array<{ name: string; path: string }>;
-  suggestionsOpen: boolean;
-  suggestionIndex: number;
-  suggestionsLoading: boolean;
   useWorktree: boolean;
   branches: Record<string, GitBranchOption[]>;
   selectedBranches: Record<string, string>;
   branchErrors: Record<string, string>;
   onSelectProject: (id?: string) => void;
   onSelectDirectory: (id: string) => void;
-  onStandaloneInput: (value: string) => void;
-  onStandaloneFocus: () => void;
-  onStandaloneKeyDown: (event: KeyboardEvent) => void;
-  onStandaloneBlur: () => void;
-  onSelectSuggestion: (suggestion: { path: string }) => void;
-  onSuggestionIndex: (index: number) => void;
-  onSuggestionsRef: (element: HTMLDivElement) => void;
+  onOpenStartingFolder: () => void;
   onUseWorktree: (enabled: boolean) => void;
   onSelectBranch: (directoryId: string, branch: string) => void;
 }) {
@@ -37,32 +32,18 @@ export default function NewChatSetup(props: {
       options={[{ value: '__none__', label: 'No Project', icon: 'project' }, ...props.projects.map((project) => ({ value: project.id, label: project.name, icon: 'project' }))]}
       placeholder="Select a Project" position="bottom" typeahead
     />
-    <Show when={!props.activeProject}>
-      <div class="standalone-directory-picker">
-        <svg class="standalone-directory-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h5l2 2h8A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/></svg>
-        <input class="standalone-directory-input" value={props.standalonePath} onFocus={props.onStandaloneFocus}
-          onInput={(event) => props.onStandaloneInput(event.currentTarget.value)} onKeyDown={props.onStandaloneKeyDown}
-          onBlur={props.onStandaloneBlur} placeholder="Starting directory" aria-label="Starting directory"
-          aria-expanded={props.suggestionsOpen} aria-controls="standalone-directory-suggestions" aria-autocomplete="list" autocomplete="off" spellcheck={false}/>
-        <Show when={props.suggestionsLoading}><span class="standalone-directory-loading" aria-label="Loading folders"/></Show>
-        <Show when={props.suggestionsOpen}><div ref={props.onSuggestionsRef} id="standalone-directory-suggestions" class="standalone-directory-suggestions" role="listbox">
-          <Show when={props.suggestions.length > 0} fallback={<div class="standalone-directory-empty">No subdirectories found</div>}>
-            <For each={props.suggestions}>{(directory, index) => <button type="button" role="option" aria-selected={props.suggestionIndex === index()}
-              class={props.suggestionIndex === index() ? 'highlighted' : ''} onMouseEnter={() => props.onSuggestionIndex(index())}
-              onMouseDown={(event) => event.preventDefault()} onClick={() => props.onSelectSuggestion(directory)}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h5l2 2h8A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/></svg>
-              <span>{directory.name}</span><small>{directory.path}</small>
-            </button>}</For>
-          </Show>
-        </div></Show>
-      </div>
+    <Show when={!props.activeProject || props.activeProject.directories.length === 0}>
+      <button class={`starting-folder-trigger ${props.standalonePath ? 'selected' : ''}`} onClick={props.onOpenStartingFolder}
+        title={props.standalonePath || 'Choose an optional starting folder'} aria-label={props.standalonePath ? `Starting folder ${folderName(props.standalonePath)}` : 'Add starting folder'}>
+        <FolderIcon/><span>{props.standalonePath ? folderName(props.standalonePath) : 'Add folder'}</span>
+      </button>
     </Show>
     <Show when={props.activeProject && props.activeProject.directories.length > 1}>
       <CustomSelect triggerClass="project-selector" value={props.selectedDirectoryId} onChange={props.onSelectDirectory}
         options={props.activeProject!.directories.map((directory) => ({ value: directory.id, label: directory.name, icon: 'folder' }))}
         placeholder="Select a Directory" position="bottom"/>
     </Show>
-    <Show when={props.activeProject && (props.activeProject.directories.length > 1 || Object.keys(props.branchErrors).length === 0)}>
+    <Show when={props.activeProject && props.activeProject.directories.length > 0 && (props.activeProject.directories.length > 1 || Object.keys(props.branchErrors).length === 0)}>
       <label class="worktree-toggle" title="Create isolated Git worktrees for every project directory">
         <input type="checkbox" checked={props.useWorktree} disabled={Object.keys(props.branchErrors).length > 0} onChange={(event) => props.onUseWorktree(event.currentTarget.checked)}/><span>Worktrees</span>
       </label>

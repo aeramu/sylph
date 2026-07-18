@@ -3,7 +3,8 @@ import path from "path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { createProject, getProjects, saveProjects, getProjectById, updateProject, type ProjectDirectoryInput } from "../projects.ts";
 import { getProjectSessionBindings, saveSessionBinding } from "../sessionBindings.ts";
-import { recoverSessionBindingsFromPi } from "../piSessionMetadata.ts";
+import { appendWorkspaceMetadata, recoverSessionBindingsFromPi } from "../piSessionMetadata.ts";
+import { disposeRuntime, getSettledRuntime } from "../runtime/index.ts";
 import { badRequest, conflict, notFound } from "./errors.ts";
 
 export interface ProjectMutationInput {
@@ -18,7 +19,7 @@ interface ValidatedDirectories {
 }
 
 export function validateProjectDirectories(requested: unknown): ValidatedDirectories {
-  if (!Array.isArray(requested) || requested.length === 0) badRequest("At least one directory is required");
+  if (!Array.isArray(requested)) badRequest("directories must be an array");
   const directories: ProjectDirectoryInput[] = [];
   const paths = new Set<string>();
   for (const value of requested) {
@@ -40,6 +41,7 @@ export function createProjectFromInput(input: ProjectMutationInput) {
     ? input.directories
     : typeof input.path === "string" ? [{ path: input.path }] : [];
   const validated = validateProjectDirectories(requested);
+  if (validated.directories.length === 0 && (typeof input.name !== "string" || !input.name.trim())) badRequest("Project name is required without a directory");
   const projects = getProjects();
   const existing = projects.find((project) => project.directories.some((directory) => validated.paths.has(path.resolve(directory.path))));
   if (existing) conflict("A directory is already part of another project", { project: existing });
@@ -54,6 +56,7 @@ export function updateProjectFromInput(id: string, input: ProjectMutationInput) 
   if (index < 0) notFound("Project not found");
   const existing = projects[index];
   const validated = validateProjectDirectories(input.directories);
+  if (validated.directories.length === 0 && (typeof input.name !== "string" || !input.name.trim())) badRequest("Project name is required without a directory");
   const duplicate = projects.find((project) => project.id !== existing.id
     && project.directories.some((directory) => validated.paths.has(path.resolve(directory.path))));
   if (duplicate) conflict(`A directory is already part of ${duplicate.name}`, { project: duplicate });
@@ -71,24 +74,33 @@ export function updateProjectFromInput(id: string, input: ProjectMutationInput) 
   return updated;
 }
 
-export async function deleteProject(id: string): Promise<void> {
+export interface DeleteProjectDependencies {
+  recover?: typeof recoverSessionBindingsFromPi;
+  getRuntime?: typeof getSettledRuntime;
+  dispose?: typeof disposeRuntime;
+}
+
+export async function deleteProject(id: string, dependencies: DeleteProjectDependencies = {}): Promise<void> {
   const project = getProjectById(id);
   if (!project) notFound("Project not found");
-  await recoverSessionBindingsFromPi(project.id);
-  for (const binding of getProjectSessionBindings(project.id)) {
+  await (dependencies.recover ?? recoverSessionBindingsFromPi)(project.id);
+  const bindings = getProjectSessionBindings(project.id);
+
+  // Do not detach permissions/context underneath an active agent turn. Check
+  // every runtime before mutating any binding so project deletion is atomic
+  // from the user's perspective.
+  for (const binding of bindings) {
+    const runtime = await (dependencies.getRuntime ?? getSettledRuntime)(binding.sessionId);
+    if (runtime?.session?.isStreaming) conflict("Stop project sessions before deleting the project");
+  }
+
+  for (const binding of bindings) {
     const detached = { ...binding, projectId: undefined };
+    // Dispose before updating ownership. A later open/turn rebuilds permission
+    // roots, context files, and system prompt from the detached metadata.
+    (dependencies.dispose ?? disposeRuntime)(binding.sessionId, "project deleted");
     if (binding.sessionFile && fs.existsSync(binding.sessionFile)) {
-      const manager = SessionManager.open(binding.sessionFile);
-      manager.appendCustomEntry("sylph.workspace", {
-        version: 1,
-        directoryId: detached.directoryId,
-        cwd: detached.cwd,
-        directories: detached.directories,
-        branch: detached.branch,
-        baseBranch: detached.baseBranch,
-        worktree: detached.worktree,
-        managedWorktreeRoot: detached.managedWorktreeRoot,
-      });
+      appendWorkspaceMetadata(SessionManager.open(binding.sessionFile), detached);
     }
     saveSessionBinding(detached);
   }

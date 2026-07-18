@@ -142,6 +142,25 @@ describe("embedded Sylph workspace metadata", () => {
     expect(reconciled).not.toHaveProperty("projectId");
   });
 
+  it("round-trips a directoryless scratch workspace", () => {
+    const manager = createSession();
+    const binding: SessionBinding = {
+      sessionId: manager.getSessionId(),
+      workspaceKind: "scratch",
+      cwd: "/tmp/private-scratch",
+      directories: [],
+      sessionFile: manager.getSessionFile(),
+    };
+
+    metadata.appendWorkspaceMetadata(manager, binding);
+    const reconciled = metadata.reconcileSessionBinding(manager);
+
+    expect(metadata.getWorkspaceMetadata(manager)).toEqual(expect.objectContaining({ workspaceKind: "scratch" }));
+    expect(metadata.getWorkspaceMetadata(manager)).not.toHaveProperty("directories");
+    expect(reconciled).toEqual(expect.objectContaining({ workspaceKind: "scratch", cwd: "/tmp/private-scratch" }));
+    expect(reconciled?.directories).toBeUndefined();
+  });
+
   it("uses the latest valid append-only metadata entry", () => {
     const manager = createSession();
     const base: SessionBinding = {

@@ -3,9 +3,20 @@ import type { ContextInfo, ProjectInfo } from '../../types';
 
 export interface GitBranchOption { name: string; current: boolean; remote: boolean }
 export interface DirectorySuggestion { name: string; path: string }
+export interface SessionDirectoryInfo {
+  directoryId: string;
+  name: string;
+  sourcePath?: string;
+  path: string;
+  branch?: string;
+  baseBranch?: string;
+  worktreeRoot?: string;
+}
 export interface SessionBindingInfo {
+  workspaceKind?: 'directories' | 'scratch';
   cwd: string;
   directoryId?: string;
+  directories?: SessionDirectoryInfo[];
   branch?: string;
   baseBranch?: string;
   worktree?: boolean;
@@ -38,6 +49,7 @@ export interface SendChatInput {
 
 export interface SendChatResult {
   sessionId: string;
+  workspaceKind?: 'directories' | 'scratch';
   projectId?: string;
   directoryId?: string;
   branch?: string;
@@ -90,4 +102,17 @@ export function recreateWorktree(sessionId: string): Promise<void> {
 export function removeWorktree(sessionId: string, confirmUnmerged = false): Promise<void> {
   const query = confirmUnmerged ? '?confirmUnmerged=true' : '';
   return api(`/api/sessions/${encodeURIComponent(sessionId)}/worktree${query}`, { method: 'DELETE' });
+}
+
+export async function listAttachFolderBranches(sessionId: string, folderPath: string): Promise<GitBranchOption[]> {
+  const data = await api<{ branches?: GitBranchOption[] }>(`/api/sessions/${encodeURIComponent(sessionId)}/folders/branches`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: folderPath }),
+  });
+  return data.branches || [];
+}
+
+export function attachFolder(sessionId: string, input: { path: string; name?: string; baseBranch?: string }): Promise<{ binding: SessionBindingInfo; directory: SessionDirectoryInfo }> {
+  return api(`/api/sessions/${encodeURIComponent(sessionId)}/folders`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  });
 }

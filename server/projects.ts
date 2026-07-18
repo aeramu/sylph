@@ -12,7 +12,7 @@ export interface ProjectDirectory {
 export interface Project {
   id: string;
   name: string;
-  /** First directory path, retained for compatibility with older callers and stores. */
+  /** First directory path; empty for projects that do not have a root yet. */
   path: string;
   directories: ProjectDirectory[];
   /** Runtime-only directory represented by `path`; absent on stored project configuration. */
@@ -53,8 +53,6 @@ export function normalizeProject(value: StoredProject): Project | undefined {
       path: path.resolve(value.path),
     });
   }
-  if (directories.length === 0) return undefined;
-
   const usedNames = new Set<string>();
   for (const directory of directories) {
     const baseName = directory.name || "root";
@@ -67,7 +65,7 @@ export function normalizeProject(value: StoredProject): Project | undefined {
   return {
     id: value.id,
     name: value.name,
-    path: directories[0].path,
+    path: directories[0]?.path ?? "",
     directories,
   };
 }
@@ -87,7 +85,7 @@ export function getProjectById(projectId: unknown): Project | undefined {
   return getProjects().find((project) => project.id === projectId);
 }
 
-export function getProjectDirectory(project: Project, directoryId: unknown): ProjectDirectory {
+export function getProjectDirectory(project: Project, directoryId: unknown): ProjectDirectory | undefined {
   if (typeof directoryId === "string") {
     const directory = project.directories.find((entry) => entry.id === directoryId);
     if (directory) return directory;
@@ -106,6 +104,7 @@ export function findProjectDirectoryByPath(project: Project, directoryPath: stri
  */
 export function projectAtDirectory(project: Project, directoryId: unknown, overridePath?: string): Project {
   const selected = getProjectDirectory(project, directoryId);
+  if (!selected) throw new Error("Project has no directories");
   const selectedPath = path.resolve(overridePath ?? selected.path);
   return {
     ...project,
@@ -134,10 +133,12 @@ function buildProject(id: string, input: { name?: unknown; directories: ProjectD
     return { id: requestedId ?? `${id}-dir-${randomUUID()}`, name, path: resolvedPath };
   });
   const first = directories[0];
+  const requestedName = typeof input.name === "string" ? input.name.trim() : "";
+  if (!requestedName && !first) throw new Error("Project name is required when no directories are configured");
   return {
     id,
-    name: typeof input.name === "string" && input.name.trim() ? input.name.trim() : first.name,
-    path: first.path,
+    name: requestedName || first.name,
+    path: first?.path ?? "",
     directories,
   };
 }

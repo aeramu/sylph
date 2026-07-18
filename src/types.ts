@@ -78,6 +78,7 @@ export type SessionStatus = 'working' | 'needsInput' | 'error';
 // so a fresh chat doesn't vanish when another session becomes active.
 export interface DraftSession {
   id: string;
+  workspaceKind?: 'directories' | 'scratch';
   projectId?: string;
   directoryId?: string;
   branch?: string;

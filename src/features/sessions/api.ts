@@ -11,6 +11,7 @@ export interface SessionInfo {
   status?: SessionStatus;
   projectId?: string;
   projectName?: string;
+  workspaceKind?: 'directories' | 'scratch';
   directoryId?: string;
   directoryName?: string;
   sourcePath?: string;

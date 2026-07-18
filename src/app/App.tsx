@@ -147,6 +147,7 @@ function App() {
         onSessionCreated={(newId, newProjectId, firstMessage, sessionMeta) => {
           setDraftSessions((prev) => [...prev, {
             id: newId,
+            workspaceKind: sessionMeta?.workspaceKind,
             projectId: newProjectId,
             directoryId: sessionMeta?.directoryId,
             branch: sessionMeta?.branch,

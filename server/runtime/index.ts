@@ -9,7 +9,7 @@ import { RuntimeRegistry } from "./runtimeRegistry.ts";
 import { buildSessionRuntime, type NewSessionOptions } from "./sessionResolver.ts";
 export type { NewSessionOptions } from "./sessionResolver.ts";
 import { clearSessionStatuses, rejectPendingForSession } from "../uiBridge.ts";
-import { getRawManagedDirectories } from "../sessionWorkspace.ts";
+import { getRawManagedDirectories, sourceProjectForSession } from "../sessionWorkspace.ts";
 import { discardProjectWorktrees } from "../projectWorktrees.ts";
 import { removeSessionScratch } from "../sessionScratch.ts";
 
@@ -29,10 +29,10 @@ export function getSettledRuntime(sessionId: string): Promise<any> {
   return runtimeRegistry.settled(sessionId);
 }
 
-export function disposeRuntime(sessionId: string) {
+export function disposeRuntime(sessionId: string, reason = "session runtime disposed") {
   if (!runtimeRegistry.dispose(sessionId)) return;
   sessionEventSequences.delete(sessionId);
-  rejectPendingForSession(sessionId, "session worktree removed");
+  rejectPendingForSession(sessionId, reason);
   clearSessionStatuses(sessionId);
 }
 
@@ -42,8 +42,7 @@ export async function rollbackNewWorktreeSession(sessionId: string) {
   const managedDirectories = getRawManagedDirectories(binding);
   if (managedDirectories.length === 0) return;
   disposeRuntime(sessionId);
-  const project = getProjects().find((entry) => entry.id === binding.projectId);
-  if (!project) throw new Error("The project configuration for this managed worktree no longer exists");
+  const project = sourceProjectForSession(getProjects().find((entry) => entry.id === binding.projectId), binding);
   // discardProjectWorktrees aggregates failures and throws. Do not delete the
   // binding/session file unless it fully succeeds: they are the recovery
   // metadata for any checkout that remains.

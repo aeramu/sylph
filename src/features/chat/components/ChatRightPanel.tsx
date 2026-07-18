@@ -21,11 +21,13 @@ export default function ChatRightPanel(props: {
       <Show when={props.open && props.tab === 'browser'}><Suspense><BrowserTab/></Suspense></Show>
       <Show when={props.open && props.tab === 'changes'}><Suspense><ChangesTab diff={props.diff} turnFilter={props.turnFilter} onClearFilter={props.onClearTurn}/></Suspense></Show>
       <Show when={props.open && props.tab === 'git'}><Suspense>
+        <Show when={props.project && props.project.directories.length > 0} fallback={<div class="git-empty">Add a folder to use Git.</div>}>
         <Show when={props.project && props.project.directories.length > 1}><div class="git-root-selector"><span>Repository</span>
           <CustomSelect value={props.gitDirectoryId || props.project!.directories[0]?.id || ''} onChange={props.onGitDirectory}
             options={props.project!.directories.map((directory) => ({ value: directory.id, label: directory.name, icon: 'folder' }))} placeholder="Select repository" position="bottom"/>
         </div></Show>
-        <GitTab projectId={props.projectId} directoryId={props.gitDirectoryId || props.directoryId} sessionId={props.sessionId} refreshTrigger={props.gitRefreshTrigger}/>
+        <GitTab projectId={props.projectId || (props.sessionId ? '__session__' : undefined)} directoryId={props.gitDirectoryId || props.directoryId} sessionId={props.sessionId} refreshTrigger={props.gitRefreshTrigger}/>
+        </Show>
       </Suspense></Show>
       <Show when={props.open && props.tab === 'server'}><div class="server-status-panel"><div class="server-status-panel-card">
         <div class={`server-status-indicator ${props.connected ? 'connected' : 'disconnected'}`} title={props.connected ? 'Server connected' : 'Server disconnected'} aria-label={props.connected ? 'Server connected' : 'Server disconnected'}>

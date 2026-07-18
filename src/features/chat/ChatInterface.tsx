@@ -14,6 +14,8 @@ import NewChatSetup from './components/NewChatSetup';
 import SessionBar from './components/SessionBar';
 import ExtensionUiHost from './components/ExtensionUiHost';
 import ChatRightPanel from './components/ChatRightPanel';
+import AddSessionFolderModal from './components/AddSessionFolderModal';
+import StartingFolderModal from './components/StartingFolderModal';
 import type { UiRequest } from './UiRequestModal';
 import type { QuestionsRequest } from './QuestionsModal';
 import type { PanelTabId } from '../../shared/ui/RightPanel';
@@ -32,7 +34,7 @@ import { createChatSession } from './createChatSession';
 import { prepareChatSubmission } from './createChatSubmission';
 import { ChatHistoryController } from './createChatHistory';
 
-export default function ChatInterface(props: { activeSessionId?: string, activeProjectId?: string, onSelectProject?: (id?: string) => void, newSessionRequest?: { id: number; standalonePath?: string }, onSessionCreated: (id: string, projectId?: string, firstMessage?: string, meta?: { directoryId?: string; branch?: string; worktree?: boolean }) => void, onTurnComplete?: () => void, onSessionRemoved?: (id: string) => void, projectRefreshTrigger?: number }) {
+export default function ChatInterface(props: { activeSessionId?: string, activeProjectId?: string, onSelectProject?: (id?: string) => void, newSessionRequest?: { id: number; standalonePath?: string }, onSessionCreated: (id: string, projectId?: string, firstMessage?: string, meta?: { workspaceKind?: 'directories' | 'scratch'; directoryId?: string; branch?: string; worktree?: boolean }) => void, onTurnComplete?: () => void, onSessionRemoved?: (id: string) => void, projectRefreshTrigger?: number }) {
   const [messages, setMessages] = createStore<ChatMessage[]>([]);
   const chatSession = createChatSession({ sessionId: () => props.activeSessionId, projectId: () => props.activeProjectId, messages });
   const { setNewSessionProcessing, isProcessing, draftKey: chatDraftKey, title: activeSessionTitle } = chatSession;
@@ -41,6 +43,8 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   const [commandsList, setCommandsList] = createSignal<CommandInfo[]>([]);
   const [projects, setProjects] = createSignal<ProjectInfo[]>([]);
   const [sessionBinding, setSessionBinding] = createSignal<SessionBindingInfo | null>(null);
+  const [showAddFolder, setShowAddFolder] = createSignal(false);
+  const [showStartingFolder, setShowStartingFolder] = createSignal(false);
   const {
     models,
     selectedModel,
@@ -54,15 +58,24 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   const [questionsRequest, setQuestionsRequest] = createSignal<QuestionsRequest | null>(null);
   const [statusEntries, setStatusEntries] = createStore<Record<string, string>>({});
   const [widgets, setWidgets] = createSignal<Record<string, ExtWidget>>({});
-  const activeProject = () => projects().find((p) => p.id === props.activeProjectId);
+  const configuredProject = () => projects().find((p) => p.id === props.activeProjectId);
+  const activeProject = (): ProjectInfo | undefined => {
+    const project = configuredProject();
+    const directories = sessionBinding()?.directories;
+    if (!props.activeSessionId || sessionBinding()?.workspaceKind === 'scratch' || !directories?.length) return project;
+    const active = directories.find((directory) => directory.directoryId === sessionBinding()?.directoryId) ?? directories[0];
+    return {
+      id: project?.id ?? `session:${props.activeSessionId}`,
+      name: project?.name ?? 'Session workspace',
+      path: active.path,
+      directories: directories.map((directory) => ({ id: directory.directoryId, name: directory.name, path: directory.path })),
+    };
+  };
   const newChatSetup = createNewChatSetup({ project: activeProject, projectId: () => props.activeProjectId, sessionId: () => props.activeSessionId });
   const {
     branches: branchesByDirectory, selectedBranches: selectedBaseBranches, useWorktree, directoryId: selectedDirectoryId,
-    standalonePath, suggestions: standaloneSuggestions, suggestionsOpen: standaloneSuggestionsOpen,
-    suggestionIndex: standaloneSuggestionIndex, suggestionsLoading: standaloneSuggestionsLoading, branchErrors,
-    setUseWorktree, setDirectoryId: setSelectedDirectoryId, setStandalonePath, setSuggestionsOpen: setStandaloneSuggestionsOpen,
-    setSuggestionIndex: setStandaloneSuggestionIndex, loadSuggestions: loadStandaloneSuggestions,
-    scheduleSuggestions: scheduleStandaloneSuggestions, selectSuggestion: selectStandaloneSuggestion, selectBranch: selectBaseBranch,
+    standalonePath, branchErrors,
+    setUseWorktree, setDirectoryId: setSelectedDirectoryId, setStandalonePath, selectBranch: selectBaseBranch,
   } = newChatSetup;
   const activeDirectory = () => {
     const project = activeProject();
@@ -156,33 +169,6 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   };
 
   let composerApi: ComposerApi | undefined;
-  let standaloneSuggestionsRef: HTMLDivElement | undefined;
-  const handleStandaloneDirectoryKeyDown = (event: KeyboardEvent) => {
-    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-      event.preventDefault();
-      if (!standaloneSuggestionsOpen()) {
-        void loadStandaloneSuggestions(standalonePath());
-        return;
-      }
-      const count = standaloneSuggestions().length;
-      if (count) {
-        const direction = event.key === 'ArrowDown' ? 1 : -1;
-        setStandaloneSuggestionIndex((index) => (index + direction + count) % count);
-      }
-    } else if (event.key === 'Enter' && standaloneSuggestionsOpen() && standaloneSuggestions().length) {
-      event.preventDefault();
-      selectStandaloneSuggestion(standaloneSuggestions()[standaloneSuggestionIndex()]);
-    } else if (event.key === 'Escape' && standaloneSuggestionsOpen()) {
-      event.preventDefault();
-      setStandaloneSuggestionsOpen(false);
-    }
-  };
-
-  createEffect(() => {
-    standaloneSuggestionIndex();
-    if (!standaloneSuggestionsOpen()) return;
-    queueMicrotask(() => standaloneSuggestionsRef?.querySelector('.highlighted')?.scrollIntoView({ block: 'nearest' }));
-  });
 
   // Session id promised by the /api/chat response but not yet committed as
   // active. The HTTP response is the single authoritative source of the id;
@@ -251,7 +237,6 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     loadModels().catch(console.error);
     fetchCommands();
     connectSSE();
-    void loadStandaloneSuggestions('', false);
   });
 
   // Project list drives the "Select a Project" dropdown for new chats.
@@ -307,6 +292,8 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     setPinnedToBottom(true); // fresh session — follow from the bottom
     setContextInfo(null);
     setSessionBinding(null);
+    setShowAddFolder(false);
+    setShowStartingFolder(false);
     setUiRequest(null);
     setQuestionsRequest(null);
     const savedPanel = getRightPanelState(id);
@@ -549,7 +536,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
           sessionId: props.activeSessionId,
           projectId: props.activeProjectId,
           directoryId: selectedDirectoryId() || undefined,
-          standalonePath: props.activeProjectId ? undefined : standalonePath().trim() || undefined,
+          standalonePath: activeProject()?.directories.length ? undefined : standalonePath().trim() || undefined,
           modelId: selectedModel() || undefined,
           thinkingLevel: selectedThinkingLevel(),
           images: prepared.images,
@@ -565,7 +552,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
           data.sessionId,
           data.projectId ?? props.activeProjectId,
           userMessage.slice(0, 200),
-          { directoryId: data.directoryId, branch: data.branch, worktree: data.worktree },
+          { workspaceKind: data.workspaceKind, directoryId: data.directoryId, branch: data.branch, worktree: data.worktree },
         );
       } else {
         stopBuffering();
@@ -680,6 +667,18 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
           <img src={lightboxUrl()!} class="lightbox-image" alt="attachment" />
         </div>
       </Show>
+      <Show when={showStartingFolder() && !props.activeSessionId}><StartingFolderModal initialPath={standalonePath()}
+        onClose={() => setShowStartingFolder(false)} onSelect={(folderPath) => { setStandalonePath(folderPath); setShowStartingFolder(false); requestAnimationFrame(() => composerApi?.focus()); }}
+        onClear={() => { setStandalonePath(''); setShowStartingFolder(false); requestAnimationFrame(() => composerApi?.focus()); }}/></Show>
+      <Show when={showAddFolder() && props.activeSessionId} keyed>{(sessionId) => <AddSessionFolderModal
+        sessionId={sessionId} worktree={!!sessionBinding()?.worktree} onClose={() => setShowAddFolder(false)}
+        onAttached={(binding) => {
+          setSessionBinding(binding);
+          setShowAddFolder(false);
+          setGitRefreshTrigger((value) => value + 1);
+          props.onTurnComplete?.();
+          requestAnimationFrame(() => composerApi?.focus());
+        }}/>}</Show>
 
       <Show when={props.activeSessionId}>
         <ChatHeader
@@ -708,20 +707,15 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
           <Show when={messages.length === 0}>
             <NewChatSetup
               activeProjectId={props.activeProjectId} activeProject={activeProject()} projects={projects()} selectedDirectoryId={selectedDirectoryId()}
-              standalonePath={standalonePath()} suggestions={standaloneSuggestions()} suggestionsOpen={standaloneSuggestionsOpen()}
-              suggestionIndex={standaloneSuggestionIndex()} suggestionsLoading={standaloneSuggestionsLoading()} useWorktree={useWorktree()}
+              standalonePath={standalonePath()} useWorktree={useWorktree()}
               branches={branchesByDirectory()} selectedBranches={selectedBaseBranches()} branchErrors={branchErrors()}
               onSelectProject={(projectId) => { setUseWorktree(false); const project = projects().find((entry) => entry.id === projectId); setSelectedDirectoryId(project?.directories[0]?.id || ''); props.onSelectProject?.(projectId); }}
               onSelectDirectory={(value) => { setUseWorktree(false); setSelectedDirectoryId(value); }}
-              onStandaloneInput={(value) => { setStandalonePath(value); scheduleStandaloneSuggestions(value); }}
-              onStandaloneFocus={() => void loadStandaloneSuggestions(standalonePath())} onStandaloneKeyDown={handleStandaloneDirectoryKeyDown}
-              onStandaloneBlur={() => window.setTimeout(() => setStandaloneSuggestionsOpen(false), 140)} onSelectSuggestion={selectStandaloneSuggestion}
-              onSuggestionIndex={setStandaloneSuggestionIndex} onSuggestionsRef={(element) => { standaloneSuggestionsRef = element; }}
-              onUseWorktree={setUseWorktree} onSelectBranch={selectBaseBranch}
+              onOpenStartingFolder={() => setShowStartingFolder(true)} onUseWorktree={setUseWorktree} onSelectBranch={selectBaseBranch}
             />
           </Show>
-          <Show when={props.activeSessionId}><SessionBar project={activeProject()} binding={sessionBinding()} diff={diffs().session}
-            onRestore={() => void handleWorktreeRestore()} onRemove={() => void handleWorktreeRemove()} onOpenChanges={() => openChangesPanel()}/></Show>
+          <Show when={props.activeSessionId}><SessionBar project={activeProject()} binding={sessionBinding()} diff={diffs().session} canAddFolder={!isProcessing() && !uiRequest() && !questionsRequest()}
+            onRestore={() => void handleWorktreeRestore()} onRemove={() => void handleWorktreeRemove()} onAddFolder={() => setShowAddFolder(true)} onOpenChanges={() => openChangesPanel()}/></Show>
           <Composer
             isConnected={isConnected()} isProcessing={isProcessing()} disabled={!!uiRequest() || !!questionsRequest() || !!sessionBinding()?.worktreeMissing}
             commands={commandsList()} projectId={props.activeProjectId} directoryId={activeDirectory()?.id} sessionId={props.activeSessionId}

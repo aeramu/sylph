@@ -16,6 +16,8 @@ export interface SessionDirectoryBinding {
 
 export interface SessionBinding {
   sessionId: string;
+  /** Scratch sessions have no user-visible workspace roots. */
+  workspaceKind?: "directories" | "scratch";
   /** Indexed project ownership. Missing means the virtual “No Project” group. */
   projectId?: string;
   /** Per-chat starting root for relative commands; not the workspace authorization boundary. */

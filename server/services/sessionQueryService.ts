@@ -21,7 +21,7 @@ export async function listSessions(query: SessionListQuery = {}): Promise<any[]>
   if (projectId) {
     const project = getProjects().find((entry) => entry.id === projectId);
     if (!project) notFound("Project not found");
-    targetDir = project.path;
+    if (project.path) targetDir = project.path;
     bindings = bindings.filter((binding) => binding.projectId === projectId);
   } else if (unprojected) {
     bindings = bindings.filter((binding) => !binding.projectId);
@@ -92,15 +92,16 @@ export async function listSessions(query: SessionListQuery = {}): Promise<any[]>
       const directoryNames = sessionDirectories?.map((directory) => directory.name);
       const activeDirectory = sessionDirectories?.find((directory) => directory.directoryId === binding?.directoryId) ?? sessionDirectories?.[0];
       const configuredDirectory = project?.directories.find((directory) => directory.id === (activeDirectory?.directoryId ?? binding?.directoryId));
-      const sourcePath = activeDirectory?.sourcePath ?? configuredDirectory?.path ?? binding?.cwd ?? session.cwd;
+      const sourcePath = binding?.workspaceKind === "scratch" ? undefined : activeDirectory?.sourcePath ?? configuredDirectory?.path ?? binding?.cwd ?? session.cwd;
       return {
         ...session,
         ...(status ? { status } : {}),
         projectId: binding?.projectId,
         projectName: project?.name,
-        directoryName: activeDirectory?.name || path.basename(binding?.cwd || session.cwd || "") || "Workspace",
+        directoryName: binding?.workspaceKind === "scratch" ? "Temporary" : activeDirectory?.name || path.basename(binding?.cwd || session.cwd || "") || "Workspace",
         cwd: binding?.cwd || session.cwd,
         ...(sourcePath ? { sourcePath } : {}),
+        ...(binding?.workspaceKind ? { workspaceKind: binding.workspaceKind } : {}),
         ...(binding?.directoryId ? { directoryId: binding.directoryId } : {}),
         ...(directoryNames?.length ? { directoryNames } : {}),
         ...(binding?.branch ? { branch: binding.branch } : {}),

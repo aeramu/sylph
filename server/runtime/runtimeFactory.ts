@@ -28,10 +28,11 @@ export async function buildRuntime(sessionManager: any, cwd: string, options: Ru
     // Introspection uses an in-memory runtime without a sessionId and should
     // not leave behind a fake session directory merely for listing resources.
     const scratchPath = typeof options.sessionId === "string" ? ensureSessionScratch(options.sessionId) : undefined;
+    const scratchIsCwd = !!scratchPath && path.resolve(scratchPath) === path.resolve(cwd) && !options.project?.directories.length;
     const permissionRoots = [
-      ...(options.project?.directories ?? [{ id: "cwd", name: "workspace", path: cwd }]).map((directory) => ({
+      ...(!scratchIsCwd ? (options.project?.directories ?? [{ id: "cwd", name: "workspace", path: cwd }]).map((directory) => ({
         id: directory.id, name: directory.name, path: directory.path, access: "read-write" as const,
-      })),
+      })) : []),
       ...(scratchPath ? [{ id: "sylph-scratch", name: "session scratch", path: scratchPath, access: "read-write" as const, temporary: true }] : []),
     ];
     const scratchEnvironment: Record<string, string> = scratchPath
@@ -59,7 +60,7 @@ export async function buildRuntime(sessionManager: any, cwd: string, options: Ru
           }
           return base;
         },
-        extensionFactories: options.project ? [{
+        extensionFactories: options.sessionId ? [{
           name: "sylph-permissions",
           factory: createPermissionExtension(
             {
@@ -86,7 +87,7 @@ export async function buildRuntime(sessionManager: any, cwd: string, options: Ru
             },
           ),
         }] : [],
-        extensionsOverride: (base) => options.project ? ({
+        extensionsOverride: (base) => options.sessionId ? ({
           ...base,
           extensions: base.extensions.filter((extension) => !isThirdPartyPermissionExtension(extension)),
         }) : base,

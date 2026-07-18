@@ -3,6 +3,7 @@ import { getProjectDirectory, type Project } from "../projects.ts";
 export function workspacePrompt(project: Project | undefined, directoryId: string | undefined, cwd: string) {
   if (!project || project.directories.length < 2) return undefined;
   const active = getProjectDirectory(project, directoryId);
+  if (!active) return undefined;
   const roots = project.directories.map((directory) =>
     `- ${directory.name}${directory.id === active.id ? " (active cwd)" : ""}: ${directory.id === active.id ? cwd : directory.path}`,
   );

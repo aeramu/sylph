@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { SCRATCH_DIR } from "./config.ts";
 
 /**
@@ -18,6 +19,14 @@ export function ensureSessionScratch(sessionId: string): string {
   fs.mkdirSync(scratchPath, { recursive: true, mode: 0o700 });
   try { fs.chmodSync(scratchPath, 0o700); } catch { /* best effort on filesystems without Unix modes */ }
   return scratchPath;
+}
+
+/** Create a Pi session whose immutable header cwd is its own scratch path. */
+export function createScratchSessionManager(): SessionManager {
+  const reserved = SessionManager.inMemory(process.cwd());
+  const sessionId = reserved.getSessionId();
+  const scratchPath = ensureSessionScratch(sessionId);
+  return SessionManager.create(scratchPath, undefined, { id: sessionId });
 }
 
 export function removeSessionScratch(sessionId: string): void {

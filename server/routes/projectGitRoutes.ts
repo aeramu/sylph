@@ -9,7 +9,8 @@ import { createGitRouter } from "./gitRoutes.ts";
 export function registerProjectGitRoutes(router: express.Router): void {
   router.get("/api/projects/:id/git/branches", async (req, res) => {
     const binding = getSessionBinding(req.query.sessionId);
-    const project = getProjectById(req.params.id) ?? (binding ? projectFromSessionBinding(binding) : undefined);
+    if (binding?.workspaceKind === "scratch") return res.status(409).json({ error: "Add a folder to use Git" });
+    const project = binding ? projectFromSessionBinding(binding) : getProjectById(req.params.id);
     if (!project) return res.status(404).json({ error: "Project not found" });
     if (binding && binding.projectId && binding.projectId !== req.params.id) return res.status(400).json({ error: "Session does not belong to this project" });
     if (!binding && typeof req.query.directoryId === "string"

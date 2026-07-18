@@ -7,6 +7,7 @@ import { registerProjectGitRoutes } from "./projectGitRoutes.ts";
 import { registerProjectRoutes } from "./projectRoutes.ts";
 import { registerResourceRoutes } from "./resourceRoutes.ts";
 import { registerSessionRoutes } from "./sessionRoutes.ts";
+import { registerSessionWorkspaceRoutes } from "./sessionWorkspaceRoutes.ts";
 import { registerSettingsRoutes } from "./settingsRoutes.ts";
 import { registerStreamRoutes } from "./streamRoutes.ts";
 import { registerWorktreeRoutes } from "./worktreeRoutes.ts";
@@ -20,6 +21,7 @@ export function createRouter(): express.Router {
   registerProjectRoutes(router);
   registerFilesystemRoutes(router);
   registerSessionRoutes(router);
+  registerSessionWorkspaceRoutes(router);
   registerWorktreeRoutes(router);
   registerResourceRoutes(router);
   registerProjectGitRoutes(router);

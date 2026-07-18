@@ -26,6 +26,7 @@ export interface SendChatCommand {
 export interface SendChatResult {
   success: true;
   sessionId: string;
+  workspaceKind?: "directories" | "scratch";
   projectId?: string;
   directoryId?: string;
   branch?: string;
@@ -47,18 +48,20 @@ export async function sendChat(input: unknown): Promise<SendChatResult> {
     if (!sessionId && projectId) {
       const project = getProjectById(projectId);
       if (!project) badRequest("Project not found");
-      if (typeof directoryId !== "string" || !project.directories.some((directory) => directory.id === directoryId)) {
+      if (project.directories.length > 0 && (typeof directoryId !== "string" || !project.directories.some((directory) => directory.id === directoryId))) {
         badRequest("Select a starting directory");
       }
     }
-    if (!sessionId && !projectId) {
-      if (typeof standalonePath !== "string" || !standalonePath.trim()) badRequest("Select a starting directory");
-      const resolved = path.resolve(standalonePath.trim());
-      if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) badRequest("Starting directory not found");
+    if (!sessionId && typeof standalonePath === "string" && standalonePath.trim()) {
+      const project = projectId ? getProjectById(projectId) : undefined;
+      if (!projectId || project?.directories.length === 0) {
+        const resolved = path.resolve(standalonePath.trim());
+        if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) badRequest("Starting directory not found");
+      }
     }
     if (!sessionId && useWorktree) {
       const project = getProjectById(projectId);
-      if (!project) badRequest("Select a project before creating worktrees");
+      if (!project?.directories.length) badRequest("Add a project directory before creating worktrees");
       const missing = project.directories.filter((directory) => {
         const value = baseBranches?.[directory.id] ?? baseBranch;
         return typeof value !== "string" || !value.trim();
@@ -110,8 +113,10 @@ export async function sendChat(input: unknown): Promise<SendChatResult> {
       : (typeof runtimeCwd === "string"
           ? projects.find((entry) => entry.directories.some((directory) => path.resolve(directory.path) === path.resolve(runtimeCwd)))
           : undefined);
-    const mentionProject = binding
-      ? projectForSession(resolvedProject ?? projectFromSessionBinding(binding), binding)
+    const mentionProject = binding?.workspaceKind === "scratch"
+      ? undefined
+      : binding
+        ? projectForSession(resolvedProject ?? projectFromSessionBinding(binding), binding)
       : resolvedProject && typeof runtimeCwd === "string"
         ? projectAtDirectory(resolvedProject, directoryId, runtimeCwd)
         : undefined;
@@ -128,6 +133,7 @@ export async function sendChat(input: unknown): Promise<SendChatResult> {
     return {
       success: true,
       sessionId: resolvedSessionId,
+      workspaceKind: binding?.workspaceKind,
       projectId: resolvedProject?.id,
       directoryId: binding?.directoryId,
       branch: binding?.branch,

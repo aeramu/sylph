@@ -5,6 +5,7 @@ import { sessionStatuses, setSessionStatus } from '../../lib/sessionStatus';
 import AddProjectModal from '../projects/AddProjectModal';
 import { deleteProject, listProjects } from '../projects/api';
 import { listSessions, type SessionInfo } from './api';
+import { compareSessionGroups, directoryGroupStartingPath, isNeutralSessionGroup } from './sessionGroupActions';
 import './SessionSidebar.css';
 
 type GroupMode = 'project' | 'directory' | 'status' | 'none';
@@ -171,12 +172,13 @@ export default function SessionSidebar(props: {
       const directory = project?.directories.find((entry) => entry.id === draft.directoryId) || project?.directories[0];
       list.unshift({
         id: draft.id,
+        workspaceKind: draft.workspaceKind,
         projectId: draft.projectId,
         projectName: project?.name,
         directoryId: draft.directoryId,
-        directoryName: directory?.name || 'Workspace',
-        sourcePath: directory?.path,
-        cwd: directory?.path,
+        directoryName: draft.workspaceKind === 'scratch' ? 'Temporary' : directory?.name || 'Workspace',
+        sourcePath: draft.workspaceKind === 'scratch' ? undefined : directory?.path,
+        cwd: draft.workspaceKind === 'scratch' ? undefined : directory?.path,
         name: draft.firstMessage || 'New Chat',
         firstMessage: draft.firstMessage,
         modified: draft.createdAt,
@@ -206,10 +208,10 @@ export default function SessionSidebar(props: {
       let label: string;
       if (groupMode() === 'project') {
         key = session.projectId || '__none__';
-        label = session.projectName || 'No Project';
+        label = session.projectName || 'Chats';
       } else if (groupMode() === 'directory') {
-        key = session.sourcePath || session.cwd || session.directoryName || '__unknown__';
-        label = session.directoryName || session.sourcePath || session.cwd || 'Unknown directory';
+        key = session.workspaceKind === 'scratch' ? '__temporary__' : session.sourcePath || session.cwd || session.directoryName || '__unknown__';
+        label = session.workspaceKind === 'scratch' ? 'Chats' : session.directoryName || session.sourcePath || session.cwd || 'Unknown directory';
       } else if (groupMode() === 'status') {
         key = statusGroup(session);
         label = key;
@@ -222,14 +224,7 @@ export default function SessionSidebar(props: {
       byKey.set(key, group);
     }
     const statusOrder: Record<string, number> = { 'Needs input': 0, 'Errors': 1, 'Working': 2, 'Idle': 3 };
-    return Array.from(byKey.values()).sort((a, b) => {
-      const pinDifference = Number(groupPinned(b.key)) - Number(groupPinned(a.key));
-      if (pinDifference) return pinDifference;
-      if (groupMode() === 'status') return (statusOrder[a.key] ?? 99) - (statusOrder[b.key] ?? 99);
-      if (groupMode() === 'project' && a.label === 'No Project') return -1;
-      if (groupMode() === 'project' && b.label === 'No Project') return 1;
-      return a.label.localeCompare(b.label);
-    });
+    return Array.from(byKey.values()).sort((a, b) => compareSessionGroups(groupMode(), groupPinned, statusOrder, a, b));
   });
 
   const groupPage = (group: { key: string; sessions: SessionInfo[] }) => {
@@ -250,10 +245,7 @@ export default function SessionSidebar(props: {
       props.onNewSession(group.key === '__none__' ? undefined : group.key);
       return;
     }
-    if (groupMode() === 'directory') {
-      const directoryPath = group.sessions.find((session) => session.sourcePath || session.cwd);
-      props.onNewSession(undefined, directoryPath?.sourcePath || directoryPath?.cwd);
-    }
+    if (groupMode() === 'directory') props.onNewSession(undefined, directoryGroupStartingPath(group));
   };
   const groupPinKey = (key: string) => `${groupMode()}:${key}`;
   const groupPinned = (key: string) => !!pinnedGroups()[groupPinKey(key)];
@@ -280,7 +272,7 @@ export default function SessionSidebar(props: {
     if (subtitleMode() === 'none') return '';
     if (subtitleMode() === 'project') return session.projectName || 'No Project';
     if (subtitleMode() === 'worktree') return session.worktree ? (session.branch || 'Worktree') : '';
-    return session.directoryName || session.cwd || 'Workspace';
+    return session.workspaceKind === 'scratch' ? 'Temporary' : session.directoryName || session.cwd || 'Workspace';
   };
 
   const chooseViewOption = <T,>(setter: (value: T) => void, value: T) => {
@@ -370,11 +362,11 @@ export default function SessionSidebar(props: {
         <div class="session-list grouped-session-list">
           <For each={groups()}>
             {(group) => (
-              <div class={`session-group ${groupCollapsed(group.key) ? 'collapsed' : ''}`}>
+              <div class={`session-group ${isNeutralSessionGroup(groupMode(), group.key) ? 'neutral' : ''} ${groupCollapsed(group.key) ? 'collapsed' : ''}`}>
                 <div class="session-group-header" onClick={() => toggleGroup(group.key)} role="button" aria-expanded={!groupCollapsed(group.key)}>
                   <div class="session-group-title">
                     <span class="session-group-label">
-                      <Show when={groupMode() !== 'none'}>
+                      <Show when={groupMode() !== 'none' && !isNeutralSessionGroup(groupMode(), group.key)}>
                         <span class={`session-group-icon ${groupMode()}`} aria-hidden="true">
                           <SessionGroupIcon mode={groupMode()} expanded={!groupCollapsed(group.key)} statusKey={group.key} />
                         </span>

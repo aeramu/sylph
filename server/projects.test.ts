@@ -34,6 +34,13 @@ describe("multi-directory projects", () => {
     expect(project.activeDirectoryId).toBeUndefined();
   });
 
+  it("keeps projects without directories", () => {
+    const project = projects.createProject({ name: "Ideas", directories: [] });
+    projects.saveProjects([project]);
+    expect(project).toEqual(expect.objectContaining({ name: "Ideas", path: "", directories: [] }));
+    expect(projects.getProjects()).toEqual([expect.objectContaining({ name: "Ideas", path: "", directories: [] })]);
+  });
+
   it("creates unique aliases without storing a default directory", () => {
     const project = projects.createProject({
       name: "Product",

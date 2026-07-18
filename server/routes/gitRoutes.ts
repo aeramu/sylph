@@ -23,7 +23,8 @@ export function createGitRouter(): express.Router {
   router.use("/api/projects/:id/git", (req, res, next) => {
     const sessionId = typeof req.query.sessionId === "string" ? req.query.sessionId : undefined;
     const binding = getSessionBinding(sessionId);
-    const project = getProjectById(req.params.id) ?? (binding ? projectFromSessionBinding(binding) : undefined);
+    if (binding?.workspaceKind === "scratch") return res.status(409).json({ error: "Add a folder to use Git" });
+    const project = binding ? projectFromSessionBinding(binding) : getProjectById(req.params.id);
     if (!project) return res.status(404).json({ error: "Project not found" });
     if (binding && binding.projectId && binding.projectId !== req.params.id) {
       return res.status(400).json({ error: "Session does not belong to this project" });

@@ -2,7 +2,7 @@ import fs from "fs";
 import { WORKTREES_DIR } from "../config.ts";
 import { getProjectById, projectAtDirectory } from "../projects.ts";
 import { getSessionBinding } from "../sessionBindings.ts";
-import { getRawManagedDirectories, hasManagedWorktrees } from "../sessionWorkspace.ts";
+import { getRawManagedDirectories, hasManagedWorktrees, sourceProjectForSession } from "../sessionWorkspace.ts";
 import { disposeRuntime, getSettledRuntime } from "../runtime/index.ts";
 import { getManagedWorktreeRemovalStatus, recreateManagedWorktree, removeManagedWorktree } from "../git.ts";
 import { conflict, notFound } from "./errors.ts";
@@ -10,8 +10,8 @@ import { conflict, notFound } from "./errors.ts";
 function getManagedSession(sessionId: string) {
   const binding = getSessionBinding(sessionId);
   if (!binding || !hasManagedWorktrees(binding)) notFound("Managed worktrees not found");
-  const project = getProjectById(binding.projectId);
-  if (!project) conflict("This worktree session no longer has a project configuration");
+  const configuredProject = getProjectById(binding.projectId);
+  const project = sourceProjectForSession(configuredProject, binding);
   return { binding, project, directories: getRawManagedDirectories(binding) };
 }
 

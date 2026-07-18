@@ -1,6 +1,6 @@
 import { createEffect, createSignal, onCleanup, type Accessor } from 'solid-js';
 import type { ProjectInfo } from '../../types';
-import { listBranches, listDirectories, type GitBranchOption } from './api';
+import { listBranches, type GitBranchOption } from './api';
 
 export function createNewChatSetup(options: { project: Accessor<ProjectInfo | undefined>; projectId: Accessor<string | undefined>; sessionId: Accessor<string | undefined> }) {
   const [branches, setBranches] = createSignal<Record<string, GitBranchOption[]>>({});
@@ -8,36 +8,9 @@ export function createNewChatSetup(options: { project: Accessor<ProjectInfo | un
   const [useWorktree, setUseWorktree] = createSignal(false);
   const [directoryId, setDirectoryId] = createSignal('');
   const [standalonePath, setStandalonePath] = createSignal('');
-  const [suggestions, setSuggestions] = createSignal<Array<{ name: string; path: string }>>([]);
-  const [suggestionsOpen, setSuggestionsOpen] = createSignal(false);
-  const [suggestionIndex, setSuggestionIndex] = createSignal(0);
-  const [suggestionsLoading, setSuggestionsLoading] = createSignal(false);
   const [branchErrors, setBranchErrors] = createSignal<Record<string, string>>({});
-  let suggestionTimer: number | undefined;
-  let suggestionController: AbortController | undefined;
   let branchRequest = 0;
 
-  const loadSuggestions = async (value: string, open = true) => {
-    suggestionController?.abort();
-    const controller = new AbortController(); suggestionController = controller; setSuggestionsLoading(true);
-    try {
-      const data = await listDirectories(value, controller.signal);
-      if (controller.signal.aborted) return;
-      setSuggestions(data.directories || []); setSuggestionIndex(0);
-      if (!value.trim() && data.currentPath) setStandalonePath(data.currentPath);
-      if (open) setSuggestionsOpen(true);
-    } catch (error) {
-      if (!(error instanceof DOMException && error.name === 'AbortError')) setSuggestions([]);
-    } finally { if (!controller.signal.aborted) setSuggestionsLoading(false); }
-  };
-  const scheduleSuggestions = (value: string) => {
-    if (suggestionTimer) clearTimeout(suggestionTimer);
-    setSuggestionIndex(0); suggestionTimer = window.setTimeout(() => void loadSuggestions(value), 180);
-  };
-  const selectSuggestion = (suggestion?: { path: string }) => {
-    if (!suggestion) return;
-    setStandalonePath(suggestion.path); void loadSuggestions(suggestion.path);
-  };
   const selectBranch = (rootId: string, branch: string) => setSelectedBranches((previous) => ({ ...previous, [rootId]: branch }));
 
   createEffect(() => {
@@ -60,7 +33,7 @@ export function createNewChatSetup(options: { project: Accessor<ProjectInfo | un
       if (Object.keys(nextErrors).length) setUseWorktree(false);
     });
   });
-  onCleanup(() => { if (suggestionTimer) clearTimeout(suggestionTimer); suggestionController?.abort(); });
-  return { branches, selectedBranches, useWorktree, directoryId, standalonePath, suggestions, suggestionsOpen, suggestionIndex, suggestionsLoading, branchErrors,
-    setUseWorktree, setDirectoryId, setStandalonePath, setSuggestionsOpen, setSuggestionIndex, loadSuggestions, scheduleSuggestions, selectSuggestion, selectBranch };
+  onCleanup(() => { branchRequest++; });
+  return { branches, selectedBranches, useWorktree, directoryId, standalonePath, branchErrors,
+    setUseWorktree, setDirectoryId, setStandalonePath, selectBranch };
 }

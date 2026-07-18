@@ -12,18 +12,17 @@ export function registerFilesystemRoutes(router: express.Router): void {
   router.get("/api/fs/files", async (req, res) => {
     try {
       const binding = getSessionBinding(req.query.sessionId);
-      const project = getProjectById(req.query.projectId) ?? (binding ? projectFromSessionBinding(binding) : undefined);
+      if (binding?.workspaceKind === "scratch") return res.json({ files: [] });
+      const project = binding ? projectFromSessionBinding(binding) : getProjectById(req.query.projectId);
       if (!project) return res.status(404).json({ error: "Project not found" });
-      if (binding && req.query.projectId && binding.projectId !== req.query.projectId) {
+      if (binding && req.query.projectId && binding.projectId && binding.projectId !== req.query.projectId) {
         return res.status(400).json({ error: "Session does not belong to this project" });
       }
       if (!binding && typeof req.query.directoryId === "string"
         && !project.directories.some((directory) => directory.id === req.query.directoryId)) {
         return res.status(400).json({ error: "Project directory not found" });
       }
-      const mentionProject = binding
-        ? projectForSession(project, binding)
-        : projectAtDirectory(project, req.query.directoryId);
+      const mentionProject = binding ? projectForSession(project, binding) : projectAtDirectory(project, req.query.directoryId);
       if (!fs.existsSync(mentionProject.path)) return res.status(404).json({ error: "Project path not found" });
 
       const query = typeof req.query.q === "string" ? req.query.q : "";

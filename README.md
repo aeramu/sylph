@@ -21,7 +21,7 @@ npm run dev   # starts vite + backend concurrently
 
 Open http://localhost:5173, add a project, choose one or more directories on disk, and start chatting.
 
-A project can contain multiple first-class directory roots (for example, separate `frontend` and `api` repositories). Choose a starting directory when opening each chat; relative shell commands begin there, while AI context, mentions, permissions, and Git can address every root. File mentions are namespaced by alias, such as `@frontend/src/App.tsx` or `@api/src/routes.ts`.
+A project can contain zero or more first-class directory roots (for example, separate `frontend` and `api` repositories). Projects without directories are useful as named session groups; their chats begin in private scratch space until a folder is attached. For projects with roots, choose a starting directory when opening each chat; relative shell commands begin there, while AI context, mentions, permissions, and Git can address every root. File mentions are namespaced by alias, such as `@frontend/src/App.tsx` or `@api/src/routes.ts`. A No Project chat can likewise start without a directory. Additional folders can be attached to any idle ongoing session without changing the saved project; worktree sessions create a matching checkout on the session branch for the new repository.
 
 Worktree mode is project-wide: Sylph creates one isolated Git worktree per directory, using independently selected base branches and a shared generated task branch name. Creation and rollback are atomic across roots. The Git panel includes a repository selector and always resolves operations through the session-specific checkout.
 

@@ -8,6 +8,7 @@ export const SYLPH_WORKSPACE_METADATA_VERSION = 1;
 
 export interface SylphWorkspaceMetadata {
   version: 1;
+  workspaceKind?: "directories" | "scratch";
   projectId?: string;
   directoryId?: string;
   cwd: string;
@@ -34,6 +35,7 @@ function parseMetadata(value: unknown): SylphWorkspaceMetadata | undefined {
   if (!value || typeof value !== "object") return undefined;
   const metadata = value as Record<string, unknown>;
   if (metadata.version !== SYLPH_WORKSPACE_METADATA_VERSION
+    || (metadata.workspaceKind !== undefined && metadata.workspaceKind !== "directories" && metadata.workspaceKind !== "scratch")
     || (metadata.projectId !== undefined && typeof metadata.projectId !== "string")
     || typeof metadata.cwd !== "string"
     || (metadata.directoryId !== undefined && typeof metadata.directoryId !== "string")
@@ -48,6 +50,7 @@ function parseMetadata(value: unknown): SylphWorkspaceMetadata | undefined {
 export function workspaceMetadataFromBinding(binding: SessionBinding): SylphWorkspaceMetadata {
   return {
     version: SYLPH_WORKSPACE_METADATA_VERSION,
+    ...(binding.workspaceKind ? { workspaceKind: binding.workspaceKind } : {}),
     ...(binding.projectId ? { projectId: binding.projectId } : {}),
     ...(binding.directoryId ? { directoryId: binding.directoryId } : {}),
     cwd: binding.cwd,
@@ -85,6 +88,7 @@ export function reconcileSessionBinding(sessionManager: SessionManager, sessionF
   const existing = getSessionBinding(sessionManager.getSessionId());
   const binding: SessionBinding = {
     sessionId: sessionManager.getSessionId(),
+    ...(metadata.workspaceKind ? { workspaceKind: metadata.workspaceKind } : {}),
     ...(metadata.projectId ? { projectId: metadata.projectId } : {}),
     ...(metadata.directoryId ? { directoryId: metadata.directoryId } : {}),
     cwd: metadata.cwd,
