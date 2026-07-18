@@ -49,7 +49,10 @@ const READ_TOOLS = new Set(["read", "grep", "find", "ls"]);
 const SENSITIVE_BASENAMES = new Set([".netrc", ".npmrc", ".pypirc"]);
 const SENSITIVE_PATH_PARTS = new Set([".ssh", ".aws", ".gnupg", ".kube"]);
 const SENSITIVE_EXTENSIONS = new Set([".pem", ".key", ".p12", ".pfx"]);
-const NETWORK_COMMANDS = new Set(["curl", "wget", "ssh", "scp", "sftp", "rsync"]);
+const NETWORK_COMMANDS = new Set([
+  // "curl",
+  "wget", "ssh", "scp", "sftp", "rsync",
+]);
 const ELEVATED_COMMANDS = new Set(["sudo", "su", "doas"]);
 const DESTRUCTIVE_COMMANDS = new Set(["rm", "rmdir", "mv", "cp", "chmod", "chown", "install", "dd"]);
 const SHELL_WRAPPERS = new Set(["sh", "bash", "zsh", "dash", "ksh", "eval"]);

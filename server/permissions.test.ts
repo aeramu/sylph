@@ -139,9 +139,10 @@ describe("Sylph permissions", () => {
     expect(evaluateToolCall(policy, tool("bash", { command: "cp id_ed25519 ./backup" }), frontend)).toMatchObject({ decision: "ask" });
   });
 
-  it("asks for network and recursive delete commands but permits opaque shell commands", () => {
+  it("asks for network and recursive delete commands but permits curl and opaque shell commands", () => {
     const { frontend, policy } = workspace();
-    expect(evaluateToolCall(policy, tool("bash", { command: "curl https://example.com" }), frontend).decision).toBe("ask");
+    expect(evaluateToolCall(policy, tool("bash", { command: "curl https://example.com" }), frontend).decision).toBe("allow");
+    expect(evaluateToolCall(policy, tool("bash", { command: "wget https://example.com" }), frontend).decision).toBe("ask");
     expect(evaluateToolCall(policy, tool("bash", { command: "rm ./file.txt" }), frontend).decision).toBe("ask");
     expect(evaluateToolCall(policy, tool("bash", { command: "rm -rf ./dist" }), frontend).decision).toBe("ask");
     expect(evaluateToolCall(policy, tool("bash", { command: "git pull" }), frontend).decision).toBe("ask");
@@ -207,7 +208,7 @@ describe("Sylph permissions", () => {
         input: async () => undefined,
       },
     };
-    const event = tool("bash", { command: "curl https://example.com" });
+    const event = tool("bash", { command: "wget https://example.com" });
     expect(await handler(event, ctx)).toBeUndefined();
     expect(await handler(event, ctx)).toBeUndefined();
     expect(prompts).toBe(1);

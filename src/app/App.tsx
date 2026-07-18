@@ -118,7 +118,11 @@ function App() {
         draftSessions={draftSessions()}
         onProjectsChanged={() => setProjectRefresh(r => r + 1)}
         onSessionDetached={(id) => {
-          if (activeSessionId() === id) setActiveSessionId(undefined);
+          if (activeSessionId() === id) {
+            setActiveSessionId(undefined);
+            setActiveProjectId(undefined);
+          }
+          setDraftSessions((sessions) => sessions.filter((session) => session.id !== id));
           setRefreshSidebar((value) => value + 1);
         }}
         onOpenSettings={() => {

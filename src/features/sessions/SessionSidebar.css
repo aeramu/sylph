@@ -260,16 +260,93 @@
 }
 
 .session-meta {
+  position: relative;
   display: flex;
   align-items: center;
-  flex: 0 0 auto;
-  gap: 0.2rem;
+  justify-content: flex-end;
+  width: 25px;
+  min-height: 24px;
+  flex: 0 0 25px;
   padding-top: 0.06rem;
   color: #72757d;
   font-size: 0.7rem;
   font-variant-numeric: tabular-nums;
 }
+.session-meta-value { display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; }
+.session-options-trigger {
+  position: absolute;
+  inset: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #777b85;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s, color 0.12s, background 0.12s;
+}
+.session-item:hover .session-meta-value,
+.session-meta:has(.session-options-trigger[aria-expanded="true"]) .session-meta-value { opacity: 0; }
+.session-item:hover .session-options-trigger,
+.session-options-trigger[aria-expanded="true"] { opacity: 1; pointer-events: auto; }
+.session-options-trigger:hover,
+.session-options-trigger[aria-expanded="true"] { background: rgba(255, 255, 255, 0.065); color: #c1c4cc; }
+.session-options-trigger svg { display: block; }
 .session-branch { display: block; max-width: 60px; overflow: hidden; color: #737783; text-overflow: ellipsis; white-space: nowrap; }
+
+.session-options-popover {
+  position: fixed;
+  z-index: 1001;
+  width: 220px;
+  overflow: hidden;
+  padding: 0.3rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 9px;
+  background: #202228;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.5);
+}
+.session-options-popover button {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 34px;
+  gap: 0.55rem;
+  padding: 0.42rem 0.5rem;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #c2c4ca;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+  text-align: left;
+}
+.session-options-popover button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.06); color: #ebecef; }
+.session-options-popover button:disabled { cursor: default; opacity: 0.55; }
+.session-options-popover button.danger { color: #e88a8a; }
+.session-options-popover button.danger:hover:not(:disabled) { background: rgba(239, 68, 68, 0.1); color: #ffaaaa; }
+.session-options-divider { height: 1px; margin: 0.28rem -0.3rem; background: rgba(255, 255, 255, 0.075); }
+.session-options-chevron { margin-left: auto; color: #747883; }
+.session-options-popover .session-options-back { color: #a5a8b0; font-weight: 570; }
+.session-project-options { max-height: 224px; overflow-y: auto; }
+.session-project-options button.selected { color: #e1e2e6; }
+.session-project-options button > span:nth-child(2) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-project-option-icon { flex: 0 0 16px; color: #8588a1; }
+.session-project-option-icon.no-project { display: inline-flex; align-items: center; justify-content: center; color: #777b84; font-size: 0.9rem; }
+.session-project-option-check { margin-left: auto; color: #979bd5; }
+.session-options-error {
+  margin: 0.3rem 0.25rem 0.1rem;
+  padding: 0.4rem 0.45rem;
+  border-radius: 5px;
+  background: rgba(239, 68, 68, 0.09);
+  color: #e79191;
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
 
 .session-group-pagination { display: flex; align-items: center; gap: 0.25rem; padding: 0.15rem 0 0; }
 .session-group-pagination button {

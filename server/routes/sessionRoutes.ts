@@ -8,6 +8,7 @@ import { reconstructInterruptedQuestion, resumeInterruptedQuestion } from "../in
 import { getSessionBinding } from "../sessionBindings.ts";
 import { getRawManagedDirectories, hasManagedWorktrees } from "../sessionWorkspace.ts";
 import { listSessions } from "../services/sessionQueryService.ts";
+import { deleteSession, moveSessionToProject } from "../services/sessionMutationService.ts";
 
 export function registerSessionRoutes(router: express.Router): void {
   router.post("/api/sessions/:sessionId/ui-response", async (req, res) => {
@@ -100,6 +101,22 @@ export function registerSessionRoutes(router: express.Router): void {
     }
   });
 
+
+  router.patch("/api/sessions/:sessionId/project", async (req, res) => {
+    try {
+      res.json(await moveSessionToProject(req.params.sessionId, req.body?.projectId));
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  router.delete("/api/sessions/:sessionId", async (req, res) => {
+    try {
+      res.json(await deleteSession(req.params.sessionId));
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
 
   router.post("/api/sessions/:sessionId/abort", async (req, res) => {
     const { sessionId } = req.params;

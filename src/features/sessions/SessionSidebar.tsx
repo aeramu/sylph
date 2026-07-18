@@ -4,7 +4,7 @@ import type { DraftSession, ProjectInfo } from '../../types';
 import { sessionStatuses, setSessionStatus } from '../../lib/sessionStatus';
 import AddProjectModal from '../projects/AddProjectModal';
 import { deleteProject, listProjects } from '../projects/api';
-import { listSessions, type SessionInfo } from './api';
+import { deleteSession, listSessions, moveSessionToProject, type SessionInfo } from './api';
 import { compareSessionGroups, directoryGroupStartingPath, isNeutralSessionGroup } from './sessionGroupActions';
 import './SessionSidebar.css';
 
@@ -118,6 +118,12 @@ export default function SessionSidebar(props: {
   createEffect(() => localStorage.setItem('sylph:session-subtitle-mode', subtitleMode()));
   const [viewMenuOpen, setViewMenuOpen] = createSignal(false);
   const [viewMenuPosition, setViewMenuPosition] = createSignal({ top: 0, left: 0 });
+  const [sessionMenu, setSessionMenu] = createSignal<SessionInfo | null>(null);
+  const [sessionMenuMode, setSessionMenuMode] = createSignal<'actions' | 'projects'>('actions');
+  const [sessionMenuPosition, setSessionMenuPosition] = createSignal({ top: 0, left: 0 });
+  const [sessionMenuAnchor, setSessionMenuAnchor] = createSignal({ top: 0, bottom: 0 });
+  const [sessionMenuBusy, setSessionMenuBusy] = createSignal(false);
+  const [sessionMenuError, setSessionMenuError] = createSignal('');
   const [showAddProject, setShowAddProject] = createSignal(false);
   const [editingProject, setEditingProject] = createSignal<ProjectInfo | null>(null);
   const [pinnedGroups, setPinnedGroups] = createSignal<Record<string, boolean>>(loadPinnedGroups());
@@ -126,10 +132,14 @@ export default function SessionSidebar(props: {
   let viewMenuRef: HTMLDivElement | undefined;
   let viewMenuTriggerRef: HTMLButtonElement | undefined;
   let viewMenuPopoverRef: HTMLDivElement | undefined;
+  let sessionMenuPopoverRef: HTMLDivElement | undefined;
 
   const closeViewMenu = (event: MouseEvent) => {
     const target = event.target as Node;
     if (!viewMenuRef?.contains(target) && !viewMenuPopoverRef?.contains(target)) setViewMenuOpen(false);
+    if (!sessionMenuPopoverRef?.contains(target) && !(target instanceof Element && target.closest('.session-options-trigger'))) {
+      setSessionMenu(null);
+    }
   };
 
   const toggleViewMenu = () => {
@@ -286,6 +296,60 @@ export default function SessionSidebar(props: {
     props.onSelectSession(session.id);
   };
 
+  const toggleSessionMenu = (session: SessionInfo, event: MouseEvent & { currentTarget: HTMLButtonElement }) => {
+    event.stopPropagation();
+    if (sessionMenu()?.id === session.id) {
+      setSessionMenu(null);
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    const popoverWidth = 220;
+    const actionMenuHeight = 96;
+    setSessionMenuAnchor({ top: rect.top, bottom: rect.bottom });
+    setSessionMenuPosition({
+      top: rect.bottom + 5 + actionMenuHeight <= window.innerHeight
+        ? rect.bottom + 5
+        : Math.max(8, rect.top - actionMenuHeight - 5),
+      left: Math.max(8, Math.min(rect.right - popoverWidth, window.innerWidth - popoverWidth - 8)),
+    });
+    setSessionMenuMode('actions');
+    setSessionMenuError('');
+    setSessionMenu(session);
+  };
+
+  const handleMoveSession = async (session: SessionInfo, projectId?: string) => {
+    setSessionMenuBusy(true);
+    setSessionMenuError('');
+    try {
+      await moveSessionToProject(session.id, projectId);
+      if (props.activeSessionId === session.id) props.onSelectProject(projectId);
+      setSessionMenu(null);
+      await refetchSessions();
+    } catch (error) {
+      setSessionMenuError(error instanceof Error ? error.message : 'Could not move chat');
+    } finally {
+      setSessionMenuBusy(false);
+    }
+  };
+
+  const handleDeleteSession = async (session: SessionInfo) => {
+    const worktreeNote = session.worktree ? '\n\nClean worktrees will be removed; their Git branches will be kept.' : '';
+    if (!confirm(`Delete “${session.name || session.firstMessage || 'Empty Chat'}”?\n\nThis permanently deletes the chat history.${worktreeNote}`)) return;
+    setSessionMenuBusy(true);
+    setSessionMenuError('');
+    try {
+      await deleteSession(session.id);
+      setSessionStatus(session.id, undefined);
+      setSessionMenu(null);
+      props.onSessionDetached(session.id);
+      await refetchSessions();
+    } catch (error) {
+      setSessionMenuError(error instanceof Error ? error.message : 'Could not delete chat');
+    } finally {
+      setSessionMenuBusy(false);
+    }
+  };
+
   const handleDeleteProject = async (id: string) => {
     await deleteProject(id);
     if (props.activeProjectId === id) props.onSelectProject(undefined);
@@ -419,19 +483,32 @@ export default function SessionSidebar(props: {
                         </Show>
                       </div>
                       <div class="session-meta">
-                        <Switch fallback={formatRelativeTime(session.modified)}>
-                          <Match when={sessionStatuses[session.id] === 'working'}>
-                            <span class="session-live-status working" title="Working…" aria-label="Working">
-                              <span class="session-typing"><span class="session-typing-dot"/><span class="session-typing-dot"/><span class="session-typing-dot"/></span>
-                            </span>
-                          </Match>
-                          <Match when={sessionStatuses[session.id] === 'needsInput'}>
-                            <span class="session-live-status needs-input" title="Waiting for your input" aria-label="Waiting for your input">
-                              <span class="session-live-status-dot" />
-                            </span>
-                          </Match>
-                          <Match when={sessionStatuses[session.id] === 'error'}><span class="session-status-icon error" title="Ended with an error">!</span></Match>
-                        </Switch>
+                        <span class="session-meta-value">
+                          <Switch fallback={formatRelativeTime(session.modified)}>
+                            <Match when={sessionStatuses[session.id] === 'working'}>
+                              <span class="session-live-status working" title="Working…" aria-label="Working">
+                                <span class="session-typing"><span class="session-typing-dot"/><span class="session-typing-dot"/><span class="session-typing-dot"/></span>
+                              </span>
+                            </Match>
+                            <Match when={sessionStatuses[session.id] === 'needsInput'}>
+                              <span class="session-live-status needs-input" title="Waiting for your input" aria-label="Waiting for your input">
+                                <span class="session-live-status-dot" />
+                              </span>
+                            </Match>
+                            <Match when={sessionStatuses[session.id] === 'error'}><span class="session-status-icon error" title="Ended with an error">!</span></Match>
+                          </Switch>
+                        </span>
+                        <button
+                          class="session-options-trigger"
+                          onClick={(event) => toggleSessionMenu(session, event)}
+                          title="Chat options"
+                          aria-label={`Options for ${session.name || session.firstMessage || 'Empty Chat'}`}
+                          aria-expanded={sessionMenu()?.id === session.id}
+                        >
+                          <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                            <circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/>
+                          </svg>
+                        </button>
                       </div>
                     </div>
                   )}
@@ -456,6 +533,67 @@ export default function SessionSidebar(props: {
           <Show when={!sessions.loading && mergedSessions().length === 0}><div class="sidebar-empty">No chats yet.</div></Show>
         </div>
       </section>
+
+      <Show when={sessionMenu()} keyed>
+        {(session) => (
+          <Portal>
+            <div
+              ref={sessionMenuPopoverRef}
+              class="session-options-popover"
+              style={{ top: `${sessionMenuPosition().top}px`, left: `${sessionMenuPosition().left}px` }}
+              role="menu"
+              aria-label={`Options for ${session.name || session.firstMessage || 'Empty Chat'}`}
+            >
+              <Show when={sessionMenuMode() === 'actions'} fallback={
+                <>
+                  <button class="session-options-back" onClick={() => { setSessionMenuMode('actions'); setSessionMenuError(''); }} disabled={sessionMenuBusy()}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    <span>Move to project</span>
+                  </button>
+                  <div class="session-options-divider" />
+                  <div class="session-project-options">
+                    <button class={session.projectId ? '' : 'selected'} onClick={() => void handleMoveSession(session, undefined)} disabled={sessionMenuBusy()}>
+                      <span class="session-project-option-icon no-project">—</span>
+                      <span>No Project</span>
+                      <Show when={!session.projectId}><span class="session-project-option-check">✓</span></Show>
+                    </button>
+                    <For each={projects() || []}>{(project) => (
+                      <button class={session.projectId === project.id ? 'selected' : ''} onClick={() => void handleMoveSession(session, project.id)} disabled={sessionMenuBusy()}>
+                        <svg class="session-project-option-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+                        <span>{project.name}</span>
+                        <Show when={session.projectId === project.id}><span class="session-project-option-check">✓</span></Show>
+                      </button>
+                    )}</For>
+                  </div>
+                </>
+              }>
+                <button onClick={() => {
+                  const anchor = sessionMenuAnchor();
+                  const projectMenuHeight = Math.min(330, 82 + (projects()?.length || 0) * 34);
+                  setSessionMenuPosition((position) => ({
+                    ...position,
+                    top: anchor.bottom + 5 + projectMenuHeight <= window.innerHeight
+                      ? anchor.bottom + 5
+                      : Math.max(8, anchor.top - projectMenuHeight - 5),
+                  }));
+                  setSessionMenuMode('projects');
+                  setSessionMenuError('');
+                }} disabled={sessionMenuBusy()}>
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="m14 11 3 3-3 3"/></svg>
+                  <span>Move to project</span>
+                  <svg class="session-options-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                </button>
+                <div class="session-options-divider" />
+                <button class="danger" onClick={() => void handleDeleteSession(session)} disabled={sessionMenuBusy()}>
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5"/></svg>
+                  <span>{sessionMenuBusy() ? 'Working…' : 'Delete chat'}</span>
+                </button>
+              </Show>
+              <Show when={sessionMenuError()}><div class="session-options-error">{sessionMenuError()}</div></Show>
+            </div>
+          </Portal>
+        )}
+      </Show>
 
       <div class="sidebar-footer">
         <button class="sidebar-settings-button" onClick={props.onOpenSettings} aria-label="Settings">

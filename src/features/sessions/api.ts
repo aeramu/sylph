@@ -29,3 +29,15 @@ export async function listSessions(): Promise<SessionInfo[]> {
   });
   return data.sessions || [];
 }
+
+export function deleteSession(id: string): Promise<{ success: boolean; branchesKept?: string[] }> {
+  return api(`/api/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+export function moveSessionToProject(id: string, projectId?: string): Promise<{ success: boolean; projectId?: string; projectName?: string }> {
+  return api(`/api/sessions/${encodeURIComponent(id)}/project`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectId: projectId || null }),
+  });
+}
