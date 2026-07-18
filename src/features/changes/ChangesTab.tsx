@@ -1,6 +1,7 @@
 import { createSignal, Index, Show } from 'solid-js';
 import type { DiffSummary, FileDiff } from '../../lib/sessionDiff';
-import { diffMode, setDiffMode } from '../../lib/diffMode';
+import DisclosureChevron from '../../shared/ui/DisclosureChevron';
+import DiffModeToggle from '../../shared/ui/DiffModeToggle';
 import DiffStats from './DiffStats';
 import DiffView from './DiffView';
 import './ChangesTab.css';
@@ -10,12 +11,7 @@ function FileDiffSection(props: { file: FileDiff; defaultExpanded: boolean }) {
   return (
     <div class="changes-file">
       <button class="changes-file-header" onClick={() => setExpanded((e) => !e)}>
-        <svg
-          class={`changes-file-chevron ${expanded() ? 'expanded' : ''}`}
-          width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-        >
-          <polyline points="6 9 12 15 18 9"></polyline>
-        </svg>
+        <DisclosureChevron expanded={expanded()} class="changes-file-chevron" />
         <span class="changes-file-path" title={props.file.path}>{props.file.path}</span>
         <span class="changes-file-stats">
           <span class="diff-stats-added">+{props.file.added}</span>
@@ -65,22 +61,7 @@ export default function ChangesTab(props: {
       >
         <div class="changes-summary">
           <DiffStats files={props.diff.files.length} added={props.diff.added} deleted={props.diff.deleted} />
-          <div class="diff-mode-toggle" role="group" aria-label="Diff layout">
-            <button
-              class={`diff-mode-btn ${diffMode() === 'split' ? 'active' : ''}`}
-              onClick={() => setDiffMode('split')}
-              title="Side-by-side diff"
-            >
-              Split
-            </button>
-            <button
-              class={`diff-mode-btn ${diffMode() === 'unified' ? 'active' : ''}`}
-              onClick={() => setDiffMode('unified')}
-              title="Unified diff"
-            >
-              Unified
-            </button>
-          </div>
+          <DiffModeToggle />
         </div>
         <div class="changes-files">
           {/* Index (not For): the diff summaries are recomputed objects on

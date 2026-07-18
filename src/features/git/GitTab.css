@@ -216,35 +216,26 @@
 }
 
 .git-diff-mode {
-  display: inline-flex;
-  overflow: hidden;
-  border: 1px solid var(--border-color);
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.14);
+}
+
+.git-tab .git-diff-mode button {
+  min-width: 1.8rem;
+  height: 1.7rem;
+  padding: 0 0.52rem;
+  font-size: 0.7rem;
+  font-weight: 550;
 }
 
 .git-tab .git-toolbar-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 1.8rem;
   height: 1.7rem;
   border: 0;
-  border-radius: 0;
   background: transparent;
   color: var(--text-secondary);
-  padding: 0 0.52rem;
-  font-size: 0.7rem;
-  font-weight: 550;
-}
-
-.git-tab .git-toolbar-icon + .git-toolbar-icon {
-  border-left: 1px solid var(--border-color);
-}
-
-.git-tab .git-toolbar-icon.active {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--text-primary);
 }
 
 .git-tab .git-refresh-button {
@@ -391,17 +382,6 @@
   font-weight: 650;
   text-transform: uppercase;
   letter-spacing: 0.025em;
-}
-
-.git-chevron {
-  flex-shrink: 0;
-  opacity: 0.6;
-  transform: rotate(-90deg);
-  transition: transform 0.15s ease;
-}
-
-.git-chevron.expanded {
-  transform: rotate(0deg);
 }
 
 .git-source-empty {

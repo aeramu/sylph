@@ -1,7 +1,8 @@
 import { Index, Show } from 'solid-js';
 import type { GitFile } from '../../lib/gitPatch';
 import { gitPatchStats, gitStatusLabel, splitGitFilePath } from '../../lib/gitPatch';
-import GitPatchView, { GitChevron } from './GitPatchView';
+import DisclosureChevron from '../../shared/ui/DisclosureChevron';
+import GitPatchView from './GitPatchView';
 
 export default function GitSourceSection(props: {
   title: string;
@@ -20,7 +21,7 @@ export default function GitSourceSection(props: {
       <section class={`git-source-section ${props.files.length === 0 ? 'empty' : ''}`}>
         <div class="git-source-section-header">
           <button class="git-source-section-toggle" onClick={props.onToggle} aria-expanded={!props.collapsed}>
-            <GitChevron expanded={!props.collapsed} />
+            <DisclosureChevron expanded={!props.collapsed} class="git-chevron" />
             <span>{props.title}</span>
             <span class="git-source-count">{props.files.length}</span>
           </button>
@@ -53,7 +54,7 @@ export default function GitSourceSection(props: {
                         title={file().path}
                         aria-expanded={!!props.expanded[key()]}
                       >
-                        <GitChevron expanded={!!props.expanded[key()]} class="git-file-chevron" />
+                        <DisclosureChevron expanded={!!props.expanded[key()]} class="git-chevron git-file-chevron" />
                         <span class="git-source-file-name">{pathParts().name}</span>
                         <Show when={pathParts().directory}>
                           <span class="git-source-file-directory">{pathParts().directory}</span>

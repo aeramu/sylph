@@ -1,6 +1,7 @@
 import { createSignal, createEffect, Show } from 'solid-js';
 import { renderMarkdown } from '../../lib/markdown';
 import { highlightMarkdownCodeBlocks } from '../../lib/codeHighlight';
+import DisclosureChevron from '../../shared/ui/DisclosureChevron';
 import './ThinkingSection.css';
 
 // Collapsible reasoning panel. Auto-expands while the model is actively
@@ -34,9 +35,7 @@ export default function ThinkingSection(p: { text: string; active: boolean }) {
     <div class={`thinking-block ${p.active ? 'active' : ''}`}>
       <div class="thinking-summary" onClick={() => setExpanded(!expanded())}>
         <span class="thinking-summary-label">{p.active ? 'Thinking…' : 'Thought'}</span>
-        <svg class={`thinking-chevron ${expanded() ? 'expanded' : ''}`} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="6 9 12 15 18 9"></polyline>
-        </svg>
+        <DisclosureChevron expanded={expanded()} class="thinking-chevron" />
       </div>
       <Show when={expanded()}>
         <div

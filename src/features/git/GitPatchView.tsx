@@ -1,23 +1,12 @@
 import { createMemo, createSignal, Index, Show } from 'solid-js';
 import DiffView, { type DiffLineAction } from '../changes/DiffView';
+import DisclosureChevron from '../../shared/ui/DisclosureChevron';
 import {
   gitHunkView,
   makeHunkPatch,
   makeLinePatch,
   parseGitPatch,
 } from '../../lib/gitPatch';
-
-export function GitChevron(props: { expanded: boolean; class?: string }) {
-  return (
-    <svg
-      class={`git-chevron ${props.expanded ? 'expanded' : ''} ${props.class ?? ''}`}
-      width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-      aria-hidden="true"
-    >
-      <polyline points="6 9 12 15 18 9"></polyline>
-    </svg>
-  );
-}
 
 export default function GitPatchView(props: {
   patch: string;
@@ -52,7 +41,7 @@ export default function GitPatchView(props: {
                     aria-expanded={!collapsedHunks()[hunkIndex]}
                     title={collapsedHunks()[hunkIndex] ? 'Expand hunk' : 'Collapse hunk'}
                   >
-                    <GitChevron expanded={!collapsedHunks()[hunkIndex]} />
+                    <DisclosureChevron expanded={!collapsedHunks()[hunkIndex]} class="git-chevron" />
                     <code>{hunk().header}</code>
                   </button>
                   <button

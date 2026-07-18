@@ -1,6 +1,6 @@
 import { createSignal, For, Show } from 'solid-js';
 import type { GitCommit, GitDivergence, GitRepositoryInfo } from '../../lib/gitPatch';
-import { GitChevron } from './GitPatchView';
+import DisclosureChevron from '../../shared/ui/DisclosureChevron';
 
 function commitDate(value: string) {
   const date = new Date(value);
@@ -42,7 +42,7 @@ export function GitBranchSection(props: {
     <section class="git-branch-section">
       <div class="git-branch-header">
         <button class="git-branch-toggle" onClick={props.onToggle} aria-expanded={!props.collapsed}>
-          <GitChevron expanded={!props.collapsed} />
+          <DisclosureChevron expanded={!props.collapsed} class="git-chevron" />
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="6" cy="5" r="2"></circle><circle cx="6" cy="19" r="2"></circle><circle cx="18" cy="12" r="2"></circle>
             <path d="M6 7v10M8 7c5 0 3 5 8 5"></path>
@@ -90,7 +90,7 @@ export function GitBranchSection(props: {
               onClick={() => setCollapsedGroups((value) => ({ ...value, unpushed: !value.unpushed }))}
               aria-expanded={!collapsedGroups().unpushed}
             >
-              <GitChevron expanded={!collapsedGroups().unpushed} />
+              <DisclosureChevron expanded={!collapsedGroups().unpushed} class="git-chevron" />
               <span>Unpushed commits</span>
               <span class="git-source-count">{props.divergence.unpushed.length}</span>
             </button>
@@ -104,7 +104,7 @@ export function GitBranchSection(props: {
               onClick={() => setCollapsedGroups((value) => ({ ...value, unpulled: !value.unpulled }))}
               aria-expanded={!collapsedGroups().unpulled}
             >
-              <GitChevron expanded={!collapsedGroups().unpulled} />
+              <DisclosureChevron expanded={!collapsedGroups().unpulled} class="git-chevron" />
               <span>Unpulled commits</span>
               <span class="git-source-count">{props.divergence.unpulled.length}</span>
             </button>
@@ -122,7 +122,7 @@ export function GitCommitHistory(props: { commits: GitCommit[]; collapsed: boole
   return (
     <section class="git-history-section">
       <button class="git-history-toggle" onClick={props.onToggle} aria-expanded={!props.collapsed}>
-        <GitChevron expanded={!props.collapsed} />
+        <DisclosureChevron expanded={!props.collapsed} class="git-chevron" />
         <span>Commits</span>
       </button>
       <Show when={!props.collapsed}>

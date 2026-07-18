@@ -4,6 +4,7 @@ import { renderMarkdown } from '../../lib/markdown';
 import { highlightMarkdownCodeBlocks } from '../../lib/codeHighlight';
 import ThinkingSection from './ThinkingSection';
 import ToolExecution from './ToolExecution';
+import ThinkingIndicator from './components/ThinkingIndicator';
 import './MessageBubble.css';
 
 export default function MessageBubble(props: { msg: ChatMessage; onImageClick: (url: string) => void }) {
@@ -67,13 +68,7 @@ export default function MessageBubble(props: { msg: ChatMessage; onImageClick: (
           </div>
         )}
 
-        {props.msg.isStreaming && (
-          <div class="thinking-indicator">
-            <div class="thinking-dot"></div>
-            <div class="thinking-dot"></div>
-            <div class="thinking-dot"></div>
-          </div>
-        )}
+        <Show when={props.msg.isStreaming}><ThinkingIndicator /></Show>
       </div>
     </div>
   );

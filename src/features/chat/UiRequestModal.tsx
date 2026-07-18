@@ -1,4 +1,5 @@
 import { createSignal, Show, For, onMount } from 'solid-js';
+import RequestCard from './components/RequestCard';
 import './ExtensionUi.css';
 
 export interface UiRequest {
@@ -29,6 +30,16 @@ export default function UiRequestModal(props: { request: UiRequest; onRespond: (
     const option = selectOptions()[selectedIndex()];
     if (option) respond({ id: props.request.id, value: option });
   };
+  const cancel = () => respond({ id: props.request.id, cancelled: true });
+  const moveSelected = (direction: 1 | -1) => {
+    const options = selectOptions();
+    if (props.request.method !== 'select' || options.length === 0) return;
+    setSelectedIndex((previous) => (previous + direction + options.length) % options.length);
+  };
+  const primaryAction = () => {
+    if (props.request.method === 'select') submitSelected();
+    else if (props.request.method === 'confirm') respond({ id: props.request.id, confirmed: true });
+  };
 
   onMount(() => {
     if (props.request.method === 'input') {
@@ -41,44 +52,34 @@ export default function UiRequestModal(props: { request: UiRequest; onRespond: (
   });
 
   return (
-    <div
-      ref={cardRef}
-      class="ui-request-card"
-      tabIndex={0}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          respond({ id: props.request.id, cancelled: true });
-          return;
-        }
-        const method = props.request.method;
-        if (method === 'confirm' && e.key === 'Enter') {
-          e.preventDefault();
-          respond({ id: props.request.id, confirmed: true });
-          return;
-        }
-        if (method !== 'select') return;
-        const options = selectOptions();
-        if (options.length === 0) return;
-        if (e.key === 'ArrowUp') {
-          e.preventDefault();
-          setSelectedIndex((prev) => (prev - 1 + options.length) % options.length);
-        } else if (e.key === 'ArrowDown') {
-          e.preventDefault();
-          setSelectedIndex((prev) => (prev + 1) % options.length);
-        } else if (e.key === 'Enter') {
-          e.preventDefault();
-          submitSelected();
-        }
+    <RequestCard
+      cardRef={(element) => { cardRef = element; }}
+      title={displayTitle()}
+      subtitle="The agent is waiting for your choice before continuing."
+      keyboard={{
+        cancel,
+        move: props.request.method === 'select' ? moveSelected : undefined,
+        primary: props.request.method === 'select' || props.request.method === 'confirm' ? primaryAction : undefined,
       }}
+      actions={<>
+        <Show when={props.request.method === 'select'}>
+          <button class="ui-request-btn" onClick={cancel}>{isPermissionRequest() ? 'Deny' : 'Skip'}</button>
+          <button class="ui-request-btn approve" onClick={submitSelected}>Submit ↵</button>
+        </Show>
+        <Show when={props.request.method === 'confirm'}>
+          <button class="ui-request-btn approve" onClick={() => respond({ id: props.request.id, confirmed: true })}>Confirm</button>
+          <button class="ui-request-btn" onClick={() => respond({ id: props.request.id, confirmed: false })}>Cancel</button>
+        </Show>
+        <Show when={props.request.method === 'input'}>
+          <button class="ui-request-btn approve" onClick={() => respond({ id: props.request.id, value: textValue() })}>Submit</button>
+          <button class="ui-request-btn" onClick={cancel}>Cancel</button>
+        </Show>
+        <Show when={props.request.method === 'editor'}>
+          <button class="ui-request-btn approve" onClick={() => respond({ id: props.request.id, value: textValue() })}>Submit</button>
+          <button class="ui-request-btn" onClick={cancel}>Cancel</button>
+        </Show>
+      </>}
     >
-      <div class="ui-request-header">
-        <div class="ui-request-icon">?</div>
-        <div>
-          <h3 class="ui-request-title">{displayTitle()}</h3>
-          <div class="ui-request-subtitle">The agent is waiting for your choice before continuing.</div>
-        </div>
-      </div>
       <Show when={displayBody()}>
         <pre class="ui-request-body">{displayBody()}</pre>
       </Show>
@@ -102,17 +103,6 @@ export default function UiRequestModal(props: { request: UiRequest; onRespond: (
             }}
           </For>
         </div>
-        <div class="ui-request-actions">
-          <button class="ui-request-btn" onClick={() => respond({ id: props.request.id, cancelled: true })}>{isPermissionRequest() ? 'Deny' : 'Skip'}</button>
-          <button class="ui-request-btn approve" onClick={submitSelected}>Submit ↵</button>
-        </div>
-      </Show>
-
-      <Show when={props.request.method === 'confirm'}>
-        <div class="ui-request-actions">
-          <button class="ui-request-btn approve" onClick={() => respond({ id: props.request.id, confirmed: true })}>Confirm</button>
-          <button class="ui-request-btn" onClick={() => respond({ id: props.request.id, confirmed: false })}>Cancel</button>
-        </div>
       </Show>
 
       <Show when={props.request.method === 'input'}>
@@ -126,10 +116,6 @@ export default function UiRequestModal(props: { request: UiRequest; onRespond: (
           onKeyDown={(e) => { if (e.key === 'Enter') respond({ id: props.request.id, value: textValue() }); }}
           autofocus
         />
-        <div class="ui-request-actions">
-          <button class="ui-request-btn approve" onClick={() => respond({ id: props.request.id, value: textValue() })}>Submit</button>
-          <button class="ui-request-btn" onClick={() => respond({ id: props.request.id, cancelled: true })}>Cancel</button>
-        </div>
       </Show>
 
       <Show when={props.request.method === 'editor'}>
@@ -141,11 +127,7 @@ export default function UiRequestModal(props: { request: UiRequest; onRespond: (
           rows={8}
           autofocus
         />
-        <div class="ui-request-actions">
-          <button class="ui-request-btn approve" onClick={() => respond({ id: props.request.id, value: textValue() })}>Submit</button>
-          <button class="ui-request-btn" onClick={() => respond({ id: props.request.id, cancelled: true })}>Cancel</button>
-        </div>
       </Show>
-    </div>
+    </RequestCard>
   );
 }

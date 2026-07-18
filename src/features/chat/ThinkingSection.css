@@ -33,16 +33,6 @@
   color: var(--text-primary);
 }
 
-.thinking-chevron {
-  transition: transform 0.15s ease;
-  opacity: 0.6;
-  transform: rotate(-90deg);
-}
-
-.thinking-chevron.expanded {
-  transform: rotate(0deg);
-}
-
 .thinking-content {
   margin-top: 0.6rem;
   padding-left: 1.1rem;

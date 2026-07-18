@@ -11,6 +11,7 @@ import {
 } from './api';
 import SettingsNavigation, { type SettingsSection } from './components/SettingsNavigation';
 import ResourceList from './components/ResourceList';
+import { SettingsMetaList, SettingsMetaRow } from './components/SettingsMetaList';
 import { createOAuthFlow } from './createOAuthFlow';
 import './SettingsModal.css';
 
@@ -279,12 +280,12 @@ export default function SettingsModal(props: { onClose: () => void }) {
                   <Show when={selectedProviderInfo()} keyed fallback={<div class="settings-modal-empty">Provider not found.</div>}>
                     {(provider) => (
                     <div class="settings-detail">
-                      <div class="settings-skill-meta">
-                        <div class="settings-skill-meta-row"><span class="settings-skill-meta-label">Name</span><span class="settings-skill-meta-value">{provider.name}</span></div>
-                        <div class="settings-skill-meta-row"><span class="settings-skill-meta-label">Provider</span><span class="settings-skill-meta-value path">{provider.id}</span></div>
-                        <div class="settings-skill-meta-row"><span class="settings-skill-meta-label">Status</span><span class={`settings-skill-meta-value ${provider.configured ? 'success' : ''}`}>{statusText(provider)}</span></div>
-                        <div class="settings-skill-meta-row"><span class="settings-skill-meta-label">Auth</span><span class="settings-skill-meta-value">{provider.authType === 'oauth' ? 'OAuth' : 'API key'}</span></div>
-                      </div>
+                      <SettingsMetaList>
+                        <SettingsMetaRow label="Name">{provider.name}</SettingsMetaRow>
+                        <SettingsMetaRow label="Provider" valueClass="path">{provider.id}</SettingsMetaRow>
+                        <SettingsMetaRow label="Status" valueClass={provider.configured ? 'success' : ''}>{statusText(provider)}</SettingsMetaRow>
+                        <SettingsMetaRow label="Auth">{provider.authType === 'oauth' ? 'OAuth' : 'API key'}</SettingsMetaRow>
+                      </SettingsMetaList>
 
                       <Show when={provider.authType === 'api_key'} fallback={
                         <div class="settings-provider-form">
@@ -406,10 +407,10 @@ export default function SettingsModal(props: { onClose: () => void }) {
                   </Show>
                 }>
                   <div class="settings-detail">
-                    <div class="settings-skill-meta">
-                      <div class="settings-skill-meta-row"><span class="settings-skill-meta-label">Type</span><span class="settings-skill-meta-value">OpenAI-compatible custom provider</span></div>
-                      <div class="settings-skill-meta-row"><span class="settings-skill-meta-label">File</span><span class="settings-skill-meta-value path">~/.pi/agent/models.json</span></div>
-                    </div>
+                    <SettingsMetaList>
+                      <SettingsMetaRow label="Type">OpenAI-compatible custom provider</SettingsMetaRow>
+                      <SettingsMetaRow label="File" valueClass="path">~/.pi/agent/models.json</SettingsMetaRow>
+                    </SettingsMetaList>
                     <div class="settings-provider-form">
                       <label class="settings-provider-label" for="new-provider-id">Provider ID *</label>
                       <input id="new-provider-id" class="settings-provider-input" value={newProviderId()} placeholder="local-openai" onInput={(e) => setNewProviderId(e.currentTarget.value)} disabled={providerOperationBusy()} />
@@ -533,12 +534,12 @@ export default function SettingsModal(props: { onClose: () => void }) {
                     <Show when={extensionDetail()} keyed fallback={<div class="settings-modal-empty">Unable to load extension.</div>}>
                       {(detail) => (
                         <div class="settings-detail">
-                          <div class="settings-skill-meta">
-                            <div class="settings-skill-meta-row"><span class="settings-skill-meta-label">Name</span><span class="settings-skill-meta-value">{detail.name}</span></div>
-                            <div class="settings-skill-meta-row"><span class="settings-skill-meta-label">Path</span><span class="settings-skill-meta-value path">{detail.path}</span></div>
-                            <Show when={detail.resolvedPath && detail.resolvedPath !== detail.path}><div class="settings-skill-meta-row"><span class="settings-skill-meta-label">Resolved</span><span class="settings-skill-meta-value path">{detail.resolvedPath}</span></div></Show>
-                            <Show when={detail.sourceInfo?.scope}><div class="settings-skill-meta-row"><span class="settings-skill-meta-label">Scope</span><span class="settings-skill-meta-value">{String(detail.sourceInfo?.scope)}</span></div></Show>
-                          </div>
+                          <SettingsMetaList>
+                            <SettingsMetaRow label="Name">{detail.name}</SettingsMetaRow>
+                            <SettingsMetaRow label="Path" valueClass="path">{detail.path}</SettingsMetaRow>
+                            <Show when={detail.resolvedPath && detail.resolvedPath !== detail.path}><SettingsMetaRow label="Resolved" valueClass="path">{detail.resolvedPath}</SettingsMetaRow></Show>
+                            <Show when={detail.sourceInfo?.scope}><SettingsMetaRow label="Scope">{String(detail.sourceInfo?.scope)}</SettingsMetaRow></Show>
+                          </SettingsMetaList>
                           <div class="settings-extension-summary">
                             <div><strong>{detail.tools.length}</strong><span>Tools</span></div>
                             <div><strong>{detail.commands.length}</strong><span>Commands</span></div>
@@ -565,11 +566,11 @@ export default function SettingsModal(props: { onClose: () => void }) {
                     <Show when={skillDetail()} keyed fallback={<div class="settings-modal-empty">Unable to load skill.</div>}>
                       {(detail) => (
                         <div class="settings-detail">
-                          <div class="settings-skill-meta">
-                            <div class="settings-skill-meta-row"><span class="settings-skill-meta-label">Name</span><span class="settings-skill-meta-value">{detail.name}</span></div>
-                            <Show when={detail.description}><div class="settings-skill-meta-row"><span class="settings-skill-meta-label">Description</span><span class="settings-skill-meta-value">{detail.description}</span></div></Show>
-                            <div class="settings-skill-meta-row"><span class="settings-skill-meta-label">Path</span><span class="settings-skill-meta-value path">{detail.path}</span></div>
-                          </div>
+                          <SettingsMetaList>
+                            <SettingsMetaRow label="Name">{detail.name}</SettingsMetaRow>
+                            <Show when={detail.description}><SettingsMetaRow label="Description">{detail.description}</SettingsMetaRow></Show>
+                            <SettingsMetaRow label="Path" valueClass="path">{detail.path}</SettingsMetaRow>
+                          </SettingsMetaList>
                           <div class="settings-skill-detail-content message-content" innerHTML={renderMarkdown(stripFrontmatter(detail.content))} />
                         </div>
                       )}

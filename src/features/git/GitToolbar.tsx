@@ -1,4 +1,4 @@
-import { diffMode, setDiffMode } from '../../lib/diffMode';
+import DiffModeToggle from '../../shared/ui/DiffModeToggle';
 
 export default function GitToolbar(props: { fileCount: number; loading: boolean; busy: boolean; onRefresh: () => void }) {
   return (
@@ -8,26 +8,7 @@ export default function GitToolbar(props: { fileCount: number; loading: boolean;
         <div class="git-subtitle">{props.fileCount} changed file{props.fileCount === 1 ? '' : 's'}</div>
       </div>
       <div class="git-toolbar-actions">
-        <div class="git-diff-mode" role="group" aria-label="Git diff layout">
-          <button
-            class={`git-toolbar-icon ${diffMode() === 'split' ? 'active' : ''}`}
-            onClick={() => setDiffMode('split')}
-            title="Side-by-side diff"
-            aria-label="Side-by-side diff"
-            aria-pressed={diffMode() === 'split'}
-          >
-            Split
-          </button>
-          <button
-            class={`git-toolbar-icon ${diffMode() === 'unified' ? 'active' : ''}`}
-            onClick={() => setDiffMode('unified')}
-            title="Unified diff"
-            aria-label="Unified diff"
-            aria-pressed={diffMode() === 'unified'}
-          >
-            Unified
-          </button>
-        </div>
+        <DiffModeToggle class="git-diff-mode" ariaLabel="Git diff layout" />
         <button
           class={`git-toolbar-icon git-refresh-button ${props.loading ? 'loading' : ''}`}
           disabled={props.loading || props.busy}

@@ -1,5 +1,6 @@
 import { createSignal, For, Show, onMount } from 'solid-js';
 import { renderMarkdown } from '../../lib/markdown';
+import RequestCard from './components/RequestCard';
 
 export interface QuestionOption {
   label: string;
@@ -221,31 +222,24 @@ export default function QuestionsModal(props: { request: QuestionsRequest; onRes
   };
 
   return (
-    <div
-      ref={cardRef}
-      class="ui-request-card"
-      tabIndex={0}
-      onKeyDown={(e) => {
-        const target = e.target as HTMLElement | null;
-        const isTextInput = target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable;
-        const isActionButton = !!target?.closest?.('.ui-request-actions');
-
-        if (e.key === 'Escape') { e.preventDefault(); cancel(); }
-        else if (e.key === 'ArrowDown') { e.preventDefault(); moveFocusedOption(1); }
-        else if (e.key === 'ArrowUp') { e.preventDefault(); moveFocusedOption(-1); }
-        else if (e.key === ' ' && !isTextInput && !isActionButton) { e.preventDefault(); toggleFocusedMultiOption(); }
-        else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit(); }
-        else if (e.key === 'Enter' && !e.shiftKey && !isActionButton) { e.preventDefault(); goNextOrSubmit(); }
-      }}
+    <RequestCard
+      cardRef={(element) => { cardRef = element; }}
+      title={qs().length > 1 ? 'A few questions' : 'A question'}
+      subtitle="The agent needs your input before continuing."
+      keyboard={{ cancel, move: moveFocusedOption, toggle: toggleFocusedMultiOption, primary: goNextOrSubmit, submit }}
+      actionsClass="questions-request-actions"
+      actions={<>
+        <button class="ui-request-btn" onClick={cancel}>Chat about this</button>
+        <Show when={qs().length > 1}>
+          <span style="opacity:.55;font-size:.82em;margin-left:auto;margin-right:4px;">{answeredCount()}/{qs().length} answered</span>
+        </Show>
+        <Show when={isLast()} fallback={
+          <button class="ui-request-btn approve" onClick={goNextOrSubmit}>Next →</button>
+        }>
+          <button class="ui-request-btn approve" disabled={!allAnswered()} onClick={submit}>Submit</button>
+        </Show>
+      </>}
     >
-      <div class="ui-request-header">
-        <div class="ui-request-icon">?</div>
-        <div>
-          <h3 class="ui-request-title">{qs().length > 1 ? 'A few questions' : 'A question'}</h3>
-          <div class="ui-request-subtitle">The agent needs your input before continuing.</div>
-        </div>
-      </div>
-
       <Show when={qs().length > 1}>
         <div style="display:flex;gap:6px;margin-top:12px;flex-wrap:wrap;">
           <For each={qs()}>
@@ -266,18 +260,6 @@ export default function QuestionsModal(props: { request: QuestionsRequest; onRes
       </Show>
 
       {renderQuestion(activeTab())}
-
-      <div class="ui-request-actions" style="margin-top:16px;align-items:center;">
-        <button class="ui-request-btn" onClick={cancel}>Chat about this</button>
-        <Show when={qs().length > 1}>
-          <span style="opacity:.55;font-size:.82em;margin-left:auto;margin-right:4px;">{answeredCount()}/{qs().length} answered</span>
-        </Show>
-        <Show when={isLast()} fallback={
-          <button class="ui-request-btn approve" onClick={goNextOrSubmit}>Next →</button>
-        }>
-          <button class="ui-request-btn approve" disabled={!allAnswered()} onClick={submit}>Submit</button>
-        </Show>
-      </div>
-    </div>
+    </RequestCard>
   );
 }

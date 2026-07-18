@@ -7,6 +7,7 @@ import { toolSummary, formatToolArgs, getEdits } from '../../lib/toolFormat';
 import { diffLines } from '../../lib/diff';
 import DiffView from '../changes/DiffView';
 import CodeView from '../../shared/ui/CodeView';
+import DisclosureChevron from '../../shared/ui/DisclosureChevron';
 import './ToolExecution.css';
 
 function fencedMarkdown(code: string, language = ''): string {
@@ -113,9 +114,7 @@ export default function ToolExecution(props: { tool: ToolCall }) {
           )}
         </Show>
         {(argSections.length > 0 || props.tool.output) && (
-          <svg class="tool-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="6 9 12 15 18 9"></polyline>
-          </svg>
+          <DisclosureChevron expanded={expanded()} class="tool-chevron" />
         )}
       </div>
       <Show when={expanded()}>

@@ -3,6 +3,7 @@ import type { ChatMessage } from '../../../types';
 import { hasRenderableContent } from '../../../lib/messages';
 import DiffStats from '../../changes/DiffStats';
 import MessageBubble from '../MessageBubble';
+import ThinkingIndicator from './ThinkingIndicator';
 
 export interface TurnChip { turn: number; files: number; added: number; deleted: number }
 
@@ -26,9 +27,7 @@ export default function MessageTimeline(props: {
       </div>}</Show>
     </>}</For>
     <Show when={props.processing && !props.messages.find((message) => message.isStreaming)}>
-      <div class="message assistant"><div class="message-bubble"><div class="thinking-indicator">
-        <div class="thinking-dot"/><div class="thinking-dot"/><div class="thinking-dot"/>
-      </div></div></div>
+      <div class="message assistant"><div class="message-bubble"><ThinkingIndicator /></div></div>
     </Show>
     <div ref={props.endRef}/>
   </div>;

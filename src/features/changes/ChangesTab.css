@@ -49,40 +49,6 @@
 }
 
 /* Split / Unified segmented toggle (drives the global diff mode). */
-.diff-mode-toggle {
-  display: inline-flex;
-  flex-shrink: 0;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.diff-mode-btn {
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: 0.72rem;
-  font-weight: 500;
-  padding: 0.22rem 0.55rem;
-  cursor: pointer;
-  transition: color 0.15s, background 0.15s;
-}
-
-.diff-mode-btn + .diff-mode-btn {
-  border-left: 1px solid var(--border-color);
-}
-
-.diff-mode-btn:hover {
-  color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.04);
-}
-
-.diff-mode-btn.active {
-  color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.09);
-}
-
 .changes-files {
   display: flex;
   flex-direction: column;
@@ -114,17 +80,6 @@
 
 .changes-file-header:hover {
   background: rgba(255, 255, 255, 0.06);
-}
-
-.changes-file-chevron {
-  flex-shrink: 0;
-  opacity: 0.6;
-  transform: rotate(-90deg);
-  transition: transform 0.15s ease;
-}
-
-.changes-file-chevron.expanded {
-  transform: rotate(0deg);
 }
 
 .changes-file-path {

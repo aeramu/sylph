@@ -20,16 +20,6 @@
   color: var(--text-primary);
 }
 
-.tool-chevron {
-  opacity: 0.6;
-  transition: transform 0.15s ease;
-  transform: rotate(-90deg);
-}
-
-.tool-header.expanded .tool-chevron {
-  transform: rotate(0deg);
-}
-
 .tool-header.error {
   color: var(--danger);
 }
