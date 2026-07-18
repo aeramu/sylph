@@ -5,6 +5,7 @@ import { getProjectById } from "../projects.ts";
 import { appendWorkspaceMetadata, recoverSessionBindingsFromPi } from "../piSessionMetadata.ts";
 import { deleteSessionBinding, getSessionBinding, saveSessionBinding, type SessionBinding } from "../sessionBindings.ts";
 import { removeSessionScratch } from "../sessionScratch.ts";
+import { clearSessionArtifactRequest } from "../uiBridge.ts";
 import { hasManagedWorktrees } from "../sessionWorkspace.ts";
 import { disposeRuntime, getSettledRuntime } from "../runtime/index.ts";
 import { badRequest, conflict, notFound } from "./errors.ts";
@@ -96,6 +97,7 @@ export async function deleteSession(sessionId: string, dependencies: SessionMuta
   const sessionFile = binding?.sessionFile || manager?.getSessionFile?.();
   if (sessionFile) fs.rmSync(sessionFile, { force: true });
   removeSessionScratch(sessionId);
+  clearSessionArtifactRequest(sessionId);
   deleteSessionBinding(sessionId);
   return { success: true, branchesKept: branchesKept.filter((branch): branch is string => !!branch) };
 }

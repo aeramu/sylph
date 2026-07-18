@@ -2,7 +2,9 @@ import express from "express";
 import { handleError } from "./routeHelpers.ts";
 import fs from "fs";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { resolveUiRequest, getPendingUiRequests, getSessionStatuses } from "../uiBridge.ts";
+import {
+  acknowledgeArtifactRequest, getPendingArtifactRequest, getPendingUiRequests, getSessionStatuses, resolveUiRequest,
+} from "../uiBridge.ts";
 import { getActiveRuntime, getOrInitRuntime, getContextInfo, getSessionEventSequence } from "../runtime/index.ts";
 import { reconstructInterruptedQuestion, resumeInterruptedQuestion } from "../interruptedQuestions.ts";
 import { getSessionBinding } from "../sessionBindings.ts";
@@ -11,6 +13,15 @@ import { listSessions } from "../services/sessionQueryService.ts";
 import { deleteSession, moveSessionToProject } from "../services/sessionMutationService.ts";
 
 export function registerSessionRoutes(router: express.Router): void {
+  router.post("/api/sessions/:sessionId/artifact-response", (req, res) => {
+    const requestId = req.body?.id;
+    if (typeof requestId !== "string") return res.status(400).json({ error: "id is required" });
+    if (!acknowledgeArtifactRequest(req.params.sessionId, requestId)) {
+      return res.status(404).json({ error: "no pending artifact request for this id" });
+    }
+    res.json({ ok: true });
+  });
+
   router.post("/api/sessions/:sessionId/ui-response", async (req, res) => {
     const { sessionId } = req.params;
     const { id } = req.body;
@@ -62,6 +73,7 @@ export function registerSessionRoutes(router: express.Router): void {
           eventSeq: getSessionEventSequence(sessionId),
           isStreaming: false,
           pendingUiRequests: [],
+          pendingArtifactRequest: getPendingArtifactRequest(sessionId),
           statuses: getSessionStatuses(sessionId),
           context: undefined,
           binding: responseBinding,
@@ -87,6 +99,10 @@ export function registerSessionRoutes(router: express.Router): void {
         // session that is currently mid-turn.
         isStreaming: !!runtime.session.isStreaming,
         pendingUiRequests,
+        // show_artifact is also a one-shot SSE event, but unlike transient UI
+        // updates its latest unviewed request survives in memory until the
+        // browser opens the artifact and acknowledges it.
+        pendingArtifactRequest: getPendingArtifactRequest(sessionId),
         // Latest extension statuses (ctx.ui.setStatus); their live SSE
         // broadcasts are one-shot and were dropped while this session wasn't
         // the active one.

@@ -31,6 +31,7 @@ export interface SessionSnapshot {
   eventSeq?: number;
   isStreaming?: boolean;
   pendingUiRequests?: any[];
+  pendingArtifactRequest?: { id: string; path: string };
 }
 
 export interface SendChatInput {
@@ -84,6 +85,12 @@ export function getSession(sessionId: string): Promise<SessionSnapshot> {
 export function respondToUi(sessionId: string, response: unknown): Promise<void> {
   return api(`/api/sessions/${encodeURIComponent(sessionId)}/ui-response`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(response),
+  });
+}
+
+export function acknowledgeArtifact(sessionId: string, id: string): Promise<void> {
+  return api(`/api/sessions/${encodeURIComponent(sessionId)}/artifact-response`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }),
   });
 }
 

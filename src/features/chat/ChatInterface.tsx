@@ -25,7 +25,7 @@ import { getRightPanelState, setRightPanelState } from '../../lib/rightPanelStat
 import { createId } from '../../lib/id';
 import { ApiError } from '../../lib/api';
 import {
-  abortSession, listCommands, listProjects, recreateWorktree,
+  abortSession, acknowledgeArtifact, listCommands, listProjects, recreateWorktree,
   removeWorktree, respondToUi, sendChat, type SessionBindingInfo,
 } from './api';
 import { connectSessionStream, PendingSessionEvents, type SessionScopedEvent } from './createSessionStream';
@@ -181,6 +181,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   // new-chat screen doesn't accumulate events from unrelated sessions.
   const pendingSessionEvents = new PendingSessionEvents<SessionScopedEvent>();
   const chatHistory = new ChatHistoryController<any>();
+  const handledArtifactRequests = new Set<string>();
 
   const fetchProjects = () => {
     listProjects().then((list) => {
@@ -362,6 +363,12 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
         if (pendingUi.method === 'questions') setQuestionsRequest(pendingUi);
         else setUiRequest(pendingUi);
       }
+      // A show_artifact event emitted while another session was active was
+      // intentionally dropped by the live session gate. The server keeps the
+      // latest request until this snapshot opens it and acknowledges its id.
+      if (data.pendingArtifactRequest?.id && data.pendingArtifactRequest.path) {
+        showArtifactRequest(sessionId, data.pendingArtifactRequest);
+      }
       for (const event of events) dispatchSessionEvent(event);
     } catch (err) {
       console.error('Failed to load history:', err);
@@ -437,6 +444,24 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     });
   };
 
+  const showArtifactRequest = (sessionId: string, request: { id?: string; path: string }) => {
+    // The session snapshot and a buffered live event can contain the same
+    // request. Present and acknowledge each id only once.
+    if (request.id && handledArtifactRequests.has(request.id)) return;
+    if (request.id) handledArtifactRequests.add(request.id);
+    setRequestedArtifactPath(request.path);
+    setArtifactRefreshTrigger((value) => value + 1);
+    openPanelTab('artifacts');
+    if (request.id) {
+      void acknowledgeArtifact(sessionId, request.id).catch((error) => {
+        // The presentation already succeeded, so acknowledgement failure must
+        // not close the panel. Allow a later snapshot to retry the ack.
+        handledArtifactRequests.delete(request.id!);
+        console.warn('Failed to acknowledge artifact presentation:', error);
+      });
+    }
+  };
+
   const handleUiMethod = (data: any) => {
     switch (data.method) {
       case 'select':
@@ -486,10 +511,8 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
         // These affect streaming/UX presentation; no visual surface needed yet.
         break;
       case 'showArtifact':
-        if (typeof data.path === 'string' && data.path) {
-          setRequestedArtifactPath(data.path);
-          setArtifactRefreshTrigger((value) => value + 1);
-          openPanelTab('artifacts');
+        if (props.activeSessionId && typeof data.path === 'string' && data.path) {
+          showArtifactRequest(props.activeSessionId, data);
         }
         break;
       default:

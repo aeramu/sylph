@@ -20,6 +20,28 @@ interface PendingUiRequest {
 
 const pendingUiRequests = new Map<string, PendingUiRequest>();
 
+// The most recent artifact the agent explicitly asked Sylph to show for each
+// session. Unlike ordinary fire-and-forget extension UI events, presentation
+// requests remain available in the session snapshot until the browser that
+// displays them acknowledges their id. This lets background sessions open the
+// requested artifact when the user returns to them.
+const pendingArtifactRequests = new Map<string, Record<string, any>>();
+
+export function getPendingArtifactRequest(sessionId: string): Record<string, any> | undefined {
+  return pendingArtifactRequests.get(sessionId);
+}
+
+export function acknowledgeArtifactRequest(sessionId: string, requestId: string): boolean {
+  const pending = pendingArtifactRequests.get(sessionId);
+  if (!pending || pending.id !== requestId) return false;
+  pendingArtifactRequests.delete(sessionId);
+  return true;
+}
+
+export function clearSessionArtifactRequest(sessionId: string): void {
+  pendingArtifactRequests.delete(sessionId);
+}
+
 // Latest extension statuses per session (statusKey → text). setStatus is a
 // fire-and-forget one-shot broadcast, so a client that wasn't watching (other
 // session active, SSE disconnect) misses it; this map lets /api/sessions/:sessionId
@@ -172,9 +194,13 @@ export function createExtensionUiContext(sessionId: string): any {
     fire("setToolsExpanded", { expanded });
 
   // Sylph-native artifact presentation. The artifact remains an ordinary file
-  // in session scratch; this event only tells the browser which one to open.
-  const showArtifact = (path: string) =>
-    fire("showArtifact", { path });
+  // in session scratch. Persist the latest presentation request until a browser
+  // displays and acknowledges it, while also broadcasting for the active view.
+  const showArtifact = (path: string) => {
+    const payload = { sessionId, type: "extension_ui_request", id: randomUUID(), method: "showArtifact", path };
+    pendingArtifactRequests.set(sessionId, payload);
+    broadcast(payload);
+  };
 
   // --- Synchronous getters: no async round-trip possible, return defaults ---
 
