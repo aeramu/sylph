@@ -8,6 +8,9 @@ export default defineConfig({
   plugins: [solid()],
   test: {
     include: ['src/**/*.browser.test.tsx'],
+    // Browser mode supplies the DOM through Playwright. Declaring the runner's
+    // base environment avoids Vitest's default jsdom install check.
+    environment: 'node',
     browser: {
       enabled: true,
       provider: playwright(),

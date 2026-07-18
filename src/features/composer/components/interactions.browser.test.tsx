@@ -3,6 +3,7 @@ import { createSignal } from 'solid-js';
 import { page, userEvent } from 'vitest/browser';
 import { afterEach, describe, expect, it } from 'vitest';
 import AutocompletePopup from './AutocompletePopup';
+import Composer from '../Composer';
 import SettingsNavigation, { type SettingsSection } from '../../settings/components/SettingsNavigation';
 import ExtensionUiHost from '../../chat/components/ExtensionUiHost';
 
@@ -18,16 +19,18 @@ describe('AutocompletePopup', () => {
   it('applies the clicked command', async () => {
     const applied: string[] = [];
     mount(() => (
-      <AutocompletePopup
-        mentions={null}
-        commands={[{ name: 'model', source: 'built-in' }, { name: 'thinking', source: 'built-in' }]}
-        selectedIndex={0}
-        mentionHeader=""
-        mentionEmpty=""
-        listRef={() => {}}
-        onMention={() => {}}
-        onCommand={(command) => applied.push(command.name)}
-      />
+      <div style={{ position: 'fixed', left: '1rem', bottom: '1rem', width: '30rem' }}>
+        <AutocompletePopup
+          mentions={null}
+          commands={[{ name: 'model', source: 'built-in' }, { name: 'thinking', source: 'built-in' }]}
+          selectedIndex={0}
+          mentionHeader=""
+          mentionEmpty=""
+          listRef={() => {}}
+          onMention={() => {}}
+          onCommand={(command) => applied.push(command.name)}
+        />
+      </div>
     ));
     await userEvent.click(page.getByText('/thinking'));
     expect(applied).toEqual(['thinking']);
@@ -38,6 +41,40 @@ describe('AutocompletePopup', () => {
       <AutocompletePopup mentions={[]} commands={null} selectedIndex={0} mentionHeader="Mentions" mentionEmpty="No matching files" listRef={() => {}} onMention={() => {}} onCommand={() => {}} />
     ));
     await expect.element(page.getByText('No matching files')).toBeInTheDocument();
+  });
+});
+
+describe('Composer', () => {
+  it('keeps the textarea as the only visible text renderer when highlighting mentions', async () => {
+    mount(() => (
+      <Composer
+        isConnected
+        isProcessing={false}
+        disabled={false}
+        commands={[]}
+        draftKey="test"
+        draftText=""
+        onDraftChange={() => {}}
+        models={[]}
+        selectedModel=""
+        onSelectModel={() => {}}
+        thinkingLevels={[]}
+        selectedThinkingLevel="off"
+        onSelectThinkingLevel={() => {}}
+        onSubmit={() => {}}
+        onStop={() => {}}
+      />
+    ));
+
+    const textarea = document.querySelector('.input-field') as HTMLTextAreaElement;
+    await userEvent.fill(textarea, '@src/file.ts followed by enough ordinary text to exercise the mirror layer');
+    const mirror = document.querySelector('.input-highlight-layer') as HTMLDivElement;
+
+    expect(textarea.classList.contains('has-highlight-layer')).toBe(false);
+    expect(getComputedStyle(textarea).color).not.toBe('rgba(0, 0, 0, 0)');
+    expect(getComputedStyle(mirror).color).toBe('rgba(0, 0, 0, 0)');
+    expect(getComputedStyle(mirror).webkitTextFillColor).toBe('rgba(0, 0, 0, 0)');
+    expect(getComputedStyle(mirror.querySelector('.input-mention-highlight')!).color).toBe('rgba(0, 0, 0, 0)');
   });
 });
 

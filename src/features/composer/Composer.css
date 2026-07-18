@@ -369,11 +369,15 @@
   inset: 0;
   pointer-events: none;
   overflow: hidden;
-  color: var(--text-primary);
+  /* Preserve the mirror's text metrics while preventing it from painting a
+     second copy of the composer's glyphs. Only mention backgrounds are visible. */
+  color: transparent;
+  -webkit-text-fill-color: transparent;
 }
 
 .input-mention-highlight {
-  color: var(--accent);
+  color: transparent;
+  -webkit-text-fill-color: transparent;
   background: rgba(99, 102, 241, 0.16);
   border-radius: 5px;
   box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.18);
@@ -388,10 +392,6 @@
   caret-color: var(--text-primary);
   resize: none;
   outline: none;
-}
-
-.input-field.has-highlight-layer {
-  color: transparent;
 }
 
 .input-field::placeholder {
