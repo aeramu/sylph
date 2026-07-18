@@ -209,7 +209,7 @@ export default function QuestionsModal(props: { request: QuestionsRequest; onRes
               <textarea
                 ref={(el) => { customInput = el; customInputs[qi] = el; }}
                 rows={1}
-                style="flex:1;min-width:0;resize:none;background:transparent;border:none;outline:none;color:inherit;font:inherit;padding:0;line-height:1.35;"
+                style="flex:1;min-width:0;resize:none;background:transparent;border:none;outline:none;color:inherit;font:inherit;font-size:1rem;padding:0;line-height:1.35;"
                 placeholder="Type your own answer…"
                 value={custom()[qi]}
                 onFocus={() => { setFocusedOptionAt(qi, q.options.length); selectCustomAt(qi); }}

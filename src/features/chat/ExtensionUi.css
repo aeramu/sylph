@@ -172,7 +172,7 @@
   border: 1px solid var(--border-color);
   background: rgba(0, 0, 0, 0.22);
   color: var(--text-primary);
-  font-size: 0.9rem;
+  font-size: 1rem;
   outline: none;
 }
 
