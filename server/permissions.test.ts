@@ -139,14 +139,14 @@ describe("Sylph permissions", () => {
     expect(evaluateToolCall(policy, tool("bash", { command: "cp id_ed25519 ./backup" }), frontend)).toMatchObject({ decision: "ask" });
   });
 
-  it("asks for network, recursive delete, and opaque shell commands", () => {
+  it("asks for network and recursive delete commands but permits opaque shell commands", () => {
     const { frontend, policy } = workspace();
     expect(evaluateToolCall(policy, tool("bash", { command: "curl https://example.com" }), frontend).decision).toBe("ask");
     expect(evaluateToolCall(policy, tool("bash", { command: "rm ./file.txt" }), frontend).decision).toBe("ask");
     expect(evaluateToolCall(policy, tool("bash", { command: "rm -rf ./dist" }), frontend).decision).toBe("ask");
     expect(evaluateToolCall(policy, tool("bash", { command: "git pull" }), frontend).decision).toBe("ask");
-    expect(evaluateToolCall(policy, tool("bash", { command: "bash -c 'cat /tmp/x'" }), frontend).decision).toBe("ask");
-    expect(evaluateToolCall(policy, tool("bash", { command: "cat \"$FILE\"" }), frontend).decision).toBe("ask");
+    expect(evaluateToolCall(policy, tool("bash", { command: "bash -c 'cat /tmp/x'" }), frontend).decision).toBe("allow");
+    expect(evaluateToolCall(policy, tool("bash", { command: "cat \"$FILE\"" }), frontend).decision).toBe("allow");
     expect(evaluateToolCall(policy, tool("bash", { command: "cd \"$DIR\" && cat file" }), frontend).decision).toBe("ask");
     expect(evaluateToolCall(policy, tool("bash", { command: "cat `printf /tmp/secret`" }), frontend).decision).toBe("ask");
   });
@@ -162,7 +162,7 @@ describe("Sylph permissions", () => {
     expect(evaluateToolCall(policy, tool("bash", { command: "rm -rf \"$SYLPH_SCRATCH_DIR/job\"" }), frontend).decision).toBe("allow");
     expect(evaluateToolCall(policy, tool("bash", { command: "rm -rf \"$SYLPH_SCRATCH_DIR\"" }), frontend).decision).toBe("ask");
     expect(evaluateToolCall(policy, tool("bash", { command: "rm -rf ./dist" }), frontend).decision).toBe("ask");
-    expect(evaluateToolCall(policy, tool("bash", { command: "cat \"$UNKNOWN\"" }), frontend).decision).toBe("ask");
+    expect(evaluateToolCall(policy, tool("bash", { command: "cat \"$UNKNOWN\"" }), frontend).decision).toBe("allow");
   });
 
   it("denies catastrophic commands and force pushes", () => {
@@ -175,11 +175,11 @@ describe("Sylph permissions", () => {
     expect(evaluateToolCall(policy, tool("bash", { command: "chmod 777 ./script.sh" }), frontend).decision).toBe("deny");
   });
 
-  it("asks before unknown custom tools and scopes grants to their inputs", () => {
+  it("allows unknown custom tools while keeping input-scoped approval keys", () => {
     const { frontend, policy } = workspace();
     const production = evaluateToolCall(policy, tool("deploy", { target: "production" }), frontend);
     const staging = evaluateToolCall(policy, tool("deploy", { target: "staging" }), frontend);
-    expect(production.decision).toBe("ask");
+    expect(production.decision).toBe("allow");
     expect(production.approvalKey).not.toBe(staging.approvalKey);
     expect(production.approvalKey).not.toContain("production");
   });

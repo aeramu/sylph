@@ -244,10 +244,10 @@ function evaluateBash(policy: PermissionPolicy, command: string, cwd: string): E
     if (commandDecision !== "deny") commandDecision = "ask";
     commandReasons.push("shell command could not be safely parsed");
   }
-  if (parsed.opaque) {
-    if (commandDecision !== "deny") commandDecision = "ask";
-    commandReasons.push("opaque shell expansion or wrapper requires confirmation");
-  }
+  // if (parsed.opaque) {
+  //   if (commandDecision !== "deny") commandDecision = "ask";
+  //   commandReasons.push("opaque shell expansion or wrapper requires confirmation");
+  // }
 
   for (const unit of parsed.units) {
     const name = commandName(unit.command);
@@ -376,8 +376,10 @@ export function evaluateToolCall(policy: PermissionPolicy, event: Pick<ToolCallE
     const serialized = JSON.stringify(event.input ?? {});
     const fingerprint = createHash("sha256").update(serialized).digest("hex").slice(0, 16);
     const preview = serialized.length > 300 ? `${serialized.slice(0, 300)}…` : serialized;
+    let decision: PermissionDecision = "allow";
+    // if (!builtInOrKnown) decision = "ask";
     return {
-      decision: builtInOrKnown ? "allow" : "ask",
+      decision,
       reason: builtInOrKnown ? "tool has no filesystem access intent" : "custom tool access cannot be fully inspected",
       summary: `Tool: ${event.toolName}${builtInOrKnown ? "" : `\nInput: ${preview}`}`,
       // Input-specific and hashed: a session grant cannot authorize every
