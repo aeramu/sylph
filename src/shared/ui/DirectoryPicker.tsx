@@ -9,6 +9,7 @@ export interface DirectorySuggestion {
 export interface DirectoryListResult {
   directories?: DirectorySuggestion[];
   currentPath?: string;
+  createCandidate?: DirectorySuggestion & { parentPath: string };
 }
 
 export function folderName(folderPath: string) {
@@ -29,6 +30,7 @@ export default function DirectoryPicker(props: {
   onPathChange: (value: string) => void;
   onAliasChange: (value: string) => void;
   loadDirectories: (value: string, signal?: AbortSignal) => Promise<DirectoryListResult>;
+  createDirectory?: (parentPath: string, name: string) => Promise<DirectorySuggestion>;
   onFolderSelected?: (suggestion: DirectorySuggestion) => void;
   onPathBlur?: (value: string) => void;
   onEscape?: () => void;
@@ -44,9 +46,11 @@ export default function DirectoryPicker(props: {
   const [pathValue, setPathValue] = createSignal(props.path);
   const [aliasValue, setAliasValue] = createSignal(props.alias);
   const [suggestions, setSuggestions] = createSignal<DirectorySuggestion[]>([]);
+  const [createCandidate, setCreateCandidate] = createSignal<(DirectorySuggestion & { parentPath: string })>();
   const [open, setOpen] = createSignal(false);
   const [highlighted, setHighlighted] = createSignal(0);
   const [loading, setLoading] = createSignal(false);
+  const [createError, setCreateError] = createSignal('');
   let suggestionsRef: HTMLDivElement | undefined;
   let pathInput: HTMLInputElement | undefined;
   let timer: number | undefined;
@@ -60,10 +64,15 @@ export default function DirectoryPicker(props: {
       const result = await props.loadDirectories(value, controller.signal);
       if (controller.signal.aborted) return;
       setSuggestions(result.directories || []);
+      setCreateCandidate(result.createCandidate);
+      setCreateError('');
       setHighlighted(0);
       setOpen(true);
     } catch (error) {
-      if (!(error instanceof DOMException && error.name === 'AbortError')) setSuggestions([]);
+      if (!(error instanceof DOMException && error.name === 'AbortError')) {
+        setSuggestions([]);
+        setCreateCandidate();
+      }
     } finally {
       if (!controller.signal.aborted) setLoading(false);
     }
@@ -85,17 +94,37 @@ export default function DirectoryPicker(props: {
     void loadSuggestions(suggestion.path);
   };
 
+  const createFolder = async () => {
+    const candidate = createCandidate();
+    if (!props.createDirectory || !candidate) return;
+    setLoading(true);
+    setCreateError('');
+    try {
+      const directory = await props.createDirectory(candidate.parentPath, candidate.name);
+      selectSuggestion(directory);
+    } catch (error) {
+      setCreateError(error instanceof Error ? error.message : 'Failed to create folder');
+      setLoading(false);
+    }
+  };
+
   const handleKeyDown = (event: KeyboardEvent) => {
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault();
       if (!open()) { void loadSuggestions(pathValue()); return; }
-      const count = suggestions().length;
+      const count = suggestions().length + (createCandidate() ? 1 : 0);
       if (count) setHighlighted((index) => (index + (event.key === 'ArrowDown' ? 1 : -1) + count) % count);
       return;
     }
-    if (event.key === 'Enter' && open() && suggestions().length) {
-      event.preventDefault();
-      selectSuggestion(suggestions()[highlighted()]);
+    if (event.key === 'Enter' && open()) {
+      const index = highlighted();
+      if (index < suggestions().length) {
+        event.preventDefault();
+        selectSuggestion(suggestions()[index]);
+      } else if (createCandidate()) {
+        event.preventDefault();
+        void createFolder();
+      }
       return;
     }
     if (event.key === 'Escape') {
@@ -123,13 +152,19 @@ export default function DirectoryPicker(props: {
           aria-expanded={open()} aria-controls={props.suggestionsId} aria-autocomplete="list"/>
         <Show when={loading()}><span class="directory-picker-loading" aria-label="Loading folders"/></Show>
         <Show when={open()}><div ref={suggestionsRef} id={props.suggestionsId} class="directory-picker-suggestions" role="listbox">
-          <Show when={suggestions().length} fallback={<div class="directory-picker-empty">No subdirectories found</div>}>
-            <For each={suggestions()}>{(suggestion, index) => <button type="button" role="option" aria-selected={highlighted() === index()}
-              class={highlighted() === index() ? 'highlighted' : ''} onMouseMove={() => setHighlighted(index())}
-              onMouseDown={(event) => event.preventDefault()} onClick={() => selectSuggestion(suggestion)}>
-              <FolderIcon size={15}/><span class="directory-picker-suggestion-name">{suggestion.name}</span><span class="directory-picker-suggestion-path">{suggestion.path}</span>
-            </button>}</For>
-          </Show>
+          <For each={suggestions()}>{(suggestion, index) => <button type="button" role="option" aria-selected={highlighted() === index()}
+            class={highlighted() === index() ? 'highlighted' : ''} onMouseMove={() => setHighlighted(index())}
+            onMouseDown={(event) => event.preventDefault()} onClick={() => selectSuggestion(suggestion)}>
+            <FolderIcon size={15}/><span class="directory-picker-suggestion-name">{suggestion.name}</span><span class="directory-picker-suggestion-path">{suggestion.path}</span>
+          </button>}</For>
+          <Show when={props.createDirectory && createCandidate()}>{(candidate) => <button type="button" role="option"
+            aria-selected={highlighted() === suggestions().length} class={`directory-picker-create-option ${highlighted() === suggestions().length ? 'highlighted' : ''}`}
+            onMouseMove={() => setHighlighted(suggestions().length)} onMouseDown={(event) => event.preventDefault()}
+            onClick={() => void createFolder()} disabled={loading()}>
+            <span class="directory-picker-create-icon" aria-hidden="true">＋</span><span class="directory-picker-suggestion-name">Create “{candidate().name}”</span><span class="directory-picker-suggestion-path">{candidate().path}</span>
+          </button>}</Show>
+          <Show when={!suggestions().length && !createCandidate()}><div class="directory-picker-empty">No subdirectories found</div></Show>
+          <Show when={createError()}><div class="directory-picker-create-error" role="alert">{createError()}</div></Show>
         </div></Show>
       </div>
     </label>

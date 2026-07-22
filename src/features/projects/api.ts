@@ -9,6 +9,7 @@ export interface DirectorySuggestion {
 export interface DirectoryListResponse {
   directories: DirectorySuggestion[];
   currentPath: string;
+  createCandidate?: DirectorySuggestion & { parentPath: string };
 }
 
 export interface ProjectDirectoryInput {
@@ -20,6 +21,13 @@ export interface ProjectDirectoryInput {
 export function listDirectories(path?: string, signal?: AbortSignal): Promise<DirectoryListResponse> {
   const query = path?.trim() ? `?path=${encodeURIComponent(path.trim())}` : '';
   return api(`/api/fs/list${query}`, { signal });
+}
+
+export async function createDirectory(parentPath: string, name: string): Promise<DirectorySuggestion> {
+  const data = await api<{ directory: DirectorySuggestion }>('/api/fs/directories', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ parentPath, name }),
+  });
+  return data.directory;
 }
 
 export async function listProjects(): Promise<ProjectInfo[]> {

@@ -1,4 +1,7 @@
 import type { Server } from "http";
+import fs from "fs";
+import os from "os";
+import path from "path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "./app.ts";
 
@@ -48,6 +51,48 @@ describe("HTTP application", () => {
     });
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: "Project name is required without a directory" });
+  });
+
+  it("offers and creates a missing folder in the searched parent directory", async () => {
+    const parentPath = fs.mkdtempSync(path.join(os.tmpdir(), "sylph-create-folder-test-"));
+    try {
+      const listResponse = await fetch(`${baseUrl}/api/fs/list?path=${encodeURIComponent(path.join(parentPath, "new workspace"))}`);
+      expect(listResponse.status).toBe(200);
+      expect(await listResponse.json()).toMatchObject({
+        directories: [],
+        currentPath: parentPath,
+        createCandidate: { name: "new workspace", path: path.join(parentPath, "new workspace"), parentPath },
+      });
+
+      const response = await fetch(`${baseUrl}/api/fs/directories`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ parentPath, name: "new workspace" }),
+      });
+      expect(response.status).toBe(201);
+      expect(await response.json()).toEqual({ directory: { name: "new workspace", path: path.join(parentPath, "new workspace") } });
+      expect(fs.statSync(path.join(parentPath, "new workspace")).isDirectory()).toBe(true);
+
+      const duplicate = await fetch(`${baseUrl}/api/fs/directories`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ parentPath, name: "new workspace" }),
+      });
+      expect(duplicate.status).toBe(409);
+      expect(await duplicate.json()).toEqual({ error: "A folder with this name already exists" });
+    } finally {
+      fs.rmSync(parentPath, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects invalid new folder names", async () => {
+    const response = await fetch(`${baseUrl}/api/fs/directories`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ parentPath: os.homedir(), name: "nested/folder" }),
+    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "Folder name cannot contain path separators" });
   });
 
   it("rejects chat requests without a prompt before initializing a runtime", async () => {

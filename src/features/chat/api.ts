@@ -64,7 +64,14 @@ export async function listProjects(): Promise<ProjectInfo[]> {
 
 export async function listDirectories(value: string, signal?: AbortSignal) {
   const query = value.trim() ? `?path=${encodeURIComponent(value.trim())}` : '';
-  return api<{ directories?: DirectorySuggestion[]; currentPath?: string }>(`/api/fs/list${query}`, { signal });
+  return api<{ directories?: DirectorySuggestion[]; currentPath?: string; createCandidate?: DirectorySuggestion & { parentPath: string } }>(`/api/fs/list${query}`, { signal });
+}
+
+export async function createDirectory(parentPath: string, name: string): Promise<DirectorySuggestion> {
+  const data = await api<{ directory: DirectorySuggestion }>('/api/fs/directories', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ parentPath, name }),
+  });
+  return data.directory;
 }
 
 export async function listBranches(projectId: string, directoryId: string): Promise<GitBranchOption[]> {

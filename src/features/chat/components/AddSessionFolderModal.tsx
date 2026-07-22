@@ -1,7 +1,7 @@
 import { createSignal, onCleanup, Show } from 'solid-js';
 import CustomSelect from '../../../shared/ui/CustomSelect';
 import DirectoryPicker, { folderName, type DirectorySuggestion } from '../../../shared/ui/DirectoryPicker';
-import { attachFolder, listAttachFolderBranches, listDirectories, type GitBranchOption, type SessionBindingInfo } from '../api';
+import { attachFolder, createDirectory, listAttachFolderBranches, listDirectories, type GitBranchOption, type SessionBindingInfo } from '../api';
 import './AddSessionFolderModal.css';
 
 export default function AddSessionFolderModal(props: {
@@ -76,7 +76,7 @@ export default function AddSessionFolderModal(props: {
         <DirectoryPicker path={folderPath()} alias={alias()} onPathChange={(value) => {
           setFolderPath(value);
           if (props.worktree) { setBranches([]); setBaseBranch(''); }
-        }} onAliasChange={setAlias} loadDirectories={listDirectories} onFolderSelected={chooseFolder}
+        }} onAliasChange={setAlias} loadDirectories={listDirectories} createDirectory={createDirectory} onFolderSelected={chooseFolder}
           onPathBlur={(value) => { if (props.worktree && value.trim() && !branches().length && !loadingBranches()) void loadBranches(value); }}
           onEscape={props.onClose} pathPlaceholder="/Users/you/code/docs" aliasFallback="docs"
           suggestionsId="session-folder-suggestions" autoFocus/>

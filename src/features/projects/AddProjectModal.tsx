@@ -1,7 +1,7 @@
 import { createSignal, For, onMount, Show } from 'solid-js';
 import type { ProjectInfo } from '../../types';
 import DirectoryPicker, { folderName } from '../../shared/ui/DirectoryPicker';
-import { listDirectories, saveProject } from './api';
+import { createDirectory, listDirectories, saveProject } from './api';
 import './ProjectModal.css';
 
 interface DirectoryDraft {
@@ -23,7 +23,7 @@ function DirectoryRow(props: {
     </button>
     <DirectoryPicker path={props.directory.path} alias={props.directory.name}
       onPathChange={(value) => props.onChange('path', value)} onAliasChange={(value) => props.onChange('name', value)}
-      loadDirectories={listDirectories} suggestionsId={`project-folder-suggestions-${props.index}`}
+      loadDirectories={listDirectories} createDirectory={createDirectory} suggestionsId={`project-folder-suggestions-${props.index}`}
       aliasFallback={props.index === 0 ? 'frontend' : 'api'}/>
   </div>;
 }

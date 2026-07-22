@@ -1,6 +1,6 @@
 import { createSignal } from 'solid-js';
 import DirectoryPicker from '../../../shared/ui/DirectoryPicker';
-import { listDirectories } from '../api';
+import { createDirectory, listDirectories } from '../api';
 import './AddSessionFolderModal.css';
 
 export default function StartingFolderModal(props: {
@@ -20,7 +20,7 @@ export default function StartingFolderModal(props: {
       </div>
       <div class="session-folder-body starting-folder-body">
         <DirectoryPicker path={folderPath()} alias="" onPathChange={setFolderPath} onAliasChange={() => {}}
-          loadDirectories={listDirectories} onEscape={props.onClose} pathPlaceholder="/Users/you/code/project"
+          loadDirectories={listDirectories} createDirectory={createDirectory} onEscape={props.onClose} pathPlaceholder="/Users/you/code/project"
           aliasFallback="root" suggestionsId="starting-folder-suggestions" showAlias={false} autoFocus/>
       </div>
       <div class="session-folder-footer starting-folder-footer">

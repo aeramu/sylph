@@ -16,4 +16,9 @@
 .directory-picker-suggestion-name { color: #d7d9e0; font-size: .76rem; font-weight: 600; }
 .directory-picker-suggestion-path { overflow: hidden; color: #646978; font-family: var(--font-mono); font-size: .65rem; text-overflow: ellipsis; white-space: nowrap; }
 .directory-picker-empty { padding: .85rem; color: #676b78; font-size: .75rem; text-align: center; }
+.directory-picker-suggestions .directory-picker-create-option { border-top: 1px solid rgba(255,255,255,.08); border-radius: 0 0 8px 8px; color: #aeb3c0; font-weight: 600; }
+.directory-picker-suggestions .directory-picker-create-option.highlighted { background: rgba(99,102,241,.13); color: var(--text-primary); }
+.directory-picker-suggestions .directory-picker-create-option:disabled { cursor: wait; opacity: .55; }
+.directory-picker-create-icon { color: var(--accent); font-size: 1rem; line-height: .8; }
+.directory-picker-create-error { padding: .35rem .4rem .25rem; color: #f0a4a4; font-size: .7rem; }
 @media (max-width: 640px) { .directory-picker-fields { grid-template-columns: 1fr; } }

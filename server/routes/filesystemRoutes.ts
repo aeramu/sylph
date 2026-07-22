@@ -1,5 +1,6 @@
 import express from "express";
 import { handleError } from "./routeHelpers.ts";
+import { badRequest, conflict } from "../services/errors.ts";
 import fs from "fs";
 import path from "path";
 import os from "os";
@@ -87,6 +88,7 @@ export function registerFilesystemRoutes(router: express.Router): void {
         : os.homedir();
       let directoryPath = requested;
       let prefix = "";
+      let createCandidate: { name: string; path: string; parentPath: string } | undefined;
       try {
         if (!fs.statSync(requested).isDirectory()) {
           directoryPath = path.dirname(requested);
@@ -94,7 +96,9 @@ export function registerFilesystemRoutes(router: express.Router): void {
         }
       } catch {
         directoryPath = path.dirname(requested);
-        prefix = path.basename(requested).toLowerCase();
+        const name = path.basename(requested);
+        prefix = name.toLowerCase();
+        if (name && name !== "." && name !== "..") createCandidate = { name, path: requested, parentPath: directoryPath };
       }
       if (!fs.existsSync(directoryPath) || !fs.statSync(directoryPath).isDirectory()) {
         return res.status(404).json({ error: "Directory not found" });
@@ -106,7 +110,35 @@ export function registerFilesystemRoutes(router: express.Router): void {
         .map((entry) => ({ name: entry.name, path: path.join(directoryPath, entry.name) }))
         .sort((a, b) => a.name.localeCompare(b.name));
 
-      res.json({ directories, currentPath: directoryPath });
+      res.json({ directories, currentPath: directoryPath, createCandidate });
+    } catch (err) {
+      handleError(res, err);
+    }
+  });
+
+  router.post("/api/fs/directories", async (req, res) => {
+    try {
+      if (typeof req.body?.parentPath !== "string" || !req.body.parentPath.trim()) badRequest("Parent folder is required");
+      if (typeof req.body?.name !== "string" || !req.body.name.trim()) badRequest("Folder name is required");
+
+      const parentPath = path.resolve(req.body.parentPath.trim());
+      const name = req.body.name.trim();
+      if (name === "." || name === ".." || name.includes("/") || name.includes("\\") || name.includes("\0")) {
+        badRequest("Folder name cannot contain path separators");
+      }
+
+      let parentStats: fs.Stats;
+      try { parentStats = await fs.promises.stat(parentPath); }
+      catch { badRequest("Parent folder not found"); }
+      if (!parentStats!.isDirectory()) badRequest("Parent path is not a folder");
+
+      const directoryPath = path.join(parentPath, name);
+      try { await fs.promises.mkdir(directoryPath); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "EEXIST") conflict("A folder with this name already exists");
+        throw error;
+      }
+      res.status(201).json({ directory: { name, path: directoryPath } });
     } catch (err) {
       handleError(res, err);
     }

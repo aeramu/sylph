@@ -6,6 +6,7 @@ import AutocompletePopup from './AutocompletePopup';
 import Composer from '../Composer';
 import SettingsNavigation, { type SettingsSection } from '../../settings/components/SettingsNavigation';
 import ExtensionUiHost from '../../chat/components/ExtensionUiHost';
+import DirectoryPicker from '../../../shared/ui/DirectoryPicker';
 
 let dispose: (() => void) | undefined;
 function mount(component: () => any) {
@@ -14,6 +15,34 @@ function mount(component: () => any) {
   dispose = render(component, host);
 }
 afterEach(() => { dispose?.(); dispose = undefined; document.body.innerHTML = ''; });
+
+describe('DirectoryPicker', () => {
+  it('offers to create a folder when the searched path does not exist', async () => {
+    const created: Array<{ parentPath: string; name: string }> = [];
+    let selectedPath = '';
+    mount(() => (
+      <DirectoryPicker path="/workspace" alias="" onPathChange={(value) => { selectedPath = value; }} onAliasChange={() => {}}
+        loadDirectories={async (value) => value === '/workspace/notes'
+          ? { currentPath: '/workspace', directories: [], createCandidate: { name: 'notes', path: '/workspace/notes', parentPath: '/workspace' } }
+          : { currentPath: '/workspace', directories: [] }}
+        createDirectory={async (parentPath, name) => {
+          created.push({ parentPath, name });
+          return { name, path: `${parentPath}/${name}` };
+        }} suggestionsId="test-directory-suggestions" showAlias={false}/>
+    ));
+
+    const input = page.getByPlaceholder('/Users/you/code/project');
+    await userEvent.fill(input, '/workspace/notes');
+    const createOption = page.getByRole('option', { name: /Create “notes”/ });
+    await expect.element(createOption).toBeInTheDocument();
+    await expect.element(createOption).toHaveAttribute('aria-selected', 'true');
+    await userEvent.click(createOption);
+
+    expect(created).toEqual([{ parentPath: '/workspace', name: 'notes' }]);
+    expect(selectedPath).toBe('/workspace/notes');
+    await expect.element(input).toHaveValue('/workspace/notes');
+  });
+});
 
 describe('AutocompletePopup', () => {
   it('applies the clicked command', async () => {
