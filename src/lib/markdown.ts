@@ -161,6 +161,11 @@ export function renderMarkdown(content: string, options: { processThinkingTags?:
 
   try {
     const renderer = new Renderer();
+    const renderLink = renderer.link.bind(renderer);
+    renderer.link = (token) => renderLink(token).replace(
+      /^<a /,
+      '<a target="_blank" rel="noopener noreferrer" ',
+    );
     renderer.code = ({ text, lang }) => {
       const language = normalizeFenceLanguage(lang || '');
       const languageClass = language ? ` language-${escapeHtml(language)}` : '';
@@ -177,7 +182,7 @@ export function renderMarkdown(content: string, options: { processThinkingTags?:
     // output is untrusted and those defeat the point of sanitizing.
     return DOMPurify.sanitize(rawHtml, {
       USE_PROFILES: { html: true, svg: true },
-      ADD_ATTR: ['class', 'target', 'viewBox', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'id', 'name', 'type', 'checked', 'disabled'],
+      ADD_ATTR: ['class', 'target', 'rel', 'viewBox', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'id', 'name', 'type', 'checked', 'disabled'],
       ADD_TAGS: ['svg', 'path', 'g', 'circle', 'rect', 'line', 'polygon', 'polyline', 'defs', 'clipPath', 'text', 'details', 'summary', 'input', 'kbd', 'del']
     });
   } catch {
