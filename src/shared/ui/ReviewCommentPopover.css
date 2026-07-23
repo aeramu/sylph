@@ -1,0 +1,90 @@
+.review-comment-popover {
+  position: fixed;
+  z-index: 190;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.7rem;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: #181b22;
+  box-shadow: 0 14px 45px rgba(0, 0, 0, 0.5);
+}
+
+.review-comment-popover-meta {
+  min-width: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+  color: var(--text-secondary);
+  font-size: 0.69rem;
+}
+
+.review-comment-popover-meta strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-comment-popover-meta span {
+  flex: none;
+}
+
+.review-comment-popover blockquote {
+  max-height: 5rem;
+  overflow: auto;
+  border-left: 2px solid var(--accent);
+  padding: 0.35rem 0.5rem;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-secondary);
+  font: 0.7rem/1.45 var(--font-mono);
+  white-space: pre-wrap;
+}
+
+.review-comment-popover textarea {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  outline: none;
+  background: rgba(0, 0, 0, 0.22);
+  padding: 0.5rem;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 1rem;
+  line-height: 1.4;
+}
+
+.review-comment-popover textarea:focus {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border-color));
+}
+
+.review-comment-popover-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+
+.review-comment-popover-actions button {
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 0.32rem 0.55rem;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.74rem;
+  cursor: pointer;
+}
+
+.review-comment-popover-actions button.primary {
+  border-color: transparent;
+  background: var(--accent);
+  color: white;
+}
+
+.review-comment-popover-actions button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}

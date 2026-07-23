@@ -1,5 +1,5 @@
 import { createMemo, createSignal, Index, Show } from 'solid-js';
-import DiffView, { type DiffLineAction } from '../changes/DiffView';
+import DiffView, { type DiffCommentRequest, type DiffLineAction } from '../changes/DiffView';
 import DisclosureChevron from '../../shared/ui/DisclosureChevron';
 import {
   gitHunkView,
@@ -16,6 +16,7 @@ export default function GitPatchView(props: {
   reverse?: boolean;
   lineActionLabel: string;
   onApplyPatch: (patch: string) => void;
+  onComment?: (request: DiffCommentRequest) => void;
 }) {
   const parsed = () => parseGitPatch(props.patch);
   const [collapsedHunks, setCollapsedHunks] = createSignal<Record<number, boolean>>({});
@@ -63,6 +64,7 @@ export default function GitPatchView(props: {
                     newLineStart={hunk().newStart}
                     oldLineActions={view().oldActions.map(action)}
                     newLineActions={view().newActions.map(action)}
+                    onComment={props.onComment}
                   />
                 </Show>
               </div>

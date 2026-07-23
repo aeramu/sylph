@@ -4,6 +4,8 @@ import { EditorView } from '@codemirror/view';
 import { basicSetup } from 'codemirror';
 import { sylphEditorTheme, sylphSyntaxHighlighting } from '../../editor/codemirrorTheme';
 import { languageExtensionForPath } from '../../editor/languages';
+import { codeCommentGutter, type CodeCommentRequest } from './codeCommentGutter';
+import './CodeComment.css';
 
 const readOnlyExtensions: Extension[] = [
   EditorView.editable.of(false),
@@ -22,7 +24,7 @@ function codeViewExtensions(languageExtensions: Extension[]): Extension[] {
   ];
 }
 
-export default function CodeView(props: { code: string; path?: string; class?: string }) {
+export default function CodeView(props: { code: string; path?: string; class?: string; onComment?: (request: CodeCommentRequest) => void }) {
   let container!: HTMLDivElement;
   let view: EditorView | undefined;
 
@@ -44,7 +46,10 @@ export default function CodeView(props: { code: string; path?: string; class?: s
       view = new EditorView({
         parent: container,
         doc: code,
-        extensions: codeViewExtensions(languageExtensions),
+        extensions: [
+          ...codeViewExtensions(languageExtensions),
+          ...codeCommentGutter({ onOpen: props.onComment }),
+        ],
       });
     });
   });

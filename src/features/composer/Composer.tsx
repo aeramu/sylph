@@ -1,10 +1,11 @@
 import { createSignal, createEffect, createMemo, Show, on, onCleanup, onMount } from 'solid-js';
-import type { Attachment, CommandInfo, ContextInfo, FileMentionInfo, ModelOption, ThinkingLevel, ThinkingLevelOption } from '../../types';
+import type { Attachment, CommandInfo, ContextInfo, FileMentionInfo, ModelOption, ReviewCommentAttachment, ThinkingLevel, ThinkingLevelOption } from '../../types';
 import { ACCEPT_ATTR } from '../../lib/attachments';
 import CustomSelect, { type CustomSelectApi } from '../../shared/ui/CustomSelect';
 import ContextIndicator from './ContextIndicator';
 import { createMentionSearch, type ActiveMention } from '../../lib/mentionSearch';
 import AttachmentList from './components/AttachmentList';
+import ReviewCommentList from './components/ReviewCommentList';
 import AutocompletePopup from './components/AutocompletePopup';
 import ThinkingSelector from './components/ThinkingSelector';
 import { createAttachments } from './createAttachments';
@@ -42,7 +43,9 @@ export default function Composer(props: {
   selectedThinkingLevel: ThinkingLevel;
   onSelectThinkingLevel: (level: ThinkingLevel) => void;
   contextInfo?: ContextInfo | null;
-  onSubmit: (text: string, attachments: Attachment[]) => void;
+  reviewComments: ReviewCommentAttachment[];
+  onRemoveReviewComment: (id: string) => void;
+  onSubmit: (text: string, attachments: Attachment[], reviewComments: ReviewCommentAttachment[]) => void;
   onStop: () => void;
   api?: (api: ComposerApi) => void;
 }) {
@@ -337,14 +340,14 @@ export default function Composer(props: {
       builtin.run();
       return;
     }
-    if (!input().trim() && attachments().length === 0) return;
+    if (!input().trim() && attachments().length === 0 && props.reviewComments.length === 0) return;
     const text = input();
     const pending = takeAttachments();
     updateInput('');
     setActiveMention(null);
     clearMentionResults();
     setSelectedIndex(0);
-    props.onSubmit(text, pending);
+    props.onSubmit(text, pending, props.reviewComments);
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
@@ -424,11 +427,12 @@ export default function Composer(props: {
     }
   };
 
-  const isEmpty = () => !input().trim() && attachments().length === 0;
+  const isEmpty = () => !input().trim() && attachments().length === 0 && props.reviewComments.length === 0;
 
   return (
     <div class={`input-area relative ${isDragOver() ? 'drag-over' : ''}`} onDrop={handleDrop} onDragOver={(e) => e.preventDefault()} onDragEnter={handleDragEnter} onDragLeave={handleDragLeave}>
       <AttachmentList attachments={attachments()} onRemove={removeAttachment} />
+      <ReviewCommentList comments={props.reviewComments} onRemove={props.onRemoveReviewComment} />
       <AutocompletePopup
         mentions={filteredMentions()}
         commands={filteredCommands()}

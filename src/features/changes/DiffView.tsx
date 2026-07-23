@@ -6,6 +6,8 @@ import { minimalSetup } from 'codemirror';
 import { sylphEditorTheme, sylphMergeTheme, sylphSyntaxHighlighting } from '../../editor/codemirrorTheme';
 import { languageExtensionForPath } from '../../editor/languages';
 import { diffMode } from '../../lib/diffMode';
+import { codeCommentGutter, type CodeCommentRequest } from '../../shared/ui/codeCommentGutter';
+import '../../shared/ui/CodeComment.css';
 
 export type DiffLineAction = {
   line: number;
@@ -13,6 +15,10 @@ export type DiffLineAction = {
   title?: string;
   onClick: () => void;
 };
+
+export interface DiffCommentRequest extends CodeCommentRequest {
+  selection: CodeCommentRequest['selection'] & { side: 'old' | 'new' };
+}
 
 const readOnlyExtensions: Extension[] = [
   EditorView.editable.of(false),
@@ -68,6 +74,8 @@ function diffEditorExtensions(
   actionCompartment: Compartment,
   lineStart: number,
   actions?: DiffLineAction[],
+  side: 'old' | 'new' = 'new',
+  onComment?: (request: DiffCommentRequest) => void,
 ): Extension[] {
   return [
     minimalSetup,
@@ -79,6 +87,11 @@ function diffEditorExtensions(
     languageCompartment.of([]),
     numberCompartment.of(sourceLineNumbers(lineStart)),
     actionCompartment.of(lineActionGutter(actions)),
+    ...codeCommentGutter({
+      lineOffset: lineStart,
+      side,
+      onOpen: onComment ? (request) => onComment(request as DiffCommentRequest) : undefined,
+    }),
     ...readOnlyExtensions,
   ];
 }
@@ -101,6 +114,7 @@ export default function DiffView(props: {
   newLineStart?: number;
   oldLineActions?: DiffLineAction[];
   newLineActions?: DiffLineAction[];
+  onComment?: (request: DiffCommentRequest) => void;
 }) {
   let container!: HTMLDivElement;
   let mergeView: MergeView | undefined;
@@ -151,7 +165,7 @@ export default function DiffView(props: {
         parent: container,
         doc: newText,
         extensions: [
-          ...diffEditorExtensions(newLanguage, newNumbers, newActions, newLineStart, newLineActions),
+          ...diffEditorExtensions(newLanguage, newNumbers, newActions, newLineStart, newLineActions, 'new', props.onComment),
           unifiedMergeView({
             original: oldText,
             mergeControls: false,
@@ -163,8 +177,8 @@ export default function DiffView(props: {
       });
     } else {
       mergeView = new MergeView({
-        a: { doc: oldText, extensions: diffEditorExtensions(oldLanguage, oldNumbers, oldActions, oldLineStart, oldLineActions) },
-        b: { doc: newText, extensions: diffEditorExtensions(newLanguage, newNumbers, newActions, newLineStart, newLineActions) },
+        a: { doc: oldText, extensions: diffEditorExtensions(oldLanguage, oldNumbers, oldActions, oldLineStart, oldLineActions, 'old', props.onComment) },
+        b: { doc: newText, extensions: diffEditorExtensions(newLanguage, newNumbers, newActions, newLineStart, newLineActions, 'new', props.onComment) },
         parent: container,
         highlightChanges: true,
         gutter: true,

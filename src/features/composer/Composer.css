@@ -229,6 +229,7 @@
 }
 
 .attachment-previews,
+.review-comment-attachments,
 .mention-previews {
   display: flex;
   flex-wrap: wrap;
@@ -238,6 +239,57 @@
 
 .mention-previews {
   padding-bottom: 0.1rem;
+}
+
+.review-comment-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  padding: 0.5rem 0.75rem 0;
+}
+
+.review-comment-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: min(360px, 100%);
+  padding: 0.35rem 0.4rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border-color));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--accent) 10%, rgba(255, 255, 255, 0.04));
+  animation: dropdownFadeIn 0.15s ease-out;
+}
+
+.review-comment-chip-icon {
+  flex: none;
+  display: inline-flex;
+  color: var(--accent);
+}
+
+.review-comment-chip-text {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.review-comment-chip-text strong,
+.review-comment-chip-text span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-comment-chip-text strong {
+  color: var(--text-secondary);
+  font-size: 0.66rem;
+  font-weight: 600;
+}
+
+.review-comment-chip-text span {
+  color: var(--text-primary);
+  font-size: 0.76rem;
 }
 
 .mention-chip {

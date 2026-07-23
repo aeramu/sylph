@@ -1,6 +1,6 @@
 import { createSignal, createEffect, createMemo, Show, onCleanup, onMount } from 'solid-js';
 import { createStore, produce } from 'solid-js/store';
-import type { Attachment, ChatMessage, CommandInfo, ContextInfo, ExtWidget, ProjectInfo } from '../../types';
+import type { Attachment, ChatMessage, CommandInfo, ContextInfo, ExtWidget, ProjectInfo, ReviewCommentAttachment } from '../../types';
 import { applyAgentEvent } from '../../lib/chatEvents';
 import { trackSessionEvent, setSessionStatus, sessionStatuses } from '../../lib/sessionStatus';
 import { mapHistoryToMessages } from '../../lib/messages';
@@ -15,6 +15,7 @@ import SessionBar from './components/SessionBar';
 import ExtensionUiHost from './components/ExtensionUiHost';
 import ChatRightPanel from './components/ChatRightPanel';
 import AddSessionFolderModal from './components/AddSessionFolderModal';
+import ReviewCommentPopover, { type ReviewCommentRequest } from '../../shared/ui/ReviewCommentPopover';
 import StartingFolderModal from './components/StartingFolderModal';
 import type { UiRequest } from './UiRequestModal';
 import type { QuestionsRequest } from './QuestionsModal';
@@ -33,6 +34,7 @@ import { createNewChatSetup } from './createNewChatSetup';
 import { createChatSession } from './createChatSession';
 import { prepareChatSubmission } from './createChatSubmission';
 import { ChatHistoryController } from './createChatHistory';
+import { addReviewComment, formatReviewComments, getReviewComments, removeReviewComments } from '../../lib/reviewComments';
 
 export default function ChatInterface(props: { activeSessionId?: string, activeProjectId?: string, onSelectProject?: (id?: string) => void, newSessionRequest?: { id: number; standalonePath?: string }, onSessionCreated: (id: string, projectId?: string, firstMessage?: string, meta?: { workspaceKind?: 'directories' | 'scratch'; directoryId?: string; branch?: string; worktree?: boolean }) => void, onTurnComplete?: () => void, onSessionRemoved?: (id: string) => void, projectRefreshTrigger?: number }) {
   const [messages, setMessages] = createStore<ChatMessage[]>([]);
@@ -95,6 +97,8 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   const [artifactRefreshTrigger, setArtifactRefreshTrigger] = createSignal(0);
   const [requestedArtifactPath, setRequestedArtifactPath] = createSignal<string>();
   const [gitDirectoryId, setGitDirectoryId] = createSignal('');
+  const [reviewRequest, setReviewRequest] = createSignal<ReviewCommentRequest>();
+  const [reviewComments, setReviewComments] = createSignal<ReviewCommentAttachment[]>([]);
   // null = whole session; a number filters the Changes tab to that turn.
   const [diffTurn, setDiffTurn] = createSignal<number | null>(null);
 
@@ -301,6 +305,8 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     setQuestionsRequest(null);
     setRequestedArtifactPath(undefined);
     setArtifactRefreshTrigger((value) => value + 1);
+    setReviewRequest(undefined);
+    setReviewComments(getReviewComments(id));
     const savedPanel = getRightPanelState(id);
     setPanelOpen(savedPanel.open);
     setPanelTab(savedPanel.tab);
@@ -543,12 +549,18 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     requestAnimationFrame(() => composerApi?.focus());
   };
 
-  const handleSubmit = async (userMessage: string, pendingAttachments: Attachment[]) => {
-    const prepared = prepareChatSubmission(userMessage, pendingAttachments);
+  const handleSubmit = async (
+    userMessage: string,
+    pendingAttachments: Attachment[],
+    pendingReviewComments: ReviewCommentAttachment[] = [],
+  ): Promise<boolean> => {
+    const reviewText = pendingReviewComments.length ? formatReviewComments(pendingReviewComments) : '';
+    const submittedText = [userMessage.trim(), reviewText].filter(Boolean).join('\n\n');
+    const prepared = prepareChatSubmission(submittedText, pendingAttachments);
     setMessages(messages.length, {
       id: createId(),
       role: 'user',
-      content: userMessage,
+      content: submittedText,
       images: prepared.messageImages,
     });
     setPinnedToBottom(true); // user just sent — follow the reply
@@ -591,12 +603,13 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
         props.onSessionCreated(
           data.sessionId,
           data.projectId ?? props.activeProjectId,
-          userMessage.slice(0, 200),
+          submittedText.slice(0, 200),
           { workspaceKind: data.workspaceKind, directoryId: data.directoryId, branch: data.branch, worktree: data.worktree },
         );
       } else {
         stopBuffering();
       }
+      return true;
     } catch (err) {
       stopBuffering();
       console.error('Failed to send message:', err);
@@ -606,7 +619,23 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
         content: '',
         errorMessage: err instanceof Error ? err.message : 'Failed to connect to server',
       });
+      return false;
     }
+  };
+
+  const saveReviewComment = (comment: Parameters<typeof addReviewComment>[1]) => {
+    const sessionId = props.activeSessionId;
+    if (!sessionId) return;
+    setReviewComments(addReviewComment(sessionId, comment));
+    setReviewRequest(undefined);
+  };
+
+  const deleteReviewComment = (commentId: string) => {
+    const sessionId = props.activeSessionId;
+    if (!sessionId) return;
+    const remaining = reviewComments().filter((comment) => comment.id !== commentId);
+    setReviewComments(remaining);
+    removeReviewComments(sessionId, [commentId]);
   };
 
   const handleStop = async () => {
@@ -707,6 +736,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
           <img src={lightboxUrl()!} class="lightbox-image" alt="attachment" />
         </div>
       </Show>
+      <ReviewCommentPopover request={reviewRequest()} onCancel={() => setReviewRequest(undefined)} onSave={saveReviewComment}/>
       <Show when={showStartingFolder() && !props.activeSessionId}><StartingFolderModal initialPath={standalonePath()}
         onClose={() => setShowStartingFolder(false)} onSelect={(folderPath) => { setStandalonePath(folderPath); setShowStartingFolder(false); requestAnimationFrame(() => composerApi?.focus()); }}
         onClear={() => { setStandalonePath(''); setShowStartingFolder(false); requestAnimationFrame(() => composerApi?.focus()); }}/></Show>
@@ -762,7 +792,15 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
             draftKey={chatDraftKey()} draftText={getChatDraft(chatDraftKey())} onDraftChange={(text) => setChatDraft(chatDraftKey(), text)}
             models={models()} selectedModel={selectedModel()} onSelectModel={selectModel} thinkingLevels={thinkingLevelOptions()}
             selectedThinkingLevel={selectedThinkingLevel()} onSelectThinkingLevel={selectThinkingLevel} contextInfo={contextInfo()}
-            onSubmit={handleSubmit} onStop={handleStop} api={(api) => { composerApi = api; }}
+            reviewComments={reviewComments()} onRemoveReviewComment={deleteReviewComment}
+            onSubmit={async (text, attachments, comments) => {
+              const sent = await handleSubmit(text, attachments, comments);
+              const sessionId = props.activeSessionId;
+              if (sent && sessionId && comments.length) {
+                setReviewComments(removeReviewComments(sessionId, comments.map((comment) => comment.id)));
+              }
+            }}
+            onStop={handleStop} api={(api) => { composerApi = api; }}
           />
         </ExtensionUiHost>
       </div>
@@ -774,7 +812,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       gitRefreshTrigger={gitRefreshTrigger()} artifactPath={requestedArtifactPath()} artifactRefreshTrigger={artifactRefreshTrigger()}
       diff={diffTurn() != null ? (diffs().turns.get(diffTurn()!) ?? emptyDiffSummary()) : diffs().session}
       turnFilter={diffTurn()} onSelectTab={selectPanelTab} onClose={closePanel} onResize={startPanelResize}
-      onGitDirectory={setGitDirectoryId} onClearTurn={() => setDiffTurn(null)}
+      onGitDirectory={setGitDirectoryId} onClearTurn={() => setDiffTurn(null)} onComment={setReviewRequest}
     />
     </div>
   );

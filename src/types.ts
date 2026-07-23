@@ -37,6 +37,18 @@ export interface Attachment {
   text?: string;
 }
 
+export interface ReviewCommentAttachment {
+  id: string;
+  surface: 'artifact' | 'git';
+  path: string;
+  comment: string;
+  quote: string;
+  lineStart?: number;
+  lineEnd?: number;
+  side?: 'old' | 'new';
+  changeSet?: 'staged' | 'unstaged';
+}
+
 export interface CommandInfo {
   name: string;
   source: string;

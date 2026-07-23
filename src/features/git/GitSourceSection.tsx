@@ -3,6 +3,7 @@ import type { GitFile } from '../../lib/gitPatch';
 import { gitPatchStats, gitStatusLabel, splitGitFilePath } from '../../lib/gitPatch';
 import DisclosureChevron from '../../shared/ui/DisclosureChevron';
 import GitPatchView from './GitPatchView';
+import type { DiffCommentRequest } from '../changes/DiffView';
 
 export default function GitSourceSection(props: {
   title: string;
@@ -16,6 +17,7 @@ export default function GitSourceSection(props: {
   onFileAction: (file: GitFile) => void;
   onAllAction: () => void;
   onApplyPatch: (file: GitFile, patch: string, reverse: boolean) => void;
+  onComment?: (file: GitFile, changeSet: 'staged' | 'unstaged', request: DiffCommentRequest) => void;
 }) {
   return (
       <section class={`git-source-section ${props.files.length === 0 ? 'empty' : ''}`}>
@@ -87,6 +89,9 @@ export default function GitSourceSection(props: {
                           reverse={props.staged}
                           lineActionLabel={props.staged ? 'Unstage line' : 'Stage line'}
                           onApplyPatch={(partial) => props.onApplyPatch(file(), partial, props.staged)}
+                          onComment={props.onComment
+                            ? (request) => props.onComment?.(file(), props.staged ? 'staged' : 'unstaged', request)
+                            : undefined}
                         />
                       </Show>
                     </Show>

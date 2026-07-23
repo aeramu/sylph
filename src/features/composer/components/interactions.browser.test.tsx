@@ -74,6 +74,37 @@ describe('AutocompletePopup', () => {
 });
 
 describe('Composer', () => {
+  it('submits review-comment chips with the next message', async () => {
+    let submitted: any[] | undefined;
+    mount(() => (
+      <Composer
+        isConnected
+        isProcessing={false}
+        disabled={false}
+        commands={[]}
+        draftKey="review-test"
+        draftText="Please fix this"
+        onDraftChange={() => {}}
+        models={[]}
+        selectedModel=""
+        onSelectModel={() => {}}
+        thinkingLevels={[]}
+        selectedThinkingLevel="off"
+        onSelectThinkingLevel={() => {}}
+        reviewComments={[{
+          id: 'comment-1', surface: 'git', path: 'src/api.ts', quote: 'return oldValue', comment: 'Keep the fallback.',
+          lineStart: 42, lineEnd: 42, side: 'new', changeSet: 'unstaged',
+        }]}
+        onRemoveReviewComment={() => {}}
+        onSubmit={(_text, _attachments, comments) => { submitted = comments; }}
+        onStop={() => {}}
+      />
+    ));
+
+    await userEvent.click(page.getByRole('button', { name: 'Send message' }));
+    expect(submitted).toEqual([expect.objectContaining({ id: 'comment-1', path: 'src/api.ts', comment: 'Keep the fallback.' })]);
+  });
+
   it('keeps the textarea as the only visible text renderer when highlighting mentions', async () => {
     mount(() => (
       <Composer
@@ -90,6 +121,8 @@ describe('Composer', () => {
         thinkingLevels={[]}
         selectedThinkingLevel="off"
         onSelectThinkingLevel={() => {}}
+        reviewComments={[]}
+        onRemoveReviewComment={() => {}}
         onSubmit={() => {}}
         onStop={() => {}}
       />

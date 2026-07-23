@@ -1,0 +1,48 @@
+.cm-comment-gutter {
+  width: 1.65rem;
+  background: transparent;
+}
+
+.cm-comment-gutter .cm-gutterElement {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  width: 1.65rem;
+}
+
+.cm-comment-gutter .cm-add-comment {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.3rem;
+  height: 1.3rem;
+  margin-top: 0.12rem;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s, color 0.12s, background 0.12s;
+}
+
+.cm-comment-gutter .cm-gutterElement:hover .cm-add-comment,
+.cm-comment-gutter .cm-add-comment:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.cm-comment-gutter .cm-add-comment:hover,
+.cm-comment-gutter .cm-add-comment:focus-visible {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--accent);
+  outline: none;
+}
+
+.code-view.artifact-code {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}

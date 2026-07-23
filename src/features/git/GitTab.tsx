@@ -6,9 +6,16 @@ import GitCommitBox from './GitCommitBox';
 import { GitBranchSection, GitCommitHistory } from './GitRepositorySection';
 import GitSourceSection from './GitSourceSection';
 import GitToolbar from './GitToolbar';
+import type { ReviewCommentRequest } from '../../shared/ui/ReviewCommentPopover';
 import './GitTab.css';
 
-export default function GitTab(props: { projectId?: string; directoryId?: string; sessionId?: string; refreshTrigger?: number }) {
+export default function GitTab(props: {
+  projectId?: string;
+  directoryId?: string;
+  sessionId?: string;
+  refreshTrigger?: number;
+  onComment?: (request: ReviewCommentRequest) => void;
+}) {
   const [files, setFiles] = createSignal<GitFile[]>([]);
   const [repository, setRepository] = createSignal<GitRepositoryInfo>();
   const [commits, setCommits] = createSignal<GitCommit[]>([]);
@@ -184,6 +191,9 @@ export default function GitTab(props: { projectId?: string; directoryId?: string
                 onFileAction={(file) => void post('unstage-file', { path: file.path })}
                 onAllAction={() => void post('unstage-all', {})}
                 onApplyPatch={(file, patch, reverse) => void post('apply', { path: file.path, patch, reverse })}
+                onComment={props.onComment ? (file, changeSet, request) => props.onComment?.({
+                  surface: 'git', path: file.path, changeSet, ...request.selection, anchor: request.anchor,
+                }) : undefined}
               />
               <GitSourceSection
                 title="Unstaged Changes"
@@ -197,6 +207,9 @@ export default function GitTab(props: { projectId?: string; directoryId?: string
                 onFileAction={(file) => void post('stage-file', { path: file.path })}
                 onAllAction={() => void post('stage-all', {})}
                 onApplyPatch={(file, patch, reverse) => void post('apply', { path: file.path, patch, reverse })}
+                onComment={props.onComment ? (file, changeSet, request) => props.onComment?.({
+                  surface: 'git', path: file.path, changeSet, ...request.selection, anchor: request.anchor,
+                }) : undefined}
               />
               <GitCommitHistory
                 commits={commits()}
