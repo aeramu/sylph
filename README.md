@@ -4,7 +4,7 @@ A local web UI for the [pi coding agent](https://www.npmjs.com/package/@earendil
 
 ## Architecture
 
-- `server/index.ts` — Express backend entry point (port 3001). Domain HTTP handlers live under `server/routes/`, HTTP-independent workflows under `server/services/`, and Pi runtime construction/lifecycle under `server/runtime/`. The backend manages projects (`~/.sylph/projects.json`), creates/resumes agent sessions, and broadcasts agent events to the browser over SSE (`/api/stream`).
+- `server/index.ts` and `server/app.ts` — Backend process and Express application entry points (port 3001). `server/features/` owns product capabilities together with their routes, services, repositories, and tests; `server/integrations/` isolates Pi and agent-browser adapters; and `server/platform/` contains feature-independent HTTP, event, and filesystem primitives. The API composition root is `server/platform/http/apiRouter.ts`. The backend manages projects (`~/.sylph/projects.json`), creates/resumes agent sessions, and broadcasts agent events to the browser over SSE (`/api/stream`).
 - `src/app/` — SolidJS application shell.
 - `src/features/` — Feature-owned UI grouped by chat, composer, sessions, projects, settings, Git, changes, and browser integration. Each feature owns its typed API client, controllers, components, and styles; browser transport is centralized in `src/lib/api.ts`.
 - `src/shared/` and `src/lib/` — Reusable UI primitives and framework-independent utilities. Vite serves the frontend on port 5173 and proxies `/api/*` to the backend (see `vite.config.ts`).

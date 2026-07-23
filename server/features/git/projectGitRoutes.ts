@@ -1,0 +1,35 @@
+import express from "express";
+import { handleError } from "../../platform/http/routeError.ts";
+import { getProjectById, projectAtDirectory } from "../projects/projectRepository.ts";
+import { getSessionBinding } from "../sessions/workspace/workspaceBindingRepository.ts";
+import { getSessionDirectory, projectFromSessionBinding } from "../sessions/workspace/sessionWorkspace.ts";
+import { listGitBranches } from "./index.ts";
+import { createGitRouter } from "./gitRoutes.ts";
+
+export function registerProjectGitRoutes(router: express.Router): void {
+  router.get("/api/projects/:id/git/branches", async (req, res) => {
+    const binding = getSessionBinding(req.query.sessionId);
+    if (binding?.workspaceKind === "scratch") return res.status(409).json({ error: "Add a folder to use Git" });
+    const project = binding ? projectFromSessionBinding(binding) : getProjectById(req.params.id);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+    if (binding && binding.projectId && binding.projectId !== req.params.id) return res.status(400).json({ error: "Session does not belong to this project" });
+    if (!binding && typeof req.query.directoryId === "string"
+      && !project.directories.some((directory) => directory.id === req.query.directoryId)) {
+      return res.status(400).json({ error: "Project directory not found" });
+    }
+    const gitProject = binding
+      ? (() => {
+          const directory = getSessionDirectory(project, binding, req.query.directoryId);
+          return projectAtDirectory(project, directory.directoryId, directory.path);
+        })()
+      : projectAtDirectory(project, req.query.directoryId);
+    try {
+      res.json({ branches: await listGitBranches(gitProject) });
+    } catch (err) {
+      handleError(res, err);
+    }
+  });
+
+  router.use(createGitRouter());
+
+}

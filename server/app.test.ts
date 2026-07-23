@@ -2,8 +2,22 @@ import type { Server } from "http";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createApp } from "./app.ts";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+// Redirect all Sylph store paths into a throwaway directory before importing
+// the app, so exercising the real router never touches ~/.sylph.
+const storeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "sylph-app-test-"));
+vi.mock("./config.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./config.ts")>()),
+  SYLPH_DIR: storeRoot,
+  PROJECTS_FILE: path.join(storeRoot, "projects.json"),
+  SETTINGS_FILE: path.join(storeRoot, "settings.json"),
+  SESSION_BINDINGS_FILE: path.join(storeRoot, "session-bindings.json"),
+  SCRATCH_DIR: path.join(storeRoot, "scratch"),
+  WORKTREES_DIR: path.join(storeRoot, "worktrees"),
+}));
+
+const { createApp } = await import("./app.ts");
 
 let server: Server;
 let baseUrl: string;
@@ -21,6 +35,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  fs.rmSync(storeRoot, { recursive: true, force: true });
 });
 
 describe("HTTP application", () => {

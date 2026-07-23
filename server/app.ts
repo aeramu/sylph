@@ -1,6 +1,6 @@
 import express, { type RequestHandler } from "express";
 import path from "path";
-import { createRouter } from "./routes/index.ts";
+import { createApiRouter } from "./platform/http/apiRouter.ts";
 
 export interface CreateAppOptions {
   dashboardMiddleware?: RequestHandler;
@@ -14,7 +14,7 @@ export function createApp(options: CreateAppOptions = {}): express.Express {
   // remain ahead of the JSON parser when the production entry point supplies it.
   if (options.dashboardMiddleware) app.use(options.dashboardMiddleware);
   app.use(express.json({ limit: "25mb" }));
-  app.use(createRouter());
+  app.use(createApiRouter());
 
   if (options.distDir) {
     app.use(express.static(options.distDir));
