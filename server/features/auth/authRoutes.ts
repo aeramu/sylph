@@ -1,10 +1,11 @@
 import express from "express";
 import { asyncRoute } from "../../platform/http/routeError.ts";
-import { createProvider, listProviders, logoutProvider, saveProviderApiKey } from "./authService.ts";
+import { createProvider, listProviderModels, listProviders, logoutProvider, saveProviderApiKey } from "./authService.ts";
 import { cancelOAuthFlow, getSerializedOAuthFlow, respondToOAuthFlow, startOAuthLogin } from "./oauthFlowService.ts";
 
 export function registerAuthRoutes(router: express.Router): void {
   router.get("/api/auth/providers", asyncRoute(async (_req, res) => res.json({ providers: await listProviders() })));
+  router.get("/api/auth/providers/:provider/models", asyncRoute(async (req, res) => res.json({ models: await listProviderModels(String(req.params.provider)) })));
   router.post("/api/auth/:provider/api-key", asyncRoute(async (req, res) => {
     saveProviderApiKey(String(req.params.provider), req.body?.apiKey);
     res.json({ ok: true });

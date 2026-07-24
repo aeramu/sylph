@@ -22,6 +22,24 @@ export async function listProviders() {
   });
 }
 
+export async function listProviderModels(provider: string) {
+  const runtime = await getIntrospectionRuntime();
+  const registry = runtime.session.modelRegistry;
+  registry.refresh?.();
+  return registry.getAll()
+    .filter((model: any) => String(model.provider) === provider)
+    .sort((a: any, b: any) => String(a.name || a.id).localeCompare(String(b.name || b.id)))
+    .map((model: any) => ({
+      id: String(model.id),
+      name: String(model.name || model.id),
+      reasoning: !!model.reasoning,
+      input: Array.isArray(model.input) ? model.input.filter((kind: unknown) => kind === "text" || kind === "image") : ["text"],
+      contextWindow: Number.isFinite(model.contextWindow) ? model.contextWindow : undefined,
+      maxTokens: Number.isFinite(model.maxTokens) ? model.maxTokens : undefined,
+      available: registry.hasConfiguredAuth(model),
+    }));
+}
+
 export function saveProviderApiKey(provider: string, apiKey: unknown) {
   if (typeof apiKey !== "string" || !apiKey.trim()) badRequest("apiKey is required");
   authStorage.set(provider, { type: "api_key", key: apiKey.trim() });

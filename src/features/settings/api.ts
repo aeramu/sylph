@@ -6,6 +6,10 @@ export interface ProviderInfo {
   id: string; name: string; authType: 'api_key' | 'oauth'; configured: boolean; source?: string; label?: string; stored: boolean; storedType?: 'api_key' | 'oauth';
 }
 export interface ModelsResponse { models?: Array<{ id: string; provider?: string; value?: string; thinkingLevels?: unknown[] }> }
+export interface ProviderModelInfo {
+  id: string; name: string; reasoning: boolean; input: Array<'text' | 'image'>;
+  contextWindow?: number; maxTokens?: number; available: boolean;
+}
 export type OAuthStep =
   | { type: 'auth_url'; url: string; instructions?: string; progress: string[] }
   | { type: 'device_code'; userCode: string; verificationUri: string; intervalSeconds?: number; expiresInSeconds?: number; progress: string[] }
@@ -35,6 +39,9 @@ export async function listResources(kind: 'skills' | 'extensions'): Promise<Reso
 export const getSettings = () => api<AppSettings>('/api/settings');
 export const getModels = () => api<ModelsResponse>('/api/models');
 export async function getProviders(): Promise<ProviderInfo[]> { try { return (await api<{ providers?: ProviderInfo[] }>('/api/auth/providers')).providers || []; } catch { return []; } }
+export async function getProviderModels(provider: string): Promise<ProviderModelInfo[]> {
+  return (await api<{ models?: ProviderModelInfo[] }>(`/api/auth/providers/${encodeURIComponent(provider)}/models`)).models || [];
+}
 export const getSkill = (name: string) => api<SkillDetail>(`/api/resources/skills/${encodeURIComponent(name)}`);
 export const getExtension = (name: string) => api<ExtensionDetail>(`/api/resources/extensions/${encodeURIComponent(name)}`);
 export const installExtension = (source: string) => api<{ source: string; extensions: string[] }>('/api/resources/extensions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source }) });

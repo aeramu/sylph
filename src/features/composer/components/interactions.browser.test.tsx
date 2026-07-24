@@ -6,6 +6,8 @@ import AutocompletePopup from './AutocompletePopup';
 import Composer from '../Composer';
 import SettingsNavigation, { type SettingsSection } from '../../settings/components/SettingsNavigation';
 import ProvidersSettings from '../../settings/components/ProvidersSettings';
+import ProviderDetail from '../../settings/components/ProviderDetail';
+import ResourceList from '../../settings/components/ResourceList';
 import ExtensionUiHost from '../../chat/components/ExtensionUiHost';
 import DirectoryPicker from '../../../shared/ui/DirectoryPicker';
 
@@ -147,6 +149,56 @@ describe('SettingsNavigation', () => {
     mount(() => <SettingsNavigation active={active()} onSelect={setActive} onClose={() => {}} />);
     await userEvent.click(page.getByText('Git'));
     expect(active()).toBe('git');
+  });
+});
+
+describe('ProviderDetail', () => {
+  it('shows the provider model inventory and capabilities', async () => {
+    const originalFetch = window.fetch;
+    window.fetch = async () => new Response(JSON.stringify({ models: [{
+      id: 'vision-pro', name: 'Vision Pro', reasoning: true, input: ['text', 'image'],
+      contextWindow: 128000, maxTokens: 8192, available: true,
+    }] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    try {
+      mount(() => (
+        <ProviderDetail
+          provider={{ id: 'demo', name: 'Demo', authType: 'api_key', configured: true, stored: true }}
+          statusText={() => 'API key stored'}
+        >
+          <div>Authentication controls</div>
+        </ProviderDetail>
+      ));
+      await expect.element(page.getByText('Vision Pro')).toBeInTheDocument();
+      await expect.element(page.getByText('Reasoning')).toBeInTheDocument();
+      await expect.element(page.getByText('Vision', { exact: true })).toBeInTheDocument();
+      await expect.element(page.getByText('128K context')).toBeInTheDocument();
+      await expect.element(page.getByText('Authentication controls')).toBeInTheDocument();
+    } finally {
+      window.fetch = originalFetch;
+    }
+  });
+});
+
+describe('ResourceList', () => {
+  it('searches resources and preserves the compact cards', async () => {
+    mount(() => (
+      <ResourceList
+        resources={[
+          { name: 'git-helper', description: 'Work with Git repositories.' },
+          { name: 'browser-helper', description: 'Automate browser workflows.' },
+        ]}
+        loading={false}
+        label="skills"
+        kind="skills"
+        onSelect={() => {}}
+      />
+    ));
+
+    await userEvent.fill(page.getByRole('textbox', { name: 'Search skills' }), 'browser');
+    await expect.element(page.getByRole('button', { name: 'Open browser-helper skill' })).toBeInTheDocument();
+    await expect.element(page.getByRole('button', { name: 'Open git-helper skill' })).not.toBeInTheDocument();
+    await userEvent.click(page.getByRole('button', { name: 'Clear skill search' }));
+    await expect.element(page.getByRole('button', { name: 'Open git-helper skill' })).toBeInTheDocument();
   });
 });
 

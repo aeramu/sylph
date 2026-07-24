@@ -14,6 +14,7 @@ import {
 import SettingsNavigation, { type SettingsSection } from './components/SettingsNavigation';
 import ProjectsSettings from './components/ProjectsSettings';
 import ProvidersSettings from './components/ProvidersSettings';
+import ProviderDetail from './components/ProviderDetail';
 import ResourceList from './components/ResourceList';
 import { SettingsMetaList, SettingsMetaRow } from './components/SettingsMetaList';
 import { createOAuthFlow } from './createOAuthFlow';
@@ -84,7 +85,10 @@ export default function SettingsModal(props: {
 
   const currentResources = () => activeSection() === 'skills' ? (skills() || []) : (extensions() || []);
   const currentResourcesLoading = () => activeSection() === 'skills' ? skills.loading : extensions.loading;
-  const selectedTitle = () => creatingProvider() ? 'Create Provider' : selectedProvider() || selectedSkill() || selectedExtension() || sectionTitle();
+  const selectedTitle = () => creatingProvider()
+    ? 'Create Provider'
+    : (providers() || []).find((provider) => provider.id === selectedProvider())?.name
+      || selectedSkill() || selectedExtension() || sectionTitle();
   const sectionTitle = () => activeSection() === 'projects' ? 'Projects' : activeSection() === 'provider' ? 'Provider' : activeSection() === 'git' ? 'Git' : activeSection() === 'skills' ? 'Skills' : 'Extensions';
   const emptyLabel = () => activeSection() === 'skills' ? 'skills' : 'extensions';
   const selectedProviderInfo = () => (providers() || []).find((p) => p.id === selectedProvider()) || null;
@@ -330,16 +334,9 @@ export default function SettingsModal(props: {
                 <Show when={creatingProvider()} fallback={
                   <Show when={selectedProviderInfo()} keyed fallback={<div class="settings-modal-empty">Provider not found.</div>}>
                     {(provider) => (
-                    <div class="settings-detail">
-                      <SettingsMetaList>
-                        <SettingsMetaRow label="Name">{provider.name}</SettingsMetaRow>
-                        <SettingsMetaRow label="Provider" valueClass="path">{provider.id}</SettingsMetaRow>
-                        <SettingsMetaRow label="Status" valueClass={provider.configured ? 'success' : ''}>{statusText(provider)}</SettingsMetaRow>
-                        <SettingsMetaRow label="Auth">{provider.authType === 'oauth' ? 'OAuth' : 'API key'}</SettingsMetaRow>
-                      </SettingsMetaList>
-
+                    <ProviderDetail provider={provider} statusText={statusText} message={providerMessage()}>
                       <Show when={provider.authType === 'api_key'} fallback={
-                        <div class="settings-provider-form">
+                        <div class="settings-provider-auth-content">
                           <div class="settings-provider-actions">
                             <button class="settings-provider-button primary" disabled={providerOperationBusy() || oauthFlow()?.status === 'pending'} onClick={startOAuthLogin}>Login with OAuth</button>
                             <Show when={provider.stored}>
@@ -430,7 +427,7 @@ export default function SettingsModal(props: {
                           </Show>
                         </div>
                       }>
-                        <div class="settings-provider-form">
+                        <div class="settings-provider-auth-content">
                           <label class="settings-provider-label" for="provider-api-key">API key</label>
                           <input
                             id="provider-api-key"
@@ -450,10 +447,7 @@ export default function SettingsModal(props: {
                         </div>
                       </Show>
 
-                      <Show when={providerMessage()}>
-                        <div class="settings-provider-message">{providerMessage()}</div>
-                      </Show>
-                    </div>
+                    </ProviderDetail>
                     )}
                   </Show>
                 }>
@@ -501,9 +495,18 @@ export default function SettingsModal(props: {
               </Show>
             }>
               <Show when={activeSection() !== 'git'} fallback={
-                <div class="settings-detail">
-                  <div class="settings-provider-form settings-git-form">
-                    <p class="settings-description">Choose the model and reasoning effort used for commit messages. These settings apply to every project.</p>
+                <div class="settings-detail settings-git-settings">
+                  <div class="settings-section-intro">
+                    <div>
+                      <p class="settings-description">Configure how Sylph writes commit messages across every project.</p>
+                      <div class="settings-section-meta">Global defaults</div>
+                    </div>
+                  </div>
+                  <section class="settings-settings-card settings-git-model-card">
+                    <div class="settings-settings-card-heading">
+                      <span class="settings-settings-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="12" r="2"/><path d="M6 7v10M8 6.5c5 0 3 5.5 8 5.5"/></svg></span>
+                      <div><h3>Generation</h3><p>Select the model and reasoning effort used to draft commit messages.</p></div>
+                    </div>
                     <div class="settings-git-select-row">
                       <div class="settings-git-select-field settings-git-model-field">
                         <label class="settings-provider-label">Commit message model</label>
@@ -536,9 +539,13 @@ export default function SettingsModal(props: {
                         />
                       </div>
                     </div>
+                  </section>
 
-                    <label class="settings-provider-label" for="commit-message-prompt">Prompt template</label>
-                    <p class="settings-description">Use <code>{'{{diff}}'}</code> where the staged patch should appear. If omitted, Sylph appends the diff automatically.</p>
+                  <section class="settings-settings-card settings-git-prompt-card">
+                    <div class="settings-settings-card-heading">
+                      <span class="settings-settings-card-icon prompt" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M6.5 3.75h8l3 3v13.5h-11z"/><path d="M14.5 3.75v3h3M9.5 11h5M9.5 14.5h5"/></svg></span>
+                      <div><h3>Prompt template</h3><p>Use <code>{'{{diff}}'}</code> where the staged patch should appear. If omitted, Sylph appends it automatically.</p></div>
+                    </div>
                     <textarea
                       id="commit-message-prompt"
                       class="settings-provider-input settings-prompt-input"
@@ -564,7 +571,7 @@ export default function SettingsModal(props: {
                       </button>
                     </div>
                     <Show when={settingsMessage()}><div class="settings-provider-message">{settingsMessage()}</div></Show>
-                  </div>
+                  </section>
                 </div>
               }>
               <Show when={!((activeSection() === 'skills' && selectedSkill()) || (activeSection() === 'extensions' && selectedExtension()))} fallback={
@@ -573,6 +580,7 @@ export default function SettingsModal(props: {
                     <Show when={extensionDetail()} keyed fallback={<div class="settings-modal-empty">Unable to load extension.</div>}>
                       {(detail) => (
                         <div class="settings-detail">
+                          <div class="settings-detail-overview">
                           <SettingsMetaList>
                             <SettingsMetaRow label="Name">{detail.name}</SettingsMetaRow>
                             <SettingsMetaRow label="Path" valueClass="path">{detail.path}</SettingsMetaRow>
@@ -580,6 +588,7 @@ export default function SettingsModal(props: {
                             <Show when={detail.sourceInfo?.scope}><SettingsMetaRow label="Scope">{String(detail.sourceInfo?.scope)}</SettingsMetaRow></Show>
                             <Show when={detail.package}><SettingsMetaRow label="Package" valueClass="path">{detail.package?.source}</SettingsMetaRow></Show>
                           </SettingsMetaList>
+                          </div>
                           <Show when={detail.package}>
                             <div class="settings-extension-remove-panel">
                               <Show when={!confirmingExtensionRemoval()} fallback={
@@ -622,12 +631,17 @@ export default function SettingsModal(props: {
                     <Show when={skillDetail()} keyed fallback={<div class="settings-modal-empty">Unable to load skill.</div>}>
                       {(detail) => (
                         <div class="settings-detail">
-                          <SettingsMetaList>
-                            <SettingsMetaRow label="Name">{detail.name}</SettingsMetaRow>
-                            <Show when={detail.description}><SettingsMetaRow label="Description">{detail.description}</SettingsMetaRow></Show>
-                            <SettingsMetaRow label="Path" valueClass="path">{detail.path}</SettingsMetaRow>
-                          </SettingsMetaList>
-                          <div class="settings-skill-detail-content message-content" innerHTML={renderMarkdown(stripFrontmatter(detail.content))} />
+                          <div class="settings-detail-overview settings-skill-overview">
+                            <SettingsMetaList>
+                              <SettingsMetaRow label="Name">{detail.name}</SettingsMetaRow>
+                              <Show when={detail.description}><SettingsMetaRow label="Description">{detail.description}</SettingsMetaRow></Show>
+                              <SettingsMetaRow label="Path" valueClass="path">{detail.path}</SettingsMetaRow>
+                            </SettingsMetaList>
+                          </div>
+                          <section class="settings-detail-panel settings-skill-content-panel">
+                            <div class="settings-detail-panel-heading"><div><h3>Instructions</h3><p>The content loaded into the assistant when this skill is used.</p></div></div>
+                            <div class="settings-skill-detail-content message-content" innerHTML={renderMarkdown(stripFrontmatter(detail.content))} />
+                          </section>
                         </div>
                       )}
                     </Show>
@@ -636,8 +650,10 @@ export default function SettingsModal(props: {
               }>
                 <Show when={activeSection() === 'extensions'}>
                   <div class="settings-provider-form settings-extension-install-form">
-                    <label class="settings-provider-label" for="extension-source">Install extension package</label>
-                    <p class="settings-description">Enter an npm package, git repository, URL, or local path. Installs globally in Pi.</p>
+                    <div class="settings-extension-install-heading">
+                      <span class="settings-settings-card-icon extension" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M8 3.75h8A4.25 4.25 0 0 1 20.25 8v8A4.25 4.25 0 0 1 16 20.25H8A4.25 4.25 0 0 1 3.75 16V8A4.25 4.25 0 0 1 8 3.75Z"/><path d="M8.25 9.25h7.5M8.25 14.75h7.5M9.25 7.25v9.5M14.75 7.25v9.5"/></svg></span>
+                      <div><h3>Install extension package</h3><p>Enter an npm package, Git repository, URL, or local path. Installs globally in Pi.</p></div>
+                    </div>
                     <div class="settings-extension-install-row">
                       <input
                         id="extension-source"
@@ -661,6 +677,7 @@ export default function SettingsModal(props: {
                   resources={currentResources()}
                   loading={currentResourcesLoading()}
                   label={emptyLabel()}
+                  kind={activeSection() === 'skills' ? 'skills' : 'extensions'}
                   onSelect={(name) => activeSection() === 'skills' ? setSelectedSkill(name) : setSelectedExtension(name)}
                 />
               </Show>
