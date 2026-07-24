@@ -6,8 +6,9 @@ import CodeView from '../../shared/ui/CodeView';
 import CustomSelect from '../../shared/ui/CustomSelect';
 import {
   createProvider as createProviderRequest, getExtension, getModels, getProviders,
-  getSettings, getSkill, listResources, logoutProvider as logoutProviderRequest,
-  saveProviderKey, updateSettings, type ModelsResponse, type ProviderInfo,
+  getSettings, getSkill, installExtension as installExtensionRequest, listResources,
+  logoutProvider as logoutProviderRequest, saveProviderKey, updateSettings,
+  type ModelsResponse, type ProviderInfo,
 } from './api';
 import SettingsNavigation, { type SettingsSection } from './components/SettingsNavigation';
 import ResourceList from './components/ResourceList';
@@ -62,12 +63,15 @@ export default function SettingsModal(props: { onClose: () => void }) {
   const [savedCommitMessagePrompt, setSavedCommitMessagePrompt] = createSignal('');
   const [settingsMessage, setSettingsMessage] = createSignal<string | null>(null);
   const [settingsBusy, setSettingsBusy] = createSignal(false);
+  const [extensionSource, setExtensionSource] = createSignal('');
+  const [extensionMessage, setExtensionMessage] = createSignal<string | null>(null);
+  const [extensionBusy, setExtensionBusy] = createSignal(false);
 
   const [appSettings] = createResource(getSettings);
   const [models] = createResource(fetchModels);
   const [providers, { refetch: refetchProviders }] = createResource(getProviders);
   const [skills] = createResource(() => listResources('skills'));
-  const [extensions] = createResource(() => listResources('extensions'));
+  const [extensions, { refetch: refetchExtensions }] = createResource(() => listResources('extensions'));
   const [skillDetail] = createResource(selectedSkill, getSkill);
   const [extensionDetail] = createResource(selectedExtension, getExtension);
 
@@ -168,6 +172,7 @@ export default function SettingsModal(props: { onClose: () => void }) {
     setCreatingProvider(false);
     setProviderMessage(null);
     setSettingsMessage(null);
+    setExtensionMessage(null);
     abandonOAuthFlow();
     setApiKey('');
     setMobileMenuOpen(false);
@@ -234,6 +239,23 @@ export default function SettingsModal(props: { onClose: () => void }) {
       setProviderMessage(err instanceof Error ? err.message : String(err));
     } finally {
       setProviderBusy(false);
+    }
+  };
+
+  const installExtension = async () => {
+    const source = extensionSource().trim();
+    if (!source) return;
+    setExtensionBusy(true);
+    setExtensionMessage(null);
+    try {
+      const data = await installExtensionRequest(source);
+      setExtensionSource('');
+      setExtensionMessage(`Installed ${data.source}. New chats will load it automatically; reload existing chats to activate it there.`);
+      await refetchExtensions();
+    } catch (err) {
+      setExtensionMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setExtensionBusy(false);
     }
   };
 
@@ -578,6 +600,29 @@ export default function SettingsModal(props: { onClose: () => void }) {
                   </Show>
                 </Show>
               }>
+                <Show when={activeSection() === 'extensions'}>
+                  <div class="settings-provider-form settings-extension-install-form">
+                    <label class="settings-provider-label" for="extension-source">Install extension package</label>
+                    <p class="settings-description">Enter an npm package, git repository, URL, or local path. Installs globally in Pi.</p>
+                    <div class="settings-extension-install-row">
+                      <input
+                        id="extension-source"
+                        class="settings-provider-input"
+                        type="text"
+                        placeholder="npm:@scope/package, https://github.com/user/repo, or /path/to/package"
+                        value={extensionSource()}
+                        onInput={(event) => setExtensionSource(event.currentTarget.value)}
+                        onKeyDown={(event) => { if (event.key === 'Enter') void installExtension(); }}
+                        disabled={extensionBusy()}
+                      />
+                      <button class="settings-provider-button primary" disabled={extensionBusy() || !extensionSource().trim()} onClick={() => void installExtension()}>
+                        {extensionBusy() ? 'Installing…' : 'Install'}
+                      </button>
+                    </div>
+                    <div class="settings-extension-warning"><strong>Security:</strong> Extensions run arbitrary code with full system access. Review and trust the source before installing.</div>
+                    <Show when={extensionMessage()}><div class="settings-provider-message">{extensionMessage()}</div></Show>
+                  </div>
+                </Show>
                 <ResourceList
                   resources={currentResources()}
                   loading={currentResourcesLoading()}

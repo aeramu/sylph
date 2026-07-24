@@ -36,6 +36,7 @@ export const getModels = () => api<ModelsResponse>('/api/models');
 export async function getProviders(): Promise<ProviderInfo[]> { try { return (await api<{ providers?: ProviderInfo[] }>('/api/auth/providers')).providers || []; } catch { return []; } }
 export const getSkill = (name: string) => api<SkillDetail>(`/api/resources/skills/${encodeURIComponent(name)}`);
 export const getExtension = (name: string) => api<ExtensionDetail>(`/api/resources/extensions/${encodeURIComponent(name)}`);
+export const installExtension = (source: string) => api<{ source: string; extensions: string[] }>('/api/resources/extensions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source }) });
 export const updateSettings = (patch: Partial<AppSettings>) => api<AppSettings>('/api/settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
 export const createProvider = (body: unknown) => api<{ provider?: string }>('/api/auth/providers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 export const saveProviderKey = (id: string, apiKey: string) => api(`/api/auth/${encodeURIComponent(id)}/api-key`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiKey }) });
