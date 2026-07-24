@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { PermissionPolicy } from "../../../features/permissions/permissionPolicy.ts";
-import { createPermissionExtension, isThirdPartyPermissionExtension } from "./permissionExtension.ts";
+import { createPermissionExtension } from "./permissionExtension.ts";
 
 const temporaryRoots: string[] = [];
 afterEach(() => {
@@ -54,10 +54,5 @@ describe("Pi permission extension", () => {
     const result = await register(policy)(tool("read", { path: "/outside/secret" }), { cwd: root, hasUI: false, ui: {} });
     expect(result).toMatchObject({ block: true });
     expect(result.reason).toMatch(/Confirmation unavailable/);
-  });
-
-  it("recognizes only the third-party permission extension", () => {
-    expect(isThirdPartyPermissionExtension({ path: "npm:@gotgenes/pi-permission-system", resolvedPath: "/pkg/src/index.ts" })).toBe(true);
-    expect(isThirdPartyPermissionExtension({ path: "/extensions/permission-gate.ts", resolvedPath: "/extensions/permission-gate.ts" })).toBe(false);
   });
 });

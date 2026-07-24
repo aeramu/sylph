@@ -9,7 +9,7 @@ import type { Project } from "../../../features/projects/projectTypes.ts";
 import { mergeProjectContextFiles } from "../../../features/sessions/workspace/projectContextService.ts";
 import { createSessionRuntimeConfiguration } from "../../../features/sessions/runtime/sessionRuntimeConfiguration.ts";
 import { updateAllowedSkills } from "../../../features/permissions/sessionPermissionService.ts";
-import { createPermissionExtension, isThirdPartyPermissionExtension } from "../extensions/permissionExtension.ts";
+import { createPermissionExtension } from "../extensions/permissionExtension.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const askUserQuestionExtensionPath = path.join(__dirname, "../extensions/askUserQuestionExtension.ts");
@@ -45,10 +45,6 @@ export async function buildRuntime(sessionManager: any, cwd: string, options: Ru
           name: "sylph-permissions",
           factory: createPermissionExtension(configuration.permission.policy, configuration.permission),
         }] : [],
-        extensionsOverride: (base) => options.sessionId ? ({
-          ...base,
-          extensions: base.extensions.filter((extension) => !isThirdPartyPermissionExtension(extension)),
-        }) : base,
         agentsFilesOverride: (base) => ({
           agentsFiles: mergeProjectContextFiles(base.agentsFiles, options.project, (directoryPath) =>
             loadProjectContextFiles({ cwd: directoryPath, agentDir: getAgentDir() })),

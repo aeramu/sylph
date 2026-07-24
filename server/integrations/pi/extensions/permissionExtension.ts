@@ -61,8 +61,3 @@ export function createPermissionExtension(policy: PermissionPolicy, options: Per
     });
   };
 }
-
-export function isThirdPartyPermissionExtension(extension: { path?: string; resolvedPath?: string }) {
-  const identity = `${extension.path ?? ""}\n${extension.resolvedPath ?? ""}`;
-  return identity.includes("@gotgenes/pi-permission-system") || identity.includes("pi-permission-system/src/index.ts");
-}
