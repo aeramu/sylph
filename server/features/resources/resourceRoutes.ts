@@ -1,6 +1,6 @@
 import express from "express";
 import { asyncRoute } from "../../platform/http/routeError.ts";
-import { installExtension } from "./extensionInstallationService.ts";
+import { installExtension, uninstallExtension } from "./extensionInstallationService.ts";
 import { extensionDisplayName, getLoadedExtensions, getLoadedSkills, introspectionRoute } from "./resourceIntrospection.ts";
 import { getExtensionDetail, getSkillDetail } from "./resourceService.ts";
 
@@ -23,4 +23,7 @@ export function registerResourceRoutes(router: express.Router): void {
   }));
   router.get("/api/resources/skills/:name", asyncRoute(async (req, res) => res.json(await getSkillDetail(String(req.params.name)))));
   router.get("/api/resources/extensions/:name", asyncRoute(async (req, res) => res.json(await getExtensionDetail(String(req.params.name)))));
+  router.delete("/api/resources/extensions/:name", asyncRoute(async (req, res) => {
+    res.json(await uninstallExtension(String(req.params.name)));
+  }));
 }

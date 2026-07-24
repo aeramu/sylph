@@ -7,7 +7,8 @@ import CustomSelect from '../../shared/ui/CustomSelect';
 import {
   createProvider as createProviderRequest, getExtension, getModels, getProviders,
   getSettings, getSkill, installExtension as installExtensionRequest, listResources,
-  logoutProvider as logoutProviderRequest, saveProviderKey, updateSettings,
+  logoutProvider as logoutProviderRequest, saveProviderKey, uninstallExtension as uninstallExtensionRequest,
+  updateSettings,
   type ModelsResponse, type ProviderInfo,
 } from './api';
 import SettingsNavigation, { type SettingsSection } from './components/SettingsNavigation';
@@ -66,6 +67,7 @@ export default function SettingsModal(props: { onClose: () => void }) {
   const [extensionSource, setExtensionSource] = createSignal('');
   const [extensionMessage, setExtensionMessage] = createSignal<string | null>(null);
   const [extensionBusy, setExtensionBusy] = createSignal(false);
+  const [confirmingExtensionRemoval, setConfirmingExtensionRemoval] = createSignal(false);
 
   const [appSettings] = createResource(getSettings);
   const [models] = createResource(fetchModels);
@@ -168,6 +170,7 @@ export default function SettingsModal(props: { onClose: () => void }) {
     setActiveSection(section);
     setSelectedSkill(null);
     setSelectedExtension(null);
+    setConfirmingExtensionRemoval(false);
     setSelectedProvider(null);
     setCreatingProvider(false);
     setProviderMessage(null);
@@ -259,6 +262,24 @@ export default function SettingsModal(props: { onClose: () => void }) {
     }
   };
 
+  const uninstallExtension = async () => {
+    const name = selectedExtension();
+    if (!name) return;
+    setExtensionBusy(true);
+    setExtensionMessage(null);
+    try {
+      const data = await uninstallExtensionRequest(name);
+      setSelectedExtension(null);
+      setConfirmingExtensionRemoval(false);
+      setExtensionMessage(`Uninstalled ${data.source}. New chats will no longer load it; reload existing chats to remove it there.`);
+      await refetchExtensions();
+    } catch (err) {
+      setExtensionMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setExtensionBusy(false);
+    }
+  };
+
   const openOAuthUrl = (url: string) => window.open(url, '_blank', 'noopener,noreferrer');
 
   const copyToClipboard = async (text: string) => {
@@ -288,7 +309,7 @@ export default function SettingsModal(props: { onClose: () => void }) {
                 <button class="settings-back-button" onClick={() => setSelectedSkill(null)}>← Skills</button>
               </Show>
               <Show when={activeSection() === 'extensions' && selectedExtension()}>
-                <button class="settings-back-button" onClick={() => setSelectedExtension(null)}>← Extensions</button>
+                <button class="settings-back-button" onClick={() => { setSelectedExtension(null); setConfirmingExtensionRemoval(false); setExtensionMessage(null); }}>← Extensions</button>
               </Show>
               <h2 class="settings-section-title">{selectedTitle()}</h2>
             </div>
@@ -561,7 +582,24 @@ export default function SettingsModal(props: { onClose: () => void }) {
                             <SettingsMetaRow label="Path" valueClass="path">{detail.path}</SettingsMetaRow>
                             <Show when={detail.resolvedPath && detail.resolvedPath !== detail.path}><SettingsMetaRow label="Resolved" valueClass="path">{detail.resolvedPath}</SettingsMetaRow></Show>
                             <Show when={detail.sourceInfo?.scope}><SettingsMetaRow label="Scope">{String(detail.sourceInfo?.scope)}</SettingsMetaRow></Show>
+                            <Show when={detail.package}><SettingsMetaRow label="Package" valueClass="path">{detail.package?.source}</SettingsMetaRow></Show>
                           </SettingsMetaList>
+                          <Show when={detail.package}>
+                            <div class="settings-extension-remove-panel">
+                              <Show when={!confirmingExtensionRemoval()} fallback={
+                                <>
+                                  <p>Uninstall <code>{detail.package?.source}</code>? This removes all {detail.package?.extensions.length} extension{detail.package?.extensions.length === 1 ? '' : 's'} loaded from this package.</p>
+                                  <div class="settings-provider-actions">
+                                    <button class="settings-provider-button danger" disabled={extensionBusy()} onClick={() => void uninstallExtension()}>{extensionBusy() ? 'Uninstalling…' : 'Confirm uninstall'}</button>
+                                    <button class="settings-provider-button" disabled={extensionBusy()} onClick={() => setConfirmingExtensionRemoval(false)}>Cancel</button>
+                                  </div>
+                                </>
+                              }>
+                                <button class="settings-provider-button danger" disabled={extensionBusy()} onClick={() => setConfirmingExtensionRemoval(true)}>Uninstall package</button>
+                              </Show>
+                              <Show when={extensionMessage()}><div class="settings-provider-message">{extensionMessage()}</div></Show>
+                            </div>
+                          </Show>
                           <div class="settings-extension-summary">
                             <div><strong>{detail.tools.length}</strong><span>Tools</span></div>
                             <div><strong>{detail.commands.length}</strong><span>Commands</span></div>

@@ -20,6 +20,7 @@ export interface OAuthFlowInfo {
 export interface SkillDetail { name: string; description?: string; content: string; path: string }
 export interface ExtensionDetail {
   name: string; path: string; resolvedPath?: string; sourceInfo?: Record<string, unknown>;
+  package?: { source: string; scope: 'user'; extensions: string[] };
   tools: Array<{ name: string; label?: string; description?: string; promptSnippet?: string; promptGuidelines?: string[]; parameters?: unknown }>;
   commands: Array<{ name: string; description?: string }>;
   flags: Array<{ name: string; description?: string; type?: string; default?: unknown }>;
@@ -37,6 +38,7 @@ export async function getProviders(): Promise<ProviderInfo[]> { try { return (aw
 export const getSkill = (name: string) => api<SkillDetail>(`/api/resources/skills/${encodeURIComponent(name)}`);
 export const getExtension = (name: string) => api<ExtensionDetail>(`/api/resources/extensions/${encodeURIComponent(name)}`);
 export const installExtension = (source: string) => api<{ source: string; extensions: string[] }>('/api/resources/extensions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source }) });
+export const uninstallExtension = (name: string) => api<{ source: string; removedExtensions: string[]; extensions: string[] }>(`/api/resources/extensions/${encodeURIComponent(name)}`, { method: 'DELETE' });
 export const updateSettings = (patch: Partial<AppSettings>) => api<AppSettings>('/api/settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
 export const createProvider = (body: unknown) => api<{ provider?: string }>('/api/auth/providers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 export const saveProviderKey = (id: string, apiKey: string) => api(`/api/auth/${encodeURIComponent(id)}/api-key`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiKey }) });

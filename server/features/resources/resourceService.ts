@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import { getIntrospectionRuntime } from "../../integrations/pi/runtime/runtimeManager.ts";
 import { notFound } from "../../platform/http/errors.ts";
+import { extensionPackageInfo } from "./extensionInstallationService.ts";
 import { extensionDisplayName, getLoadedExtensions, getLoadedSkills } from "./resourceIntrospection.ts";
 
 export async function getSkillDetail(name: string) {
@@ -16,10 +17,12 @@ function mapValues(map: Map<string, any> | undefined, mapper: (name: string, val
 
 export async function getExtensionDetail(name: string) {
   const runtime = await getIntrospectionRuntime();
-  const extension = getLoadedExtensions(runtime.session).find((entry: any) => extensionDisplayName(entry) === name);
+  const extensions = getLoadedExtensions(runtime.session);
+  const extension = extensions.find((entry: any) => extensionDisplayName(entry) === name);
   if (!extension) notFound("Extension not found");
   return {
     name: extensionDisplayName(extension), path: extension.path, resolvedPath: extension.resolvedPath, sourceInfo: extension.sourceInfo,
+    package: extensionPackageInfo(extension, extensions),
     tools: mapValues(extension.tools, (toolName, registered) => ({
       name: toolName, label: registered.definition?.label, description: registered.definition?.description,
       promptSnippet: registered.definition?.promptSnippet, promptGuidelines: registered.definition?.promptGuidelines,
