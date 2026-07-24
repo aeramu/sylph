@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import AutocompletePopup from './AutocompletePopup';
 import Composer from '../Composer';
 import SettingsNavigation, { type SettingsSection } from '../../settings/components/SettingsNavigation';
+import ProvidersSettings from '../../settings/components/ProvidersSettings';
 import ExtensionUiHost from '../../chat/components/ExtensionUiHost';
 import DirectoryPicker from '../../../shared/ui/DirectoryPicker';
 
@@ -146,6 +147,33 @@ describe('SettingsNavigation', () => {
     mount(() => <SettingsNavigation active={active()} onSelect={setActive} onClose={() => {}} />);
     await userEvent.click(page.getByText('Git'));
     expect(active()).toBe('git');
+  });
+});
+
+describe('ProvidersSettings', () => {
+  it('searches and filters providers without hiding configured status', async () => {
+    mount(() => (
+      <ProvidersSettings
+        providers={[
+          { id: 'openai', name: 'OpenAI', authType: 'api_key', configured: false, stored: false },
+          { id: 'anthropic', name: 'Anthropic', authType: 'oauth', configured: true, stored: true },
+        ]}
+        loading={false}
+        busy={false}
+        statusText={(provider) => provider.configured ? 'OAuth stored' : 'Not configured'}
+        onSelect={() => {}}
+        onCreate={() => {}}
+      />
+    ));
+
+    await userEvent.fill(page.getByRole('textbox', { name: 'Search providers' }), 'OpenAI');
+    await expect.element(page.getByRole('button', { name: 'Open OpenAI provider settings' })).toBeInTheDocument();
+    await expect.element(page.getByRole('button', { name: 'Open Anthropic provider settings' })).not.toBeInTheDocument();
+
+    await userEvent.click(page.getByRole('button', { name: 'Clear provider search' }));
+    await userEvent.click(page.getByRole('button', { name: 'Configured 1' }));
+    await expect.element(page.getByRole('button', { name: 'Open Anthropic provider settings' })).toBeInTheDocument();
+    await expect.element(page.getByRole('button', { name: 'Open OpenAI provider settings' })).not.toBeInTheDocument();
   });
 });
 

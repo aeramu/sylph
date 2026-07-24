@@ -115,6 +115,7 @@ function App() {
         onSelectProject={setActiveProjectId}
         onNewSession={startNewSession}
         refreshTrigger={refreshSidebar()}
+        projectsRefreshTrigger={projectRefresh()}
         draftSessions={draftSessions()}
         onProjectsChanged={() => setProjectRefresh(r => r + 1)}
         onSessionDetached={(id) => {
@@ -139,7 +140,13 @@ function App() {
       />
       <Show when={showSettings()}>
         <Suspense>
-          <SettingsModal onClose={() => setShowSettings(false)} />
+          <SettingsModal
+            onClose={() => setShowSettings(false)}
+            onProjectsChanged={(deletedProjectId) => {
+              if (deletedProjectId && activeProjectId() === deletedProjectId) setActiveProjectId(undefined);
+              setProjectRefresh((value) => value + 1);
+            }}
+          />
         </Suspense>
       </Show>
       <ChatInterface

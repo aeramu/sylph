@@ -1,4 +1,4 @@
-import { createMemo, createResource, createSignal, For, Show, Switch, Match, createEffect, onCleanup } from 'solid-js';
+import { createMemo, createResource, createSignal, For, Show, Switch, Match, createEffect, on, onCleanup } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import type { DraftSession, ProjectInfo } from '../../types';
 import { sessionStatuses, setSessionStatus } from '../../lib/sessionStatus';
@@ -102,6 +102,7 @@ export default function SessionSidebar(props: {
   onSelectProject: (id?: string) => void,
   onNewSession: (projectId?: string, standalonePath?: string) => void,
   refreshTrigger: number,
+  projectsRefreshTrigger?: number,
   draftSessions: DraftSession[],
   onProjectsChanged?: () => void,
   onSessionDetached: (id: string) => void,
@@ -109,6 +110,7 @@ export default function SessionSidebar(props: {
   onToggleSidebar: () => void,
 }) {
   const [projects, { refetch: refetchProjects }] = createResource(listProjects);
+  createEffect(on(() => props.projectsRefreshTrigger, () => void refetchProjects(), { defer: true }));
   const [groupMode, setGroupMode] = createSignal<GroupMode>(loadViewPreference('sylph:session-group-mode', ['project', 'directory', 'status', 'none'] as const, 'project'));
   const [sortMode, setSortMode] = createSignal<SortMode>(loadViewPreference('sylph:session-sort-mode', ['updated', 'alphabetical', 'created'] as const, 'updated'));
   const [subtitleMode, setSubtitleMode] = createSignal<SubtitleMode>(loadViewPreference('sylph:session-subtitle-mode', ['directory', 'project', 'worktree', 'none'] as const, 'none'));
@@ -439,15 +441,13 @@ export default function SessionSidebar(props: {
                     </span>
                   </div>
                   <Show when={groupMode() === 'project' || groupMode() === 'directory'}>
-                    <button class={`session-group-action pin inline ${groupPinned(group.key) ? 'active' : ''}`} onClick={(event) => { event.stopPropagation(); togglePinnedGroup(group.key); }} title={groupPinned(group.key) ? 'Unpin group' : 'Pin group'} aria-label={groupPinned(group.key) ? 'Unpin group' : 'Pin group'}>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M9 3h6l-1 5 3 3v2H7v-2l3-3z" />
-                        <path d="M12 13v8" />
-                      </svg>
-                    </button>
-                  </Show>
-                  <Show when={groupMode() === 'project' || groupMode() === 'directory'}>
                     <div class="session-group-actions">
+                      <button class={`session-group-action pin ${groupPinned(group.key) ? 'active' : ''}`} onClick={(event) => { event.stopPropagation(); togglePinnedGroup(group.key); }} title={groupPinned(group.key) ? 'Unpin group' : 'Pin group'} aria-label={groupPinned(group.key) ? 'Unpin group' : 'Pin group'}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M9 3h6l-1 5 3 3v2H7v-2l3-3z" />
+                          <path d="M12 13v8" />
+                        </svg>
+                      </button>
                       <Show when={projectForGroup(group.key)} keyed>
                         {(project) => (
                           <button class="session-group-action settings" onClick={(event) => { event.stopPropagation(); setEditingProject(project); }} title={`Project settings for ${project.name}`} aria-label={`Project settings for ${project.name}`}>

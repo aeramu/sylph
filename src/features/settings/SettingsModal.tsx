@@ -12,6 +12,8 @@ import {
   type ModelsResponse, type ProviderInfo,
 } from './api';
 import SettingsNavigation, { type SettingsSection } from './components/SettingsNavigation';
+import ProjectsSettings from './components/ProjectsSettings';
+import ProvidersSettings from './components/ProvidersSettings';
 import ResourceList from './components/ResourceList';
 import { SettingsMetaList, SettingsMetaRow } from './components/SettingsMetaList';
 import { createOAuthFlow } from './createOAuthFlow';
@@ -42,8 +44,11 @@ function statusText(provider: ProviderInfo) {
   return provider.configured ? 'Configured' : 'Not configured';
 }
 
-export default function SettingsModal(props: { onClose: () => void }) {
-  const [activeSection, setActiveSection] = createSignal<SettingsSection>('provider');
+export default function SettingsModal(props: {
+  onClose: () => void;
+  onProjectsChanged?: (deletedProjectId?: string) => void;
+}) {
+  const [activeSection, setActiveSection] = createSignal<SettingsSection>('projects');
   const [mobileMenuOpen, setMobileMenuOpen] = createSignal(true);
   const [selectedSkill, setSelectedSkill] = createSignal<string | null>(null);
   const [selectedExtension, setSelectedExtension] = createSignal<string | null>(null);
@@ -80,7 +85,7 @@ export default function SettingsModal(props: { onClose: () => void }) {
   const currentResources = () => activeSection() === 'skills' ? (skills() || []) : (extensions() || []);
   const currentResourcesLoading = () => activeSection() === 'skills' ? skills.loading : extensions.loading;
   const selectedTitle = () => creatingProvider() ? 'Create Provider' : selectedProvider() || selectedSkill() || selectedExtension() || sectionTitle();
-  const sectionTitle = () => activeSection() === 'provider' ? 'Provider' : activeSection() === 'git' ? 'Git' : activeSection() === 'skills' ? 'Skills' : 'Extensions';
+  const sectionTitle = () => activeSection() === 'projects' ? 'Projects' : activeSection() === 'provider' ? 'Provider' : activeSection() === 'git' ? 'Git' : activeSection() === 'skills' ? 'Skills' : 'Extensions';
   const emptyLabel = () => activeSection() === 'skills' ? 'skills' : 'extensions';
   const selectedProviderInfo = () => (providers() || []).find((p) => p.id === selectedProvider()) || null;
   const providerOperationBusy = () => providerBusy() || oauthBusy();
@@ -317,6 +322,9 @@ export default function SettingsModal(props: { onClose: () => void }) {
           </div>
 
           <div class="settings-modal-body">
+            <Show when={activeSection() !== 'projects'} fallback={
+              <ProjectsSettings onProjectsChanged={props.onProjectsChanged} />
+            }>
             <Show when={activeSection() !== 'provider'} fallback={
               <Show when={!selectedProvider() && !creatingProvider()} fallback={
                 <Show when={creatingProvider()} fallback={
@@ -482,26 +490,14 @@ export default function SettingsModal(props: { onClose: () => void }) {
                   </div>
                 </Show>
               }>
-                <Show when={!providers.loading} fallback={<div class="settings-modal-empty">Loading providers...</div>}>
-                  <div class="settings-provider-actions settings-provider-create-row">
-                    <button class="settings-provider-button primary" disabled={providerOperationBusy()} onClick={() => { setCreatingProvider(true); setProviderMessage(null); }}>Create Provider</button>
-                  </div>
-                  <Show when={(providers() || []).length > 0} fallback={<div class="settings-modal-empty">No providers found.</div>}>
-                    <div class="settings-resource-list">
-                      <For each={providers()}>
-                        {(provider) => (
-                          <button class="settings-resource-card clickable" type="button" onClick={() => setSelectedProvider(provider.id)}>
-                            <div class="settings-resource-card-header provider">
-                              <span class="settings-resource-card-name">{provider.name}</span>
-                              <span class={`settings-provider-badge ${provider.configured ? 'configured' : ''}`}>{provider.configured ? 'Configured' : 'Not configured'}</span>
-                            </div>
-                            <div class="settings-resource-card-desc">{provider.id} · {statusText(provider)}</div>
-                          </button>
-                        )}
-                      </For>
-                    </div>
-                  </Show>
-                </Show>
+                <ProvidersSettings
+                  providers={providers() || []}
+                  loading={providers.loading}
+                  busy={providerOperationBusy()}
+                  statusText={statusText}
+                  onSelect={setSelectedProvider}
+                  onCreate={() => { setCreatingProvider(true); setProviderMessage(null); }}
+                />
               </Show>
             }>
               <Show when={activeSection() !== 'git'} fallback={
@@ -669,6 +665,7 @@ export default function SettingsModal(props: { onClose: () => void }) {
                 />
               </Show>
               </Show>
+            </Show>
             </Show>
           </div>
         </div>

@@ -174,10 +174,9 @@
 .session-group-header:hover .session-group-title { color: #b8bac0; }
 .session-group-label { display: inline-flex; align-items: center; min-width: 0; gap: 0.5rem; }
 .session-group-actions { display: flex; align-items: center; flex: 0 0 auto; margin-left: auto; }
-.session-group-action.inline { flex: 0 0 auto; }
-.session-group-action { opacity: 0; transition: opacity 0.15s, color 0.15s, background 0.15s; }
+.session-group-action { opacity: 0; pointer-events: none; transition: opacity 0.15s, color 0.15s, background 0.15s; }
 .session-group-header:hover .session-group-action,
-.session-group-action.pin.active { opacity: 1; }
+.session-group-header:focus-within .session-group-action { opacity: 1; pointer-events: auto; }
 .session-group-action {
   display: inline-flex;
   align-items: center;
