@@ -24,11 +24,15 @@ export async function findStoredSession(sessionId: string, binding?: SessionBind
 export async function collectSessionSummaries(bindings: SessionBinding[], directories: Iterable<string>, includeGlobal: boolean) {
   const byId = new Map<string, any>();
   if (includeGlobal) {
+    // listAll already includes every default per-cwd session directory. Do not
+    // immediately reread those same JSONL files via list(directory): with a
+    // large history that doubled startup I/O and rebuilt all search text twice.
     try { for (const session of await SessionManager.listAll()) byId.set(session.id, session); } catch { /* directory fallbacks below */ }
-  }
-  for (const directory of directories) {
-    if (!fs.existsSync(directory)) continue;
-    try { for (const session of await SessionManager.list(directory)) byId.set(session.id, session); } catch { /* unavailable roots do not hide others */ }
+  } else {
+    for (const directory of directories) {
+      if (!fs.existsSync(directory)) continue;
+      try { for (const session of await SessionManager.list(directory)) byId.set(session.id, session); } catch { /* unavailable roots do not hide others */ }
+    }
   }
   for (const binding of bindings) {
     if (byId.has(binding.sessionId) || !binding.sessionFile || !fs.existsSync(binding.sessionFile)) continue;

@@ -63,6 +63,44 @@
   margin-right: auto;
 }
 
+.git-tab .git-pr-button {
+  display: inline-flex;
+  height: 1.6rem;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: 0.15rem;
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border-color));
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--text-primary);
+  padding: 0.15rem 0.4rem;
+  font-weight: 650;
+}
+
+.git-tab .git-pr-button span { font-size: 0.68rem; }
+
+.git-pr-success {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0 0.75rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border-color));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+}
+
+.git-tab .git-pr-success button {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  padding: 0.15rem;
+  font-weight: 650;
+}
+
 .git-tab .git-sync-button {
   display: inline-flex;
   min-width: 2.25rem;

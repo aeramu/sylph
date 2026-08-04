@@ -35,6 +35,7 @@ export function GitBranchSection(props: {
   onToggle: () => void;
   onPull: () => void;
   onPush: () => void;
+  onCreatePullRequest: () => void;
 }) {
   const [collapsedGroups, setCollapsedGroups] = createSignal({ unpushed: false, unpulled: false });
 
@@ -79,6 +80,17 @@ export function GitBranchSection(props: {
             }>
               <span>↑&nbsp;{props.repository?.ahead ?? 0}</span>
             </Show>
+          </button>
+          <button
+            class="git-pr-button"
+            disabled={props.busy || !props.repository || props.repository.detached}
+            onClick={props.onCreatePullRequest}
+            title={props.repository?.detached ? 'Check out a branch to create a pull request' : 'Create or view a GitHub pull request'}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="6" cy="5" r="2"/><circle cx="18" cy="19" r="2"/><path d="M6 7v10"/><path d="M18 17V9a4 4 0 0 0-4-4h-2"/><path d="m14 2-3 3 3 3"/>
+            </svg>
+            <span>PR</span>
           </button>
         </div>
       </div>

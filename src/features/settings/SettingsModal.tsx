@@ -14,6 +14,7 @@ import {
 import SettingsNavigation, { type SettingsSection } from './components/SettingsNavigation';
 import ProjectsSettings from './components/ProjectsSettings';
 import ProvidersSettings from './components/ProvidersSettings';
+import NotificationsSettings from './components/NotificationsSettings';
 import ProviderDetail from './components/ProviderDetail';
 import ResourceList from './components/ResourceList';
 import { SettingsMetaList, SettingsMetaRow } from './components/SettingsMetaList';
@@ -89,7 +90,7 @@ export default function SettingsModal(props: {
     ? 'Create Provider'
     : (providers() || []).find((provider) => provider.id === selectedProvider())?.name
       || selectedSkill() || selectedExtension() || sectionTitle();
-  const sectionTitle = () => activeSection() === 'projects' ? 'Projects' : activeSection() === 'provider' ? 'Provider' : activeSection() === 'git' ? 'Git' : activeSection() === 'skills' ? 'Skills' : 'Extensions';
+  const sectionTitle = () => activeSection() === 'projects' ? 'Projects' : activeSection() === 'provider' ? 'Provider' : activeSection() === 'git' ? 'Git' : activeSection() === 'notifications' ? 'Notifications' : activeSection() === 'skills' ? 'Skills' : 'Extensions';
   const emptyLabel = () => activeSection() === 'skills' ? 'skills' : 'extensions';
   const selectedProviderInfo = () => (providers() || []).find((p) => p.id === selectedProvider()) || null;
   const providerOperationBusy = () => providerBusy() || oauthBusy();
@@ -574,6 +575,7 @@ export default function SettingsModal(props: {
                   </section>
                 </div>
               }>
+              <Show when={activeSection() !== 'notifications'} fallback={<NotificationsSettings />}>
               <Show when={!((activeSection() === 'skills' && selectedSkill()) || (activeSection() === 'extensions' && selectedExtension()))} fallback={
                 <Show when={activeSection() === 'skills'} fallback={
                   <Show when={!extensionDetail.loading} fallback={<div class="settings-modal-empty">Loading extension...</div>}>
@@ -680,6 +682,7 @@ export default function SettingsModal(props: {
                   kind={activeSection() === 'skills' ? 'skills' : 'extensions'}
                   onSelect={(name) => activeSection() === 'skills' ? setSelectedSkill(name) : setSelectedExtension(name)}
                 />
+              </Show>
               </Show>
               </Show>
             </Show>

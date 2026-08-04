@@ -11,7 +11,7 @@ export const AGENT_BROWSER_DASHBOARD_URL = process.env.AGENT_BROWSER_DASHBOARD_U
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Prefer the project dependency: unlike some source-built system packages,
 // the npm release includes the dashboard assets embedded in its native binary.
-const LOCAL_AGENT_BROWSER_BIN = path.resolve(__dirname, "../node_modules/.bin/agent-browser");
+const LOCAL_AGENT_BROWSER_BIN = path.resolve(__dirname, "../../../node_modules/.bin/agent-browser");
 const AGENT_BROWSER_BIN = process.env.AGENT_BROWSER_BIN || LOCAL_AGENT_BROWSER_BIN;
 
 export interface AgentBrowserDashboardStatus {

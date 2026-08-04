@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sylph-pwa-v1';
+const CACHE_NAME = 'sylph-pwa-v2';
 const APP_SHELL = [
   '/',
   '/manifest.webmanifest',
@@ -20,6 +20,24 @@ self.addEventListener('activate', (event) => {
         keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
       ))
       .then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const sessionId = event.notification.data?.sessionId;
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(async (clients) => {
+      const client = clients[0];
+      if (client) {
+        await client.focus();
+        client.postMessage({ type: 'open_session', sessionId });
+        return;
+      }
+      const target = sessionId ? `/?session=${encodeURIComponent(sessionId)}` : '/';
+      await self.clients.openWindow(target);
+    })
   );
 });
 

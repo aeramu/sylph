@@ -1,11 +1,10 @@
 import fs from "fs";
 import path from "path";
-import { SessionManager } from "../../../integrations/pi/sessionSdk.ts";
 import { getPendingUiRequests } from "../../interactions/uiRequestBroker.ts";
 import { getActiveRuntime } from "../../../integrations/pi/runtime/runtimeManager.ts";
 import { getProjects, getProjectById } from "../../projects/projectRepository.ts";
 import { getRawManagedDirectories, getSessionDirectories, hasManagedWorktrees } from "../workspace/sessionWorkspace.ts";
-import { reconcileSessionBinding, recoverSessionBindingsFromPi } from "../workspace/piSessionMetadata.ts";
+import { recoverSessionBindingsFromPi } from "../workspace/piSessionMetadata.ts";
 import { notFound } from "../../../platform/http/errors.ts";
 import { collectSessionSummaries } from "./sessionRepository.ts";
 
@@ -37,12 +36,6 @@ export async function listSessions(query: SessionListQuery = {}): Promise<any[]>
 
   const byId = await collectSessionSummaries(bindings, directories, !projectId);
 
-  for (const session of byId.values()) {
-    if (session.path && fs.existsSync(session.path)) {
-      try { reconcileSessionBinding(SessionManager.open(session.path), session.path); } catch { /* malformed legacy session */ }
-    }
-  }
-
   const allBindings = await recoverSessionBindingsFromPi();
   bindings = projectId
     ? allBindings.filter((binding) => binding.projectId === projectId)
@@ -66,8 +59,16 @@ export async function listSessions(query: SessionListQuery = {}): Promise<any[]>
       const activeDirectory = sessionDirectories?.find((directory) => directory.directoryId === binding?.directoryId) ?? sessionDirectories?.[0];
       const configuredDirectory = project?.directories.find((directory) => directory.id === (activeDirectory?.directoryId ?? binding?.directoryId));
       const sourcePath = binding?.workspaceKind === "scratch" ? undefined : activeDirectory?.sourcePath ?? configuredDirectory?.path ?? binding?.cwd ?? session.cwd;
+      // SessionManager summaries include allMessagesText for Pi's terminal
+      // session search. The web sidebar never uses it, and returning it made
+      // this endpoint grow with the full text of every conversation.
       return {
-        ...session,
+        id: session.id,
+        ...(session.name ? { name: session.name } : {}),
+        modified: session.modified,
+        created: session.created,
+        messageCount: session.messageCount,
+        firstMessage: session.firstMessage,
         ...(status ? { status } : {}),
         projectId: binding?.projectId,
         projectName: project?.name,

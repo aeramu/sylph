@@ -1,5 +1,5 @@
 import { api } from '../../lib/api';
-import type { GitCommit, GitDivergence, GitFile, GitRepositoryInfo } from '../../lib/gitPatch';
+import type { CreatePullRequestInput, GitCommit, GitDivergence, GitFile, GitPullRequest, GitRepositoryInfo, PullRequestContext } from '../../lib/gitPatch';
 
 export interface GitScope { projectId: string; sessionId?: string; directoryId?: string }
 
@@ -33,4 +33,14 @@ export async function generateCommitMessage(scope: GitScope): Promise<string> {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
   });
   return data.message || '';
+}
+
+export function getPullRequestContext(scope: GitScope): Promise<PullRequestContext> {
+  return api(scoped(`/api/projects/${encodeURIComponent(scope.projectId)}/git/pull-request-context`, scope), { cache: 'no-store' });
+}
+
+export function createPullRequest(scope: GitScope, input: CreatePullRequestInput): Promise<GitPullRequest> {
+  return api(scoped(`/api/projects/${encodeURIComponent(scope.projectId)}/git/pull-request`, scope), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  });
 }

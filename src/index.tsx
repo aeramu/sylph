@@ -8,6 +8,12 @@ const root = document.getElementById('root')
 render(() => <App />, root!)
 
 if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    if (event.data?.type === 'open_session' && event.data.sessionId) {
+      window.dispatchEvent(new CustomEvent('sylph:open-session', { detail: { sessionId: event.data.sessionId } }))
+    }
+  })
+
   window.addEventListener('load', () => {
     if (import.meta.env.PROD) {
       navigator.serviceWorker.register('/sw.js').catch((error) => {

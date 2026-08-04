@@ -23,6 +23,7 @@ function createSession() {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
   fs.rmSync(bindingsFile, { force: true });
   fs.rmSync(sessionsRoot, { recursive: true, force: true });
 });
@@ -159,6 +160,16 @@ describe("embedded Sylph workspace metadata", () => {
     expect(metadata.getWorkspaceMetadata(manager)).not.toHaveProperty("directories");
     expect(reconciled).toEqual(expect.objectContaining({ workspaceKind: "scratch", cwd: "/tmp/private-scratch" }));
     expect(reconciled?.directories).toBeUndefined();
+  });
+
+  it("uses the binding index without rescanning unrelated Pi sessions", async () => {
+    bindings.saveSessionBinding({ sessionId: "indexed", cwd: "/tmp/backend" });
+    const listAll = vi.spyOn(SessionManager, "listAll");
+
+    await expect(metadata.recoverSessionBindingsFromPi()).resolves.toEqual([
+      expect.objectContaining({ sessionId: "indexed" }),
+    ]);
+    expect(listAll).not.toHaveBeenCalled();
   });
 
   it("uses the latest valid append-only metadata entry", () => {

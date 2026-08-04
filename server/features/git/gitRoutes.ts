@@ -5,6 +5,7 @@ import { getProjectById, projectAtDirectory } from "../projects/projectRepositor
 import { generateProjectCommitMessage } from "./gitService.ts";
 import { getSessionBinding } from "../sessions/workspace/workspaceBindingRepository.ts";
 import { getSessionDirectory, projectFromSessionBinding } from "../sessions/workspace/sessionWorkspace.ts";
+import { createPullRequest, getPullRequestContext } from "./pullRequestService.ts";
 
 function parseLimit(value: unknown) {
   const limit = Number(value ?? 30);
@@ -121,6 +122,28 @@ export function createGitRouter(): express.Router {
     try {
       await commit(res.locals.project, message);
       res.json({ success: true });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  router.get("/api/projects/:id/git/pull-request-context", async (_req, res) => {
+    try {
+      res.json(await getPullRequestContext(res.locals.project));
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  router.post("/api/projects/:id/git/pull-request", async (req, res) => {
+    const { title, body, base, draft, publishBranch } = req.body ?? {};
+    if (typeof title !== "string" || !title.trim()) return res.status(400).json({ error: "title is required" });
+    if (typeof base !== "string" || !base.trim()) return res.status(400).json({ error: "base is required" });
+    if (body != null && typeof body !== "string") return res.status(400).json({ error: "body must be a string" });
+    try {
+      res.json(await createPullRequest(res.locals.project, {
+        title, body: body ?? "", base, draft: !!draft, publishBranch: !!publishBranch,
+      }));
     } catch (error) {
       handleError(res, error);
     }

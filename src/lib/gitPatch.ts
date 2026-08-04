@@ -6,6 +6,37 @@ export type GitRepositoryInfo = {
   behind: number;
 };
 
+export type GitPullRequest = {
+  number: number;
+  title: string;
+  url: string;
+  state: 'open';
+  draft: boolean;
+};
+
+export type PullRequestContext = {
+  provider: 'github' | 'unsupported';
+  repository?: { owner: string; name: string; url: string };
+  branch: string;
+  detached: boolean;
+  defaultBaseBranch?: string;
+  baseBranches: string[];
+  published: boolean;
+  commitCount: number;
+  suggestedTitle: string;
+  dirtyFileCount: number;
+  existingPullRequest?: GitPullRequest;
+  authentication: { configured: boolean };
+};
+
+export type CreatePullRequestInput = {
+  title: string;
+  body: string;
+  base: string;
+  draft: boolean;
+  publishBranch: boolean;
+};
+
 export type GitCommit = {
   hash: string;
   shortHash: string;

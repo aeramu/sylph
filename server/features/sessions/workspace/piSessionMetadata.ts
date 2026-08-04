@@ -124,13 +124,20 @@ async function recoverBindingIndex() {
  * server process and use the repaired index for subsequent project listings.
  */
 export async function recoverSessionBindingsFromPi(projectId?: string): Promise<SessionBinding[]> {
-  if (!recoveryPromise) {
-    recoveryPromise = recoverBindingIndex().catch((error) => {
-      recoveryPromise = undefined;
-      throw error;
-    });
+  let bindings = getSessionBindings();
+  // The binding file is the hot index maintained on every Sylph mutation.
+  // Rebuilding it requires parsing every Pi JSONL session, so only pay that
+  // recovery cost when the index is actually absent/empty. Individual stale
+  // entries are still reconciled lazily when their session is resumed.
+  if (bindings.length === 0) {
+    if (!recoveryPromise) {
+      recoveryPromise = recoverBindingIndex().catch((error) => {
+        recoveryPromise = undefined;
+        throw error;
+      });
+    }
+    await recoveryPromise;
+    bindings = getSessionBindings();
   }
-  await recoveryPromise;
-  const bindings = getSessionBindings();
   return projectId ? bindings.filter((binding) => binding.projectId === projectId) : bindings;
 }

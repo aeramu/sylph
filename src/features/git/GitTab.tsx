@@ -1,11 +1,12 @@
 import { createEffect, createMemo, createSignal, on, Show } from 'solid-js';
-import type { GitCommit, GitDivergence, GitFile, GitRepositoryInfo } from '../../lib/gitPatch';
+import type { GitCommit, GitDivergence, GitFile, GitPullRequest, GitRepositoryInfo } from '../../lib/gitPatch';
 import { getGitCommitDraft, setGitCommitDraft } from '../../lib/gitCommitDraft';
 import { generateCommitMessage as requestCommitMessage, refreshGit, runGitOperation, type GitScope } from './api';
 import GitCommitBox from './GitCommitBox';
 import { GitBranchSection, GitCommitHistory } from './GitRepositorySection';
 import GitSourceSection from './GitSourceSection';
 import GitToolbar from './GitToolbar';
+import CreatePullRequestModal from './CreatePullRequestModal';
 import type { ReviewCommentRequest } from '../../shared/ui/ReviewCommentPopover';
 import './GitTab.css';
 
@@ -25,6 +26,8 @@ export default function GitTab(props: {
   const [busy, setBusy] = createSignal(false);
   const [generating, setGenerating] = createSignal(false);
   const [syncOperation, setSyncOperation] = createSignal<'pull' | 'push' | null>(null);
+  const [showPullRequest, setShowPullRequest] = createSignal(false);
+  const [pullRequest, setPullRequest] = createSignal<GitPullRequest>();
   const [error, setError] = createSignal('');
   const draftId = () => `${props.sessionId || props.projectId || 'none'}:${props.directoryId || 'root'}`;
   const [message, setMessage] = createSignal(getGitCommitDraft(draftId()));
@@ -132,6 +135,8 @@ export default function GitTab(props: {
   createEffect(() => {
     const projectId = props.projectId || (props.sessionId ? '__session__' : undefined);
     setExpanded({});
+    setShowPullRequest(false);
+    setPullRequest(undefined);
     void props.sessionId;
     void props.directoryId;
     // Cancel ownership of any in-flight generation before loading this root's
@@ -167,7 +172,14 @@ export default function GitTab(props: {
           onToggle={() => setCollapsed((value) => ({ ...value, branch: !value.branch }))}
           onPull={() => void post('pull', {})}
           onPush={() => void post('push', {})}
+          onCreatePullRequest={() => setShowPullRequest(true)}
         />
+        <Show when={pullRequest()} keyed>{(created) =>
+          <div class="git-pr-success">
+            <span>Pull request #{created.number} is open.</span>
+            <button onClick={() => window.open(created.url, '_blank', 'noopener,noreferrer')}>View PR ↗</button>
+          </div>
+        }</Show>
         <GitCommitBox
           message={message()}
           stagedCount={stagedFiles().length}
@@ -217,6 +229,13 @@ export default function GitTab(props: {
                 onToggle={() => setCollapsed((value) => ({ ...value, history: !value.history }))}
               />
             </div>
+        </Show>
+        <Show when={showPullRequest()}>
+          <CreatePullRequestModal
+            scope={gitScope(props.projectId || (props.sessionId ? '__session__' : ''))}
+            onClose={() => setShowPullRequest(false)}
+            onCreated={(created) => setPullRequest(created)}
+          />
         </Show>
       </Show>
     </div>

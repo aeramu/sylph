@@ -149,6 +149,8 @@ describe('SettingsNavigation', () => {
     mount(() => <SettingsNavigation active={active()} onSelect={setActive} onClose={() => {}} />);
     await userEvent.click(page.getByText('Git'));
     expect(active()).toBe('git');
+    await userEvent.click(page.getByText('Notifications'));
+    expect(active()).toBe('notifications');
   });
 });
 

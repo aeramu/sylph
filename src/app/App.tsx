@@ -8,7 +8,8 @@ import './App.css';
 const SettingsModal = lazy(() => import('../features/settings/SettingsModal'));
 
 function App() {
-  const [activeSessionId, setActiveSessionId] = createSignal<string | undefined>(undefined);
+  const initialSessionId = new URLSearchParams(window.location.search).get('session') || undefined;
+  const [activeSessionId, setActiveSessionId] = createSignal<string | undefined>(initialSessionId);
   const [activeProjectId, setActiveProjectId] = createSignal<string | undefined>(undefined);
   const [newSessionRequest, setNewSessionRequest] = createSignal<{ id: number; standalonePath?: string }>({ id: 0 });
   const [refreshSidebar, setRefreshSidebar] = createSignal(0);
@@ -31,6 +32,13 @@ function App() {
   onMount(() => {
     const viewport = window.visualViewport;
     let frame = 0;
+    if (initialSessionId) history.replaceState(null, '', `${window.location.pathname}${window.location.hash}`);
+    const openNotifiedSession = (event: Event) => {
+      const sessionId = (event as CustomEvent<{ sessionId?: string }>).detail?.sessionId;
+      if (!sessionId) return;
+      setActiveSessionId(sessionId);
+      setSidebarOpen(false);
+    };
 
     const updateViewport = () => {
       cancelAnimationFrame(frame);
@@ -47,6 +55,7 @@ function App() {
     window.addEventListener('orientationchange', updateViewport);
     viewport?.addEventListener('resize', updateViewport);
     viewport?.addEventListener('scroll', updateViewport);
+    window.addEventListener('sylph:open-session', openNotifiedSession);
 
     onCleanup(() => {
       cancelAnimationFrame(frame);
@@ -54,6 +63,7 @@ function App() {
       window.removeEventListener('orientationchange', updateViewport);
       viewport?.removeEventListener('resize', updateViewport);
       viewport?.removeEventListener('scroll', updateViewport);
+      window.removeEventListener('sylph:open-session', openNotifiedSession);
       document.documentElement.style.removeProperty('--app-viewport-height');
       document.documentElement.style.removeProperty('--app-viewport-offset-top');
     });

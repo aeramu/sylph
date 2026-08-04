@@ -35,6 +35,7 @@ import { createChatSession } from './createChatSession';
 import { prepareChatSubmission } from './createChatSubmission';
 import { ChatHistoryController } from './createChatHistory';
 import { addReviewComment, formatReviewComments, getReviewComments, removeReviewComments } from '../../lib/reviewComments';
+import { notificationForSessionEvent, showBrowserNotification } from '../../lib/browserNotifications';
 
 export default function ChatInterface(props: { activeSessionId?: string, activeProjectId?: string, onSelectProject?: (id?: string) => void, newSessionRequest?: { id: number; standalonePath?: string }, onSessionCreated: (id: string, projectId?: string, firstMessage?: string, meta?: { workspaceKind?: 'directories' | 'scratch'; directoryId?: string; branch?: string; worktree?: boolean }) => void, onTurnComplete?: () => void, onSessionRemoved?: (id: string) => void, projectRefreshTrigger?: number }) {
   const [messages, setMessages] = createStore<ChatMessage[]>([]);
@@ -390,8 +391,17 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       onConnectionChange: setIsConnected,
       onReconnect: () => void fetchHistory(),
       onEvent: (event) => {
+        const previousStatus = event.sessionId ? sessionStatuses[event.sessionId] : undefined;
         trackSessionEvent(event);
         handleSessionEvent(event);
+        const notification = notificationForSessionEvent(
+          event,
+          event.sessionId === props.activeSessionId ? activeSessionTitle() : undefined,
+          previousStatus === 'error',
+        );
+        if (notification) void showBrowserNotification(notification).catch((error) => {
+          console.warn('Failed to show browser notification:', error);
+        });
       },
     });
   };
