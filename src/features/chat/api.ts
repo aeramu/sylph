@@ -25,6 +25,7 @@ export interface SessionBindingInfo {
 
 export interface SessionSnapshot {
   messages?: unknown[];
+  name?: string;
   context?: ContextInfo;
   binding?: SessionBindingInfo;
   statuses?: Record<string, string>;

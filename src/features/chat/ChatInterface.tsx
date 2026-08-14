@@ -40,7 +40,9 @@ import { notificationForSessionEvent, showBrowserNotification } from '../../lib/
 export default function ChatInterface(props: { activeSessionId?: string, activeProjectId?: string, onSelectProject?: (id?: string) => void, newSessionRequest?: { id: number; standalonePath?: string }, onSessionCreated: (id: string, projectId?: string, firstMessage?: string, meta?: { workspaceKind?: 'directories' | 'scratch'; directoryId?: string; branch?: string; worktree?: boolean }) => void, onTurnComplete?: () => void, onSessionRemoved?: (id: string) => void, projectRefreshTrigger?: number }) {
   const [messages, setMessages] = createStore<ChatMessage[]>([]);
   const chatSession = createChatSession({ sessionId: () => props.activeSessionId, projectId: () => props.activeProjectId, messages });
-  const { setNewSessionProcessing, isProcessing, draftKey: chatDraftKey, title: activeSessionTitle } = chatSession;
+  const { setNewSessionProcessing, isProcessing, draftKey: chatDraftKey, title: defaultSessionTitle } = chatSession;
+  const [sessionName, setSessionName] = createSignal<string>();
+  const activeSessionTitle = () => sessionName() || defaultSessionTitle();
   const [isConnected, setIsConnected] = createSignal(false);
   const [lightboxUrl, setLightboxUrl] = createSignal<string | null>(null);
   const [commandsList, setCommandsList] = createSignal<CommandInfo[]>([]);
@@ -241,10 +243,16 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     if (pinnedToBottom()) scrollToBottom();
   });
 
+  const handleSessionRenamed = (event: Event) => {
+    const detail = (event as CustomEvent<{ sessionId?: string; name?: string }>).detail;
+    if (detail?.sessionId === props.activeSessionId) setSessionName(detail.name);
+  };
+
   onMount(() => {
     loadModels().catch(console.error);
     fetchCommands();
     connectSSE();
+    window.addEventListener('sylph:session-renamed', handleSessionRenamed);
   });
 
   // Project list drives the "Select a Project" dropdown for new chats.
@@ -283,6 +291,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
 
   createEffect(() => {
     const id = props.activeSessionId; // track
+    setSessionName(undefined);
     if (id && pendingSessionId === id) {
       setNewSessionProcessing(false);
       // We just committed a session we created; it's already streaming, so
@@ -339,6 +348,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       if (!loaded) return;
       const { snapshot: data, events } = loaded;
       setMessages(mapHistoryToMessages(data.messages || []));
+      setSessionName(data.name);
       setContextInfo(data.context || null);
       setSessionBinding(data.binding || null);
       if (data.binding?.directoryId) setSelectedDirectoryId(data.binding.directoryId);
@@ -384,6 +394,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
 
   onCleanup(() => {
     disconnectSessionStream?.();
+    window.removeEventListener('sylph:session-renamed', handleSessionRenamed);
   });
 
   const connectSSE = () => {
@@ -446,6 +457,8 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   const dispatchSessionEvent = (event: any) => {
     if (event.type === 'extension_ui_request') {
       handleUiMethod(event);
+    } else if (event.type === 'session_info_changed') {
+      setSessionName(typeof event.name === 'string' && event.name.trim() ? event.name.trim() : undefined);
     } else {
       applyEvent(event);
     }

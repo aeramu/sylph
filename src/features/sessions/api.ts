@@ -34,6 +34,14 @@ export function deleteSession(id: string): Promise<{ success: boolean; branchesK
   return api(`/api/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
+export function renameSession(id: string, name: string): Promise<{ success: boolean; name: string }> {
+  return api(`/api/sessions/${encodeURIComponent(id)}/name`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+}
+
 export function moveSessionToProject(id: string, projectId?: string): Promise<{ success: boolean; projectId?: string; projectName?: string }> {
   return api(`/api/sessions/${encodeURIComponent(id)}/project`, {
     method: 'PATCH',

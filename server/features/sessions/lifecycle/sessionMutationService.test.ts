@@ -21,7 +21,7 @@ vi.mock("../../../config.ts", async (importOriginal) => ({
 const projects = await import("../../projects/projectRepository.ts");
 const bindings = await import("../workspace/workspaceBindingRepository.ts");
 const metadata = await import("../workspace/piSessionMetadata.ts");
-const { deleteSession, moveSessionToProject } = await import("./sessionMutationService.ts");
+const { deleteSession, moveSessionToProject, renameSession } = await import("./sessionMutationService.ts");
 
 function persistedSession(): { manager: SessionManager; binding: SessionBinding } {
   const cwd = path.join(root, "workspace");
@@ -49,6 +49,35 @@ afterEach(() => {
 });
 
 describe("session mutations", () => {
+  it("persists a normalized session name in its history", async () => {
+    const { manager, binding } = persistedSession();
+
+    await expect(renameSession(binding.sessionId, "  Release plan\nfollow-up  ", {
+      recover: async () => [], getRuntime: async () => undefined,
+    })).resolves.toEqual({ success: true, name: "Release plan follow-up" });
+
+    expect(SessionManager.open(manager.getSessionFile()!).getSessionName()).toBe("Release plan follow-up");
+  });
+
+  it("renames through a live runtime so its session tree stays current", async () => {
+    const { binding } = persistedSession();
+    const setSessionName = vi.fn();
+
+    await renameSession(binding.sessionId, "Live title", {
+      recover: async () => [], getRuntime: async () => ({ session: { setSessionName, isStreaming: true } }),
+    });
+
+    expect(setSessionName).toHaveBeenCalledWith("Live title");
+  });
+
+  it("rejects blank and overlong session names", async () => {
+    const { binding } = persistedSession();
+    const dependencies = { recover: async () => [], getRuntime: async () => undefined };
+
+    await expect(renameSession(binding.sessionId, "   ", dependencies)).rejects.toThrow(/required/);
+    await expect(renameSession(binding.sessionId, "x".repeat(121), dependencies)).rejects.toThrow(/120 characters/);
+  });
+
   it("moves a session by updating its indexed and embedded project ownership", async () => {
     const { manager, binding } = persistedSession();
     const project = projects.createProject({ name: "Roadmap", directories: [] });

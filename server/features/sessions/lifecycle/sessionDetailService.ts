@@ -19,8 +19,9 @@ export async function getSessionDetail(sessionId: string) {
     const detached = SessionManager.open(binding.sessionFile);
     return {
       messages: detached.buildSessionContext().messages || [], eventSeq: getSessionEventSequence(sessionId),
-      isStreaming: false, pendingUiRequests: [], pendingArtifactRequest: getPendingArtifactRequest(sessionId),
-      statuses: getSessionStatuses(sessionId), context: undefined, binding: responseBinding,
+      name: detached.getSessionName(), isStreaming: false, pendingUiRequests: [],
+      pendingArtifactRequest: getPendingArtifactRequest(sessionId), statuses: getSessionStatuses(sessionId),
+      context: undefined, binding: responseBinding,
     };
   }
   const runtime = await getOrInitRuntime(sessionId);
@@ -31,7 +32,7 @@ export async function getSessionDetail(sessionId: string) {
   }
   return {
     messages: runtime.session.messages || [], eventSeq: getSessionEventSequence(sessionId),
-    isStreaming: !!runtime.session.isStreaming, pendingUiRequests,
+    name: runtime.session.sessionManager?.getSessionName?.(), isStreaming: !!runtime.session.isStreaming, pendingUiRequests,
     pendingArtifactRequest: getPendingArtifactRequest(sessionId), statuses: getSessionStatuses(sessionId),
     context: getContextInfo(runtime.session), binding: responseBinding,
   };

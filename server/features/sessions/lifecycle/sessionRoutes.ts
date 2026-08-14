@@ -1,7 +1,7 @@
 import express from "express";
 import { asyncRoute } from "../../../platform/http/routeError.ts";
 import { abortSession, acknowledgeSessionArtifact, getSessionDetail, respondToSessionUi } from "./sessionDetailService.ts";
-import { deleteSession, moveSessionToProject } from "./sessionMutationService.ts";
+import { deleteSession, moveSessionToProject, renameSession } from "./sessionMutationService.ts";
 import { listSessions } from "./sessionQueryService.ts";
 
 export function registerSessionRoutes(router: express.Router): void {
@@ -21,6 +21,7 @@ export function registerSessionRoutes(router: express.Router): void {
     res.json({ sessions: await listSessions({ projectId, unprojected: req.query.scope === "unprojected" }) });
   }));
   router.get("/api/sessions/:sessionId", asyncRoute(async (req, res) => res.json(await getSessionDetail(String(req.params.sessionId)))));
+  router.patch("/api/sessions/:sessionId/name", asyncRoute(async (req, res) => res.json(await renameSession(String(req.params.sessionId), req.body?.name))));
   router.patch("/api/sessions/:sessionId/project", asyncRoute(async (req, res) => res.json(await moveSessionToProject(String(req.params.sessionId), req.body?.projectId))));
   router.delete("/api/sessions/:sessionId", asyncRoute(async (req, res) => res.json(await deleteSession(String(req.params.sessionId)))));
   router.post("/api/sessions/:sessionId/abort", asyncRoute(async (req, res) => res.json(await abortSession(String(req.params.sessionId)))));

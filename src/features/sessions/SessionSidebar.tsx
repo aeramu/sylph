@@ -4,7 +4,7 @@ import type { DraftSession, ProjectInfo } from '../../types';
 import { sessionStatuses, setSessionStatus } from '../../lib/sessionStatus';
 import AddProjectModal from '../projects/AddProjectModal';
 import { deleteProject, listProjects } from '../projects/api';
-import { deleteSession, listSessions, moveSessionToProject, type SessionInfo } from './api';
+import { deleteSession, listSessions, moveSessionToProject, renameSession, type SessionInfo } from './api';
 import { compareSessionGroups, directoryGroupStartingPath, isNeutralSessionGroup } from './sessionGroupActions';
 import './SessionSidebar.css';
 
@@ -121,7 +121,8 @@ export default function SessionSidebar(props: {
   const [viewMenuOpen, setViewMenuOpen] = createSignal(false);
   const [viewMenuPosition, setViewMenuPosition] = createSignal({ top: 0, left: 0 });
   const [sessionMenu, setSessionMenu] = createSignal<SessionInfo | null>(null);
-  const [sessionMenuMode, setSessionMenuMode] = createSignal<'actions' | 'projects'>('actions');
+  const [sessionMenuMode, setSessionMenuMode] = createSignal<'actions' | 'projects' | 'rename'>('actions');
+  const [sessionRenameName, setSessionRenameName] = createSignal('');
   const [sessionMenuPosition, setSessionMenuPosition] = createSignal({ top: 0, left: 0 });
   const [sessionMenuAnchor, setSessionMenuAnchor] = createSignal({ top: 0, bottom: 0 });
   const [sessionMenuBusy, setSessionMenuBusy] = createSignal(false);
@@ -306,7 +307,7 @@ export default function SessionSidebar(props: {
     }
     const rect = event.currentTarget.getBoundingClientRect();
     const popoverWidth = 220;
-    const actionMenuHeight = 96;
+    const actionMenuHeight = 132;
     setSessionMenuAnchor({ top: rect.top, bottom: rect.bottom });
     setSessionMenuPosition({
       top: rect.bottom + 5 + actionMenuHeight <= window.innerHeight
@@ -317,6 +318,30 @@ export default function SessionSidebar(props: {
     setSessionMenuMode('actions');
     setSessionMenuError('');
     setSessionMenu(session);
+  };
+
+  const openRenameSession = (session: SessionInfo) => {
+    setSessionRenameName(session.name || session.firstMessage || '');
+    setSessionMenuMode('rename');
+    setSessionMenuError('');
+    queueMicrotask(() => document.querySelector<HTMLInputElement>('.session-rename-input')?.select());
+  };
+
+  const handleRenameSession = async (session: SessionInfo) => {
+    const name = sessionRenameName().trim();
+    if (!name) return;
+    setSessionMenuBusy(true);
+    setSessionMenuError('');
+    try {
+      const result = await renameSession(session.id, name);
+      setSessionMenu(null);
+      await refetchSessions();
+      window.dispatchEvent(new CustomEvent('sylph:session-renamed', { detail: { sessionId: session.id, name: result.name } }));
+    } catch (error) {
+      setSessionMenuError(error instanceof Error ? error.message : 'Could not rename chat');
+    } finally {
+      setSessionMenuBusy(false);
+    }
   };
 
   const handleMoveSession = async (session: SessionInfo, projectId?: string) => {
@@ -544,8 +569,8 @@ export default function SessionSidebar(props: {
               role="menu"
               aria-label={`Options for ${session.name || session.firstMessage || 'Empty Chat'}`}
             >
-              <Show when={sessionMenuMode() === 'actions'} fallback={
-                <>
+              <Switch>
+                <Match when={sessionMenuMode() === 'projects'}>
                   <button class="session-options-back" onClick={() => { setSessionMenuMode('actions'); setSessionMenuError(''); }} disabled={sessionMenuBusy()}>
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
                     <span>Move to project</span>
@@ -565,30 +590,58 @@ export default function SessionSidebar(props: {
                       </button>
                     )}</For>
                   </div>
-                </>
-              }>
-                <button onClick={() => {
-                  const anchor = sessionMenuAnchor();
-                  const projectMenuHeight = Math.min(330, 82 + (projects()?.length || 0) * 34);
-                  setSessionMenuPosition((position) => ({
-                    ...position,
-                    top: anchor.bottom + 5 + projectMenuHeight <= window.innerHeight
-                      ? anchor.bottom + 5
-                      : Math.max(8, anchor.top - projectMenuHeight - 5),
-                  }));
-                  setSessionMenuMode('projects');
-                  setSessionMenuError('');
-                }} disabled={sessionMenuBusy()}>
-                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="m14 11 3 3-3 3"/></svg>
-                  <span>Move to project</span>
-                  <svg class="session-options-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
-                </button>
-                <div class="session-options-divider" />
-                <button class="danger" onClick={() => void handleDeleteSession(session)} disabled={sessionMenuBusy()}>
-                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5"/></svg>
-                  <span>{sessionMenuBusy() ? 'Working…' : 'Delete chat'}</span>
-                </button>
-              </Show>
+                </Match>
+                <Match when={sessionMenuMode() === 'rename'}>
+                  <button class="session-options-back" type="button" onClick={() => { setSessionMenuMode('actions'); setSessionMenuError(''); }} disabled={sessionMenuBusy()}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    <span>Rename chat</span>
+                  </button>
+                  <div class="session-options-divider" />
+                  <form class="session-rename-form" onSubmit={(event) => { event.preventDefault(); void handleRenameSession(session); }}>
+                    <label for={`session-name-${session.id}`}>Chat name</label>
+                    <input
+                      id={`session-name-${session.id}`}
+                      class="session-rename-input"
+                      value={sessionRenameName()}
+                      maxlength={120}
+                      onInput={(event) => setSessionRenameName(event.currentTarget.value)}
+                      onKeyDown={(event) => { if (event.key === 'Escape') setSessionMenuMode('actions'); }}
+                      disabled={sessionMenuBusy()}
+                    />
+                    <div class="session-rename-actions">
+                      <button type="button" onClick={() => setSessionMenuMode('actions')} disabled={sessionMenuBusy()}>Cancel</button>
+                      <button type="submit" class="primary" disabled={sessionMenuBusy() || !sessionRenameName().trim()}>{sessionMenuBusy() ? 'Saving…' : 'Save'}</button>
+                    </div>
+                  </form>
+                </Match>
+                <Match when={sessionMenuMode() === 'actions'}>
+                  <button onClick={() => openRenameSession(session)} disabled={sessionMenuBusy()}>
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z"/></svg>
+                    <span>Rename chat</span>
+                  </button>
+                  <button onClick={() => {
+                    const anchor = sessionMenuAnchor();
+                    const projectMenuHeight = Math.min(330, 82 + (projects()?.length || 0) * 34);
+                    setSessionMenuPosition((position) => ({
+                      ...position,
+                      top: anchor.bottom + 5 + projectMenuHeight <= window.innerHeight
+                        ? anchor.bottom + 5
+                        : Math.max(8, anchor.top - projectMenuHeight - 5),
+                    }));
+                    setSessionMenuMode('projects');
+                    setSessionMenuError('');
+                  }} disabled={sessionMenuBusy()}>
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="m14 11 3 3-3 3"/></svg>
+                    <span>Move to project</span>
+                    <svg class="session-options-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                  </button>
+                  <div class="session-options-divider" />
+                  <button class="danger" onClick={() => void handleDeleteSession(session)} disabled={sessionMenuBusy()}>
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5"/></svg>
+                    <span>{sessionMenuBusy() ? 'Working…' : 'Delete chat'}</span>
+                  </button>
+                </Match>
+              </Switch>
               <Show when={sessionMenuError()}><div class="session-options-error">{sessionMenuError()}</div></Show>
             </div>
           </Portal>

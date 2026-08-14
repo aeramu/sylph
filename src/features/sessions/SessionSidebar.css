@@ -331,6 +331,32 @@
 .session-options-divider { height: 1px; margin: 0.28rem -0.3rem; background: rgba(255, 255, 255, 0.075); }
 .session-options-chevron { margin-left: auto; color: #747883; }
 .session-options-popover .session-options-back { color: #a5a8b0; font-weight: 570; }
+.session-rename-form { padding: 0.35rem 0.25rem 0.2rem; }
+.session-rename-form label {
+  display: block;
+  margin: 0 0 0.32rem;
+  color: #858993;
+  font-size: 0.7rem;
+}
+.session-rename-input {
+  width: 100%;
+  height: 32px;
+  box-sizing: border-box;
+  padding: 0 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  outline: none;
+  background: #181a1f;
+  color: #e1e2e6;
+  font: inherit;
+  font-size: 0.78rem;
+}
+.session-rename-input:focus { border-color: rgba(129, 133, 210, 0.65); box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.12); }
+.session-rename-input:disabled { opacity: 0.6; }
+.session-rename-actions { display: flex; justify-content: flex-end; gap: 0.3rem; margin-top: 0.5rem; }
+.session-options-popover .session-rename-actions button { width: auto; min-height: 29px; padding: 0.3rem 0.65rem; }
+.session-options-popover .session-rename-actions button.primary { background: rgba(99, 102, 241, 0.22); color: #dedfff; }
+.session-options-popover .session-rename-actions button.primary:hover:not(:disabled) { background: rgba(99, 102, 241, 0.31); }
 .session-project-options { max-height: 224px; overflow-y: auto; }
 .session-project-options button.selected { color: #e1e2e6; }
 .session-project-options button > span:nth-child(2) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -40,6 +40,32 @@ export interface SessionMutationDependencies {
   removeWorktrees?: typeof removeSessionWorktrees;
 }
 
+const MAX_SESSION_NAME_LENGTH = 120;
+
+/** Set the user-defined display name stored in the append-only session history. */
+export async function renameSession(
+  sessionId: string,
+  requestedName: unknown,
+  dependencies: SessionMutationDependencies = {},
+) {
+  if (typeof requestedName !== "string") badRequest("name is required");
+  const name = requestedName.replace(/[\r\n]+/g, " ").trim();
+  if (!name) badRequest("Session name is required");
+  if (name.length > MAX_SESSION_NAME_LENGTH) badRequest(`Session name must be ${MAX_SESSION_NAME_LENGTH} characters or fewer`);
+
+  await (dependencies.recover ?? recoverSessionBindingsFromPi)();
+  const binding = getSessionBinding(sessionId);
+  const manager = await findStoredSession(sessionId, binding);
+  const runtime = await (dependencies.getRuntime ?? getSettledRuntime)(sessionId);
+  if (!manager && !runtime?.session) notFound("Session not found");
+
+  // Use the live session when present so its in-memory tree and SSE subscribers
+  // see the metadata change. Detached histories can safely append it directly.
+  if (runtime?.session?.setSessionName) runtime.session.setSessionName(name);
+  else manager!.appendSessionInfo(name);
+  return { success: true as const, name };
+}
+
 /** Reassign the organizational project for a session without changing its workspace roots. */
 export async function moveSessionToProject(
   sessionId: string,
