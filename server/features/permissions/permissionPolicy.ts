@@ -20,7 +20,9 @@ export function evaluateToolCall(policy: PermissionPolicy, event: PermissionTool
     : typeof nested.path === "string" ? nested.path
     : undefined;
   if (typeof rawPath !== "string") {
-    const known = PATH_TOOLS.has(event.toolName) || event.toolName === "ask_user_question";
+    const known = PATH_TOOLS.has(event.toolName)
+      || event.toolName === "ask_user_question"
+      || ["create_schedule", "list_schedules", "update_schedule", "delete_schedule"].includes(event.toolName);
     const serialized = JSON.stringify(event.input ?? {});
     const fingerprint = createHash("sha256").update(serialized).digest("hex").slice(0, 16);
     const preview = serialized.length > 300 ? `${serialized.slice(0, 300)}…` : serialized;

@@ -8,12 +8,14 @@ import type { SessionBinding } from "../sessions/workspace/workspaceTypes.ts";
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "sylph-project-delete-test-"));
 const projectsFile = path.join(root, "projects.json");
 const bindingsFile = path.join(root, "bindings.json");
+const schedulesFile = path.join(root, "schedules.json");
 const sessionsRoot = path.join(root, "sessions");
 
 vi.mock("../../config.ts", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../config.ts")>()),
   SYLPH_DIR: root,
   PROJECTS_FILE: projectsFile,
+  SCHEDULES_FILE: schedulesFile,
   SESSION_BINDINGS_FILE: bindingsFile,
 }));
 
@@ -21,6 +23,7 @@ const projects = await import("./projectRepository.ts");
 const bindings = await import("../sessions/workspace/workspaceBindingRepository.ts");
 const metadata = await import("../sessions/workspace/piSessionMetadata.ts");
 const { deleteProject } = await import("./projectService.ts");
+const scheduler = await import("../scheduler/schedulerService.ts");
 
 function persistedSession(cwd: string) {
   fs.mkdirSync(cwd, { recursive: true });
@@ -55,6 +58,9 @@ afterEach(() => {
 describe("project deletion", () => {
   it("preserves complete detached metadata and disposes cached runtimes", async () => {
     const { project, manager, binding } = setupScratchProject();
+    const schedule = scheduler.createSchedule({
+      name: "Project task", prompt: "Review it", kind: "cron", cron: "0 9 * * *", timezone: "UTC",
+    }, { projectId: project.id });
     const dispose = vi.fn();
 
     await deleteProject(project.id, {
@@ -65,6 +71,9 @@ describe("project deletion", () => {
     expect(bindings.getSessionBinding(binding.sessionId)).toMatchObject({ workspaceKind: "scratch", cwd: binding.cwd });
     expect(bindings.getSessionBinding(binding.sessionId)).not.toHaveProperty("projectId");
     expect(dispose).toHaveBeenCalledWith(binding.sessionId, "project deleted");
+    expect(scheduler.listSchedules(project.id)).toMatchObject([{
+      id: schedule.id, enabled: false, lastError: "Project was deleted",
+    }]);
     const embedded = metadata.getWorkspaceMetadata(SessionManager.open(manager.getSessionFile()!));
     expect(embedded).toMatchObject({ workspaceKind: "scratch", cwd: binding.cwd, worktree: false });
     expect(embedded).not.toHaveProperty("projectId");

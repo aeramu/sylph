@@ -139,6 +139,35 @@ describe("Sylph permissions", () => {
     expect(evaluateToolCall(policy, tool("bash", { command: "cp id_ed25519 ./backup" }), frontend)).toMatchObject({ decision: "ask" });
   });
 
+  it("does not treat numeric route arguments passed to scripts as filesystem paths", () => {
+    const { frontend, policy } = workspace();
+    const route = evaluateToolCall(policy, tool("bash", { command: "python ./fetch_ids.py /1000" }), frontend);
+    expect(route).toMatchObject({ decision: "allow" });
+    expect(route.intents.some((intent) => intent.canonicalPath === "/1000")).toBe(false);
+
+    expect(evaluateToolCall(policy, tool("bash", { command: "python /1000" }), frontend)).toMatchObject({ decision: "ask" });
+    expect(evaluateToolCall(policy, tool("bash", { command: "cat /1000" }), frontend)).toMatchObject({ decision: "ask" });
+  });
+
+  it("treats sed scripts and grep patterns as code, not filesystem paths", () => {
+    const { frontend, policy } = workspace();
+    const ledger = path.join(frontend, "08.bean");
+    fs.writeFileSync(ledger, "2026-08-31 entry\n");
+
+    const section = evaluateToolCall(policy, tool("bash", { command: `sed -n "/1a057c55baba16ce internal/,/^$/p" ${JSON.stringify(ledger)}` }), frontend);
+    expect(section).toMatchObject({ decision: "allow" });
+    expect(section.intents.some((intent) => intent.canonicalPath?.startsWith("/1a057c55baba16ce"))).toBe(false);
+    expect(section.intents.some((intent) => intent.canonicalPath === fs.realpathSync(ledger))).toBe(true);
+
+    const dated = evaluateToolCall(policy, tool("bash", { command: "sed -n '/2026-08-31/,$p' transactions/2026/08.bean" }), frontend);
+    expect(dated).toMatchObject({ decision: "allow" });
+    expect(dated.intents.some((intent) => intent.canonicalPath === "/2026-08-31/,$p")).toBe(false);
+
+    expect(evaluateToolCall(policy, tool("bash", { command: "sed -e '/x/d' ./08.bean" }), frontend).decision).toBe("allow");
+    expect(evaluateToolCall(policy, tool("bash", { command: "grep -m 5 '/etc/host/' ./08.bean" }), frontend).decision).toBe("allow");
+    expect(evaluateToolCall(policy, tool("bash", { command: "grep -f /tmp/patterns.txt ./08.bean" }), frontend)).toMatchObject({ decision: "ask" });
+  });
+
   it("asks for network and recursive delete commands but permits curl and opaque shell commands", () => {
     const { frontend, policy } = workspace();
     expect(evaluateToolCall(policy, tool("bash", { command: "curl https://example.com" }), frontend).decision).toBe("allow");
@@ -185,8 +214,20 @@ describe("Sylph permissions", () => {
     expect(production.approvalKey).not.toContain("production");
   });
 
-  it("parses command chains and flags opaque expansions", () => {
+  it("parses command chains, newlines, control-flow bodies, and opaque expansions", () => {
     expect(parseCommandUnits("cd api && npm test").units).toHaveLength(2);
+    expect(parseCommandUnits("echo one\necho two").units.map((unit) => unit.command)).toEqual(["echo", "echo"]);
+    const loop = parseCommandUnits("for f in *.txt; do cat \"$f\"; done\necho complete");
+    expect(loop.units.map((unit) => unit.command)).toEqual(["cat", "echo"]);
+    expect(loop.opaque).toBe(true);
+
+    const virtualenv = parseCommandUnits(`cd /workspace
+.venv/bin/bean-check main.bean
+for f in projection-*.bean; do .venv/bin/bean-check "$f"; done
+.venv/bin/python -m beanquery.main`);
+    expect(virtualenv.units.map((unit) => unit.command)).toEqual([
+      "cd", ".venv/bin/bean-check", ".venv/bin/bean-check", ".venv/bin/python",
+    ]);
     expect(parseCommandUnits("echo $(cat /tmp/secret)").opaque).toBe(true);
   });
 

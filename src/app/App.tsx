@@ -6,6 +6,7 @@ import { startPointerResize } from '../lib/resize';
 import './App.css';
 
 const SettingsModal = lazy(() => import('../features/settings/SettingsModal'));
+const SchedulesScreen = lazy(() => import('../features/scheduler/SchedulesScreen'));
 
 function App() {
   const initialSessionId = new URLSearchParams(window.location.search).get('session') || undefined;
@@ -20,6 +21,7 @@ function App() {
   // fetched session list includes them — see DraftSession.
   const [draftSessions, setDraftSessions] = createSignal<DraftSession[]>([]);
   const [showSettings, setShowSettings] = createSignal(false);
+  const [showSchedules, setShowSchedules] = createSignal(false);
   // Mobile: sidebarOpen controls the off-canvas drawer.
   // Desktop: sidebarCollapsed removes the sidebar column from the layout.
   const [sidebarOpen, setSidebarOpen] = createSignal(false);
@@ -37,6 +39,7 @@ function App() {
       const sessionId = (event as CustomEvent<{ sessionId?: string }>).detail?.sessionId;
       if (!sessionId) return;
       setActiveSessionId(sessionId);
+      setShowSchedules(false);
       setSidebarOpen(false);
     };
 
@@ -78,6 +81,7 @@ function App() {
   };
 
   const startNewSession = (projectId?: string, standalonePath?: string) => {
+    setShowSchedules(false);
     setActiveSessionId(undefined);
     setActiveProjectId(projectId);
     setNewSessionRequest((current) => ({ id: current.id + 1, standalonePath }));
@@ -119,6 +123,7 @@ function App() {
         activeSessionId={activeSessionId()}
         onSelectSession={(id) => {
           setActiveSessionId(id);
+          setShowSchedules(false);
           setSidebarOpen(false);
         }}
         activeProjectId={activeProjectId()}
@@ -135,6 +140,10 @@ function App() {
           }
           setDraftSessions((sessions) => sessions.filter((session) => session.id !== id));
           setRefreshSidebar((value) => value + 1);
+        }}
+        onOpenSchedules={() => {
+          setShowSchedules(true);
+          setSidebarOpen(false);
         }}
         onOpenSettings={() => {
           setShowSettings(true);
@@ -159,7 +168,7 @@ function App() {
           />
         </Suspense>
       </Show>
-      <ChatInterface
+      <Show when={showSchedules()} fallback={<ChatInterface
         activeSessionId={activeSessionId()}
         activeProjectId={activeProjectId()}
         onSelectProject={setActiveProjectId}
@@ -186,7 +195,18 @@ function App() {
         onTurnComplete={() => {
           setRefreshSidebar(r => r + 1);
         }}
-      />
+      />}>
+        <Suspense>
+          <SchedulesScreen
+            onClose={() => setShowSchedules(false)}
+            onOpenSession={(id) => {
+              setActiveSessionId(id);
+              setShowSchedules(false);
+              setSidebarOpen(false);
+            }}
+          />
+        </Suspense>
+      </Show>
     </div>
   );
 }

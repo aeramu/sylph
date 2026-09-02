@@ -8,6 +8,67 @@ const ELEVATED_COMMANDS = new Set(["sudo", "su", "doas"]);
 const DESTRUCTIVE_COMMANDS = new Set(["rm", "rmdir", "mv", "cp", "chmod", "chown", "install", "dd"]);
 const SCRIPT_INTERPRETERS = new Set(["sh", "bash", "zsh", "dash", "ksh", "node", "python", "python3", "ruby", "perl", "php"]);
 const SAFE_DEVICES = new Set(["/dev/null", "/dev/stdin", "/dev/stdout", "/dev/stderr"]);
+// Text-processing commands whose first non-flag argument is an inline script or search
+// pattern rather than a filesystem path. Flag values are classified so that expression
+// values are never mistaken for path operands, while file-valued flags stay checked.
+const COMMAND_FLAG_KINDS: Record<string, Record<string, "expression" | "file" | "value">> = {
+  sed: { "-e": "expression", "--expression": "expression", "-f": "file", "--file": "file", "-l": "value" },
+  awk: {
+    "-f": "file", "--file": "file", "-i": "file", "--include": "file", "-E": "file", "--exec": "file",
+    "-e": "expression", "--source": "expression",
+    "-F": "value", "--field-separator": "value", "-v": "value", "--assign": "value", "-W": "value",
+  },
+  grep: {
+    "-e": "expression", "--regexp": "expression", "-f": "file", "--file": "file",
+    "-m": "value", "--max-count": "value", "-A": "value", "-B": "value", "-C": "value",
+    "--after-context": "value", "--before-context": "value", "--context": "value",
+    "-d": "value", "--directories": "value", "-D": "value", "--devices": "value",
+    "--include": "value", "--exclude": "value", "--exclude-dir": "value", "--label": "value",
+    "--separator": "value", "--group-separator": "value", "--color": "value", "--colour": "value",
+  },
+};
+COMMAND_FLAG_KINDS.gawk = COMMAND_FLAG_KINDS.awk;
+COMMAND_FLAG_KINDS.mawk = COMMAND_FLAG_KINDS.awk;
+COMMAND_FLAG_KINDS.egrep = COMMAND_FLAG_KINDS.grep;
+COMMAND_FLAG_KINDS.fgrep = COMMAND_FLAG_KINDS.grep;
+
+/** Argument indexes that hold inline scripts or search patterns rather than filesystem paths. */
+function inlineScriptExemptions(name: string, args: string[]): Set<number> {
+  const flagKinds = COMMAND_FLAG_KINDS[name];
+  const exempt = new Set<number>();
+  if (!flagKinds) return exempt;
+  const flagOf = (token: string): [string, string | undefined] => {
+    if (token.startsWith("--")) {
+      const equals = token.indexOf("=");
+      if (equals > 0) return [token.slice(0, equals), token.slice(equals + 1)];
+      return [token, undefined];
+    }
+    for (const flag of Object.keys(flagKinds)) {
+      if (flag.length === 2 && token.startsWith(flag) && token.length > flag.length) return [flag, token.slice(2)];
+    }
+    return [token, undefined];
+  };
+  let operandsAreFiles = false;
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if (arg === "--") break;
+    if (!arg.startsWith("-") || arg === "-") {
+      if (!operandsAreFiles) exempt.add(index);
+      break;
+    }
+    const [flag, boundValue] = flagOf(arg);
+    const kind = flagKinds[flag];
+    if (!kind) continue;
+    if (boundValue !== undefined) {
+      if (kind !== "file") exempt.add(index);
+    } else if (index + 1 < args.length) {
+      if (kind !== "file") exempt.add(index + 1);
+      index++;
+    }
+    if (kind !== "value") operandsAreFiles = true;
+  }
+  return exempt;
+}
 
 export function evaluateBash(policy: PermissionPolicy, command: string, cwd: string): PermissionEvaluation {
   const parsed = parseCommandUnits(command, policy.shellEnvironment);
@@ -77,7 +138,15 @@ export function evaluateBash(policy: PermissionPolicy, command: string, cwd: str
       if (!SAFE_DEVICES.has(expanded)) intents.push(evaluatePath(policy, redirection.operation, expanded, effectiveCwd));
     }
     const operation: AccessOperation = DESTRUCTIVE_COMMANDS.has(name) ? (name === "rm" || name === "rmdir" ? "delete" : "write") : "read";
-    for (const arg of unit.args) {
+    const scriptArgumentIndex = SCRIPT_INTERPRETERS.has(name)
+      ? unit.args.findIndex((arg) => !arg.startsWith("-"))
+      : -1;
+    const exemptArguments = inlineScriptExemptions(name, unit.args);
+    for (const [argumentIndex, arg] of unit.args.entries()) {
+      if (exemptArguments.has(argumentIndex)) continue;
+      // Numeric route arguments such as `/1000` are commonly passed to scripts and
+      // are not filesystem paths. Keep checking the interpreter's script operand.
+      if (scriptArgumentIndex >= 0 && argumentIndex > scriptArgumentIndex && /^\/\d+$/.test(arg)) continue;
       if (!pathLooksExplicit(arg)) continue;
       const expanded = expandHome(arg.replace(/^file:\/\//, ""));
       if (SAFE_DEVICES.has(expanded)) continue;
@@ -90,10 +159,16 @@ export function evaluateBash(policy: PermissionPolicy, command: string, cwd: str
   const decision = commandDecision === "deny" || pathDecision === "deny" ? "deny"
     : commandDecision === "ask" || pathDecision === "ask" ? "ask" : "allow";
   const reasons = [...commandReasons, ...intents.filter((intent) => intent.decision !== "allow").map((intent) => intent.reason!).filter(Boolean)];
+  const intentSummaries = intents.map((intent) => {
+    const description = describeIntent(intent);
+    return intent.canonicalPath && intent.lexicalPath && intent.canonicalPath !== intent.lexicalPath
+      ? `${description}\nResolved: ${intent.canonicalPath}`
+      : description;
+  });
   return {
     decision,
     reason: reasons.join("; ") || "allowed by workspace policy",
-    summary: [`Command: ${command}`, ...intents.map(describeIntent)].join("\n"),
+    summary: [`Command: ${command}`, ...intentSummaries].join("\n"),
     approvalKey: `bash:${command}`,
     intents,
   };

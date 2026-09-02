@@ -6,6 +6,7 @@ import { registerFilesystemRoutes } from "../../features/filesystem/filesystemRo
 import { registerProjectGitRoutes } from "../../features/git/projectGitRoutes.ts";
 import { registerProjectRoutes } from "../../features/projects/projectRoutes.ts";
 import { registerResourceRoutes } from "../../features/resources/resourceRoutes.ts";
+import { registerSchedulerRoutes } from "../../features/scheduler/schedulerRoutes.ts";
 import { registerSessionRoutes } from "../../features/sessions/lifecycle/sessionRoutes.ts";
 import { registerSessionWorkspaceRoutes } from "../../features/sessions/workspace/sessionWorkspaceRoutes.ts";
 import { registerWorktreeRoutes } from "../../features/sessions/worktrees/worktreeRoutes.ts";
@@ -27,6 +28,7 @@ export function createApiRouter(): express.Router {
   registerSessionWorkspaceRoutes(router);
   registerWorktreeRoutes(router);
   registerResourceRoutes(router);
+  registerSchedulerRoutes(router);
   registerProjectGitRoutes(router);
   registerChatRoutes(router);
   return router;

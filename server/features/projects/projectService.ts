@@ -7,6 +7,7 @@ import { getProjectSessionBindings, saveSessionBinding } from "../sessions/works
 import { appendWorkspaceMetadata, recoverSessionBindingsFromPi } from "../sessions/workspace/piSessionMetadata.ts";
 import { disposeRuntime, getSettledRuntime } from "../../integrations/pi/runtime/runtimeManager.ts";
 import { badRequest, conflict, notFound } from "../../platform/http/errors.ts";
+import { disableDirectorySchedules, disableProjectSchedules } from "../scheduler/schedulerService.ts";
 
 export interface ProjectMutationInput {
   name?: unknown;
@@ -72,6 +73,7 @@ export function updateProjectFromInput(id: string, input: ProjectMutationInput) 
   const updated = updateProject(existing, { name: input.name, directories: validated.directories });
   projects[index] = updated;
   saveProjects(projects);
+  disableDirectorySchedules(existing.id, removedIds);
   return updated;
 }
 
@@ -106,4 +108,5 @@ export async function deleteProject(id: string, dependencies: DeleteProjectDepen
     saveSessionBinding(detached);
   }
   saveProjects(getProjects().filter((entry) => entry.id !== project.id));
+  disableProjectSchedules(project.id);
 }

@@ -12,6 +12,7 @@ vi.mock("./config.ts", async (importOriginal) => ({
   SYLPH_DIR: storeRoot,
   PROJECTS_FILE: path.join(storeRoot, "projects.json"),
   SETTINGS_FILE: path.join(storeRoot, "settings.json"),
+  SCHEDULES_FILE: path.join(storeRoot, "schedules.json"),
   SESSION_BINDINGS_FILE: path.join(storeRoot, "session-bindings.json"),
   SCRATCH_DIR: path.join(storeRoot, "scratch"),
   WORKTREES_DIR: path.join(storeRoot, "worktrees"),
@@ -108,6 +109,35 @@ describe("HTTP application", () => {
     });
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: "Folder name cannot contain path separators" });
+  });
+
+  it("creates and lists projectless schedules through the API", async () => {
+    const runAt = new Date(Date.now() + 60_000).toISOString();
+    const create = await fetch(`${baseUrl}/api/schedules`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "API reminder", prompt: "Prepare the reminder.", kind: "once", runAt, timezone: "UTC",
+        projectId: "caller-cannot-choose-this",
+      }),
+    });
+    expect(create.status).toBe(201);
+    const schedule = await create.json() as { id: string; projectId?: string; directoryId?: string };
+    expect(schedule.projectId).toBeUndefined();
+    expect(schedule.directoryId).toBeUndefined();
+
+    const patch = await fetch(`${baseUrl}/api/schedules/${encodeURIComponent(schedule.id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: false }),
+    });
+    expect(patch.status).toBe(200);
+    expect(await patch.json()).toMatchObject({ id: schedule.id, enabled: false });
+
+    const listed = await fetch(`${baseUrl}/api/schedules?scope=all`);
+    expect(listed.status).toBe(200);
+    expect(await listed.json()).toMatchObject({ schedules: [{ id: schedule.id }] });
+    expect((await fetch(`${baseUrl}/api/schedules/${encodeURIComponent(schedule.id)}`, { method: "DELETE" })).status).toBe(200);
   });
 
   it("rejects chat requests without a prompt before initializing a runtime", async () => {

@@ -106,6 +106,7 @@ export default function SessionSidebar(props: {
   draftSessions: DraftSession[],
   onProjectsChanged?: () => void,
   onSessionDetached: (id: string) => void,
+  onOpenSchedules: () => void,
   onOpenSettings: () => void,
   onToggleSidebar: () => void,
 }) {
@@ -649,6 +650,12 @@ export default function SessionSidebar(props: {
       </Show>
 
       <div class="sidebar-footer">
+        <button class="sidebar-settings-button sidebar-schedules-button" onClick={props.onOpenSchedules} aria-label="Schedules">
+          <svg class="sidebar-settings-icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5l3.25 2"/><path d="M8.25 3.75 6.5 2.5M15.75 3.75l1.75-1.25"/>
+          </svg>
+          <span>Schedules</span>
+        </button>
         <button class="sidebar-settings-button" onClick={props.onOpenSettings} aria-label="Settings">
           <svg class="sidebar-settings-icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="12" cy="12" r="3" />

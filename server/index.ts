@@ -5,6 +5,7 @@ import { HOST, PORT } from "./config.ts";
 import { startEvictionTimer } from "./integrations/pi/runtime/runtimeManager.ts";
 import { startAgentBrowserDashboard } from "./integrations/agent-browser/dashboard.ts";
 import { createAgentBrowserDashboardProxy } from "./integrations/agent-browser/dashboardProxy.ts";
+import { startSchedulerTimer } from "./features/scheduler/schedulerRunner.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -13,6 +14,7 @@ const dashboardProxy = createAgentBrowserDashboardProxy();
 const app = createApp({ dashboardMiddleware: dashboardProxy.middleware, distDir });
 
 startEvictionTimer();
+startSchedulerTimer();
 void startAgentBrowserDashboard().then((status) => {
   if (!status.available) console.warn(`[agent-browser] Dashboard unavailable: ${status.error}`);
 });

@@ -13,6 +13,7 @@ import { createPermissionExtension } from "../extensions/permissionExtension.ts"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const askUserQuestionExtensionPath = path.join(__dirname, "../extensions/askUserQuestionExtension.ts");
+export const schedulerExtensionPath = path.join(__dirname, "../extensions/schedulerExtension.ts");
 export const showArtifactExtensionPath = path.join(__dirname, "../extensions/showArtifactExtension.ts");
 
 export interface RuntimeFactoryOptions {
@@ -36,7 +37,7 @@ export async function buildRuntime(sessionManager: any, cwd: string, options: Ru
       authStorage,
       modelRegistry,
       resourceLoaderOptions: {
-        additionalExtensionPaths: [askUserQuestionExtensionPath, showArtifactExtensionPath],
+        additionalExtensionPaths: [askUserQuestionExtensionPath, schedulerExtensionPath, showArtifactExtensionPath],
         skillsOverride: (base) => {
           if (configuration.permission) updateAllowedSkills(configuration.permission, base.skills);
           return base;
