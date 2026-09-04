@@ -26,6 +26,8 @@ export interface SendChatCommand {
 export interface SendChatResult {
   success: true;
   sessionId: string;
+  /** True when the agent was mid-run and the message was queued as steering input. */
+  steered?: boolean;
   workspaceKind?: "directories" | "scratch";
   projectId?: string;
   directoryId?: string;
@@ -124,8 +126,13 @@ export async function sendChat(input: unknown): Promise<SendChatResult> {
     const promptText = await resolveMentionsInPrompt(mentionProject, prompt, mentionSource);
     const promptOptions = Array.isArray(images) && images.length > 0 ? { images } : undefined;
 
-    if (runtime.session.isStreaming) {
-      runtime.session.steer(promptText, promptOptions?.images).catch((err: unknown) => console.error("Prompt error:", err));
+    // steer() resolves as soon as the message is queued (the run itself keeps
+    // going), so awaiting it surfaces queueing failures — e.g. extension
+    // commands cannot be steered — as HTTP errors. prompt() instead awaits the
+    // whole run and must stay fire-and-forget.
+    const steered = runtime.session.isStreaming;
+    if (steered) {
+      await runtime.session.steer(promptText, promptOptions?.images);
     } else {
       runtime.session.prompt(promptText, promptOptions).catch((err: unknown) => console.error("Prompt error:", err));
     }
@@ -133,6 +140,7 @@ export async function sendChat(input: unknown): Promise<SendChatResult> {
     return {
       success: true,
       sessionId: resolvedSessionId,
+      ...(steered ? { steered: true } : {}),
       workspaceKind: binding?.workspaceKind,
       projectId: resolvedProject?.id,
       directoryId: binding?.directoryId,

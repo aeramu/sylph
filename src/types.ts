@@ -21,6 +21,8 @@ export interface ChatMessage {
   images?: { url: string; mimeType: string }[];
   isStreaming?: boolean;
   errorMessage?: string;
+  // User message delivered as steering input while the agent was mid-run.
+  steered?: boolean;
   tools?: ToolCall[];
 }
 

@@ -580,8 +580,9 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     const reviewText = pendingReviewComments.length ? formatReviewComments(pendingReviewComments) : '';
     const submittedText = [userMessage.trim(), reviewText].filter(Boolean).join('\n\n');
     const prepared = prepareChatSubmission(submittedText, pendingAttachments);
+    const optimisticId = createId();
     setMessages(messages.length, {
-      id: createId(),
+      id: optimisticId,
       role: 'user',
       content: submittedText,
       images: prepared.messageImages,
@@ -618,6 +619,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
           useWorktree: isNewSession && useWorktree(),
           baseBranches: isNewSession && useWorktree() ? selectedBaseBranches() : undefined,
       });
+      if (data.steered) setMessages(m => m.id === optimisticId, 'steered', true);
       if (data.sessionId && data.sessionId !== props.activeSessionId) {
         // The session-switch effect replays the buffer and clears the flag.
         // Fall back to the locally selected project if the server couldn't

@@ -1,6 +1,6 @@
 # sylph
 
-A local web UI for the [pi coding agent](https://www.npmjs.com/package/@earendil-works/pi-coding-agent). Chat with a coding agent across multiple projects, with streamed responses, tool-call output, session history, model selection, and slash-command autocomplete.
+A local web UI for the [pi coding agent](https://www.npmjs.com/package/@earendil-works/pi-coding-agent). Chat with a coding agent across multiple projects, with streamed responses, tool-call output, session history, model selection, and slash-command autocomplete. While the agent is working, new messages steer the run: they are queued and delivered to the model before its next call, so you can correct course without stopping — the composer shows a steer button alongside Stop, and steered messages are badged in the timeline.
 
 ## Architecture
 

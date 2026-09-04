@@ -17,6 +17,21 @@
   border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
+.message-steered-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 0.5rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: #7fb4ff;
+  background: rgba(127, 180, 255, 0.12);
+  border: 1px solid rgba(127, 180, 255, 0.25);
+}
+
 .message-images {
   display: flex;
   flex-wrap: wrap;

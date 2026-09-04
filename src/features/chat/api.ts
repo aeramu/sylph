@@ -51,6 +51,8 @@ export interface SendChatInput {
 
 export interface SendChatResult {
   sessionId: string;
+  /** True when the agent was mid-run and the message was queued as steering input. */
+  steered?: boolean;
   workspaceKind?: 'directories' | 'scratch';
   projectId?: string;
   directoryId?: string;

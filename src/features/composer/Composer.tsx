@@ -453,7 +453,9 @@ export default function Composer(props: {
         <textarea
           ref={textareaRef}
           class="input-field"
-          placeholder="Ask anything, @ to mention, / for actions"
+          placeholder={props.isProcessing
+            ? "Steer the agent — Enter queues this while it works"
+            : "Ask anything, @ to mention, / for actions"}
           value={input()}
           onInput={(e) => {
             const text = e.currentTarget.value;
@@ -529,6 +531,20 @@ export default function Composer(props: {
         <div class="input-toolbar-right">
         <ContextIndicator context={props.contextInfo ?? null} />
         <Show when={props.isProcessing}>
+          <Show when={!isEmpty()}>
+            <button
+              class="send-button"
+              onClick={() => handleSubmit()}
+              disabled={props.disabled || !props.isConnected}
+              title="Steer the agent — delivers this message mid-run"
+              aria-label="Steer the agent"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+                <polyline points="12 5 19 12 12 19"></polyline>
+              </svg>
+            </button>
+          </Show>
           <button
             class="stop-button"
             onClick={() => props.onStop()}

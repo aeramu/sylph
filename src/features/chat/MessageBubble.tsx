@@ -31,6 +31,15 @@ export default function MessageBubble(props: { msg: ChatMessage; onImageClick: (
   return (
     <div class={`message ${props.msg.role}`}>
       <div class="message-bubble">
+        <Show when={props.msg.role === 'user' && props.msg.steered}>
+          <div class="message-steered-chip" title="Delivered while the agent was working">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M22 2 11 13"></path>
+              <path d="M22 2 15 22 11 13 2 9 22 2"></path>
+            </svg>
+            <span>steered</span>
+          </div>
+        </Show>
         {props.msg.images && props.msg.images.length > 0 && (
           <div class="message-images">
             <For each={props.msg.images}>
