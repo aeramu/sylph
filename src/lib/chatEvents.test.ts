@@ -45,6 +45,25 @@ describe('applyAgentEvent', () => {
     expect(messages[0]).toMatchObject({ isStreaming: false, errorMessage: 'rate limited' });
   });
 
+  it('renders live background-job completion messages without closing an assistant stream', () => {
+    const { messages } = run([
+      assistantStart('m1'),
+      textDelta('working'),
+      {
+        type: 'message_start',
+        message: {
+          role: 'custom', customType: 'sylph.background-jobs', display: true,
+          details: { jobs: [{ id: 'bg-1', name: 'Build', status: 'completed', exitCode: 0 }] },
+        },
+      },
+      { type: 'message_end', message: { role: 'custom', customType: 'sylph.background-jobs' } },
+    ]);
+
+    expect(messages).toHaveLength(2);
+    expect(messages[0]).toMatchObject({ role: 'assistant', content: 'working', isStreaming: true });
+    expect(messages[1]).toMatchObject({ role: 'notification', content: 'Build completed (exit 0)' });
+  });
+
   it('appends text deltas to the live assistant message', () => {
     const { messages } = run([assistantStart('m1'), textDelta('Hel'), textDelta('lo')]);
     expect(messages[0].content).toBe('Hello');

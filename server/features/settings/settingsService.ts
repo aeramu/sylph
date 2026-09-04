@@ -20,7 +20,7 @@ export async function saveSettings(input: Record<string, unknown>) {
   const requestedThinkingLevel = ((commitMessageThinkingLevel as string | undefined) ?? current.commitMessageThinkingLevel) as CommitMessageThinkingLevel;
   if (requestedModel) {
     const runtime = await getIntrospectionRuntime();
-    const model = findAvailableModel(runtime.session.modelRegistry.getAvailable(), requestedModel);
+    const model = findAvailableModel(await runtime.session.modelRuntime.getAvailable(), requestedModel);
     if (!model) badRequest(`Unknown or unavailable model: ${requestedModel}`);
     const thinkingLevels = getSupportedThinkingLevels(model as any);
     if (!thinkingLevels.includes(requestedThinkingLevel)) {
@@ -36,7 +36,7 @@ export async function saveSettings(input: Record<string, unknown>) {
 
 export async function listModels() {
   const runtime = await getIntrospectionRuntime();
-  return runtime.session.modelRegistry.getAvailable().map((model: any) => ({
+  return (await runtime.session.modelRuntime.getAvailable()).map((model: any) => ({
     id: model.id,
     provider: model.provider,
     value: `${model.provider}/${model.id}`,

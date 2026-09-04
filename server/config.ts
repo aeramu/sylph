@@ -14,3 +14,4 @@ export const SCHEDULES_FILE = path.join(SYLPH_DIR, "schedules.json");
 export const SESSION_BINDINGS_FILE = path.join(SYLPH_DIR, "session-bindings.json");
 export const WORKTREES_DIR = path.join(SYLPH_DIR, "worktrees");
 export const SCRATCH_DIR = path.join(SYLPH_DIR, "scratch");
+export const BACKGROUND_JOBS_DIR = path.join(SYLPH_DIR, "background-jobs");

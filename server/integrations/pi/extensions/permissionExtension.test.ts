@@ -51,8 +51,13 @@ describe("Pi permission extension", () => {
 
   it("fails closed when confirmation needs UI but none is available", async () => {
     const { root, policy } = workspace();
-    const result = await register(policy)(tool("read", { path: "/outside/secret" }), { cwd: root, hasUI: false, ui: {} });
-    expect(result).toMatchObject({ block: true });
-    expect(result.reason).toMatch(/Confirmation unavailable/);
+    const handler = register(policy);
+    const context = { cwd: root, hasUI: false, ui: {} };
+    const read = await handler(tool("read", { path: "/outside/secret" }), context);
+    const background = await handler(tool("bg_run", { name: "Pull", command: "git pull" }), context);
+    expect(read).toMatchObject({ block: true });
+    expect(read.reason).toMatch(/Confirmation unavailable/);
+    expect(background).toMatchObject({ block: true });
+    expect(background.reason).toMatch(/networked Git operation pull/);
   });
 });

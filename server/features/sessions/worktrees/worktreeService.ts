@@ -6,6 +6,7 @@ import { getRawManagedDirectories, hasManagedWorktrees, sourceProjectForSession 
 import { disposeRuntime, getSettledRuntime } from "../../../integrations/pi/runtime/runtimeManager.ts";
 import { getManagedWorktreeRemovalStatus, recreateManagedWorktree, removeManagedWorktree } from "../../git/index.ts";
 import { conflict, notFound } from "../../../platform/http/errors.ts";
+import { hasRunningBackgroundJobs } from "../../backgroundJobs/backgroundJobService.ts";
 
 function getManagedSession(sessionId: string) {
   const binding = getSessionBinding(sessionId);
@@ -27,10 +28,17 @@ export async function getWorktreeStatus(sessionId: string) {
   return { roots, dirty: roots.some((root) => root.dirty), merged: roots.every((root) => root.merged) };
 }
 
-export async function removeSessionWorktrees(sessionId: string, confirmUnmerged: boolean) {
+export async function removeSessionWorktrees(
+  sessionId: string,
+  confirmUnmerged: boolean,
+  dependencies: { hasRunningBackgroundJobs?: typeof hasRunningBackgroundJobs } = {},
+) {
   const { project, directories } = getManagedSession(sessionId);
   const runtime = await getSettledRuntime(sessionId);
   if (runtime?.session?.isStreaming) conflict("Stop the session before removing its worktrees");
+  if ((dependencies.hasRunningBackgroundJobs ?? hasRunningBackgroundJobs)(sessionId)) {
+    conflict("Stop background jobs before removing the session worktrees");
+  }
   const statuses = await Promise.all(directories.map(async (directory) => {
     if (!directory.worktreeRoot || !directory.branch || !directory.baseBranch) throw new Error(`Incomplete worktree binding for ${directory.name}`);
     return { directory, status: await getManagedWorktreeRemovalStatus(

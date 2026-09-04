@@ -13,6 +13,10 @@ import { clearSessionStatuses } from "../../../features/interactions/sessionStat
 import { getRawManagedDirectories, sourceProjectForSession } from "../../../features/sessions/workspace/sessionWorkspace.ts";
 import { discardProjectWorktrees } from "../../../features/sessions/worktrees/projectWorktrees.ts";
 import { removeSessionScratch } from "../../../features/sessions/scratch/sessionScratch.ts";
+import type { BackgroundJob } from "../../../features/backgroundJobs/backgroundJobTypes.ts";
+import {
+  deliverBackgroundJobsToRuntime, deliverPendingBackgroundJobsToRuntime,
+} from "./backgroundJobDelivery.ts";
 
 const runtimeRegistry = new RuntimeRegistry<any>();
 const sessionEventSequences = new Map<string, number>();
@@ -61,12 +65,21 @@ export function getSessionEventSequence(sessionId: string) {
 // registration (and dedup) is the caller's responsibility.
 export function getOrInitRuntime(sessionId?: string, projectId?: string, options: NewSessionOptions = {}): Promise<any> {
   if (sessionId) {
-    return runtimeRegistry.getOrBuild(sessionId, () => buildSessionRuntime(sessionId, projectId, options, rollbackNewWorktreeSession, runtimeEvents).then(({ runtime }) => runtime));
+    const pending = runtimeRegistry.getOrBuild(sessionId, () => buildSessionRuntime(sessionId, projectId, options, rollbackNewWorktreeSession, runtimeEvents).then(({ runtime }) => runtime));
+    void pending.then((runtime) => deliverPendingBackgroundJobsToRuntime(runtime, sessionId))
+      .catch((error) => console.error(`[background-jobs] pending delivery failed for session ${sessionId}:`, error));
+    return pending;
   }
   return buildSessionRuntime(undefined, projectId, options, rollbackNewWorktreeSession, runtimeEvents).then(({ runtime, resolvedSessionId }) => {
     runtimeRegistry.register(resolvedSessionId, runtime);
     return runtime;
   });
+}
+
+/** Recreate an evicted runtime and hand a durable terminal job back to its agent. */
+export async function wakeRuntimeForBackgroundJob(job: BackgroundJob): Promise<void> {
+  const runtime = await getOrInitRuntime(job.sessionId);
+  await deliverBackgroundJobsToRuntime(runtime, [job]);
 }
 
 // A single cached runtime used only to introspect commands/skills/extensions,

@@ -1,5 +1,4 @@
-import { completeSimple, getSupportedThinkingLevels, type AssistantMessage, type Model } from "../../integrations/pi/modelSdk.ts";
-import type { ModelRegistry } from "../../integrations/pi/sessionSdk.ts";
+import { getSupportedThinkingLevels, type AssistantMessage, type Model } from "../../integrations/pi/modelSdk.ts";
 import { findAvailableModel } from "../../integrations/pi/modelSelection.ts";
 import type { CommitMessageThinkingLevel } from "../settings/settingsTypes.ts";
 
@@ -35,8 +34,13 @@ export function textFromAssistantMessage(message: AssistantMessage) {
   return text;
 }
 
+export interface CommitMessageModelRuntime {
+  getAvailable(): Promise<readonly Model<any>[]>;
+  completeSimple(model: Model<any>, context: unknown, options: Record<string, unknown>): Promise<AssistantMessage>;
+}
+
 export async function generateCommitMessage(
-  registry: ModelRegistry,
+  modelRuntime: CommitMessageModelRuntime,
   settings: {
     model: string;
     thinkingLevel: CommitMessageThinkingLevel;
@@ -48,22 +52,16 @@ export async function generateCommitMessage(
   if (!settings.prompt.trim()) throw new Error("Enter a commit message prompt in Settings");
   if (!stagedDiff.trim()) throw new Error("Stage changes before generating a commit message");
 
-  const model = findAvailableModel(registry.getAvailable(), settings.model) as Model<any> | undefined;
+  const model = findAvailableModel(await modelRuntime.getAvailable(), settings.model) as Model<any> | undefined;
   if (!model) throw new Error(`Unknown or unavailable model: ${settings.model}`);
   const supportedThinkingLevels = getSupportedThinkingLevels(model);
   if (!supportedThinkingLevels.includes(settings.thinkingLevel)) {
     throw new Error(`Thinking level ${settings.thinkingLevel} is not supported by ${model.id}`);
   }
-  const auth = await registry.getApiKeyAndHeaders(model);
-  if (!auth.ok) throw new Error(auth.error);
-
-  const response = await completeSimple(model, {
+  const response = await modelRuntime.completeSimple(model, {
     systemPrompt: "You write accurate Git commit messages from staged diffs and follow the user's requested format exactly.",
     messages: [{ role: "user", content: commitMessagePrompt(settings.prompt, stagedDiff), timestamp: Date.now() }],
   }, {
-    apiKey: auth.apiKey,
-    headers: auth.headers,
-    env: auth.env,
     maxTokens: 256,
     ...(settings.thinkingLevel === "off" ? {} : { reasoning: settings.thinkingLevel }),
   });

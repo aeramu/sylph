@@ -2,6 +2,38 @@ import type { ChatMessage, ToolCall } from '../types';
 import { normalizeAssistantThinking } from './messageThinking';
 import { createId } from './id';
 
+function contentText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content.filter((part: any) => part?.type === 'text').map((part: any) => part.text || '').join('');
+}
+
+/** Convert a displayable Pi custom message into Sylph's notification row. */
+export function mapCustomMessage(message: any): ChatMessage | undefined {
+  if (message?.role !== 'custom' || message.display === false) return undefined;
+  const jobs = Array.isArray(message.details?.jobs) ? message.details.jobs : [];
+  let content = contentText(message.content);
+  let notifyType = 'info';
+  if (jobs.length > 0) {
+    const lines = jobs.map((job: any) => {
+      const status = String(job.status || 'finished');
+      const exit = job.exitCode === undefined ? '' : ` (exit ${job.exitCode ?? 'unknown'})`;
+      return `${String(job.name || job.id || 'Background job')} ${status}${exit}`;
+    });
+    content = lines.length === 1 ? lines[0] : `${lines.length} background jobs finished:\n${lines.map((line: string) => `• ${line}`).join('\n')}`;
+    notifyType = jobs.some((job: any) => job.status === 'failed')
+      ? 'error'
+      : jobs.some((job: any) => job.status === 'killed') ? 'warning' : 'info';
+  }
+  if (!content.trim()) return undefined;
+  return {
+    id: message.id || message.responseId || createId(),
+    role: 'notification',
+    content,
+    notifyType,
+  };
+}
+
 // Whether a message has anything worth rendering. Aborted/steered turns can
 // leave empty assistant messages in history; rendering them as blank bubbles
 // injects phantom vertical gaps, so skip them (but always keep streaming ones
@@ -49,6 +81,10 @@ export function mapHistoryToMessages(rawMessages: any[]): ChatMessage[] {
         content: contentStr,
         images: images.length ? images : undefined,
       });
+      currentAssistantMessage = null;
+    } else if (m.role === 'custom') {
+      const custom = mapCustomMessage(m);
+      if (custom) mapped.push(custom);
       currentAssistantMessage = null;
     } else if (m.role === 'assistant') {
       let contentStr = '';

@@ -168,6 +168,17 @@ describe("Sylph permissions", () => {
     expect(evaluateToolCall(policy, tool("bash", { command: "grep -f /tmp/patterns.txt ./08.bean" }), frontend)).toMatchObject({ decision: "ask" });
   });
 
+  it("applies the bash policy to background commands", () => {
+    const { frontend, policy } = workspace();
+    const foreground = evaluateToolCall(policy, tool("bash", { command: "git pull" }), frontend);
+    const background = evaluateToolCall(policy, tool("bg_run", { name: "Pull changes", command: "git pull" }), frontend);
+    expect(background).toEqual(foreground);
+    expect(evaluateToolCall(policy, tool("bg_run", { name: "Unsafe", command: "rm -rf /" }), frontend)).toMatchObject({ decision: "deny" });
+    expect(evaluateToolCall(policy, tool("bg_status", {}), frontend)).toMatchObject({
+      decision: "allow", reason: "tool has no filesystem access intent",
+    });
+  });
+
   it("asks for network and recursive delete commands but permits curl and opaque shell commands", () => {
     const { frontend, policy } = workspace();
     expect(evaluateToolCall(policy, tool("bash", { command: "curl https://example.com" }), frontend).decision).toBe("allow");

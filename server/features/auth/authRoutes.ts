@@ -7,11 +7,11 @@ export function registerAuthRoutes(router: express.Router): void {
   router.get("/api/auth/providers", asyncRoute(async (_req, res) => res.json({ providers: await listProviders() })));
   router.get("/api/auth/providers/:provider/models", asyncRoute(async (req, res) => res.json({ models: await listProviderModels(String(req.params.provider)) })));
   router.post("/api/auth/:provider/api-key", asyncRoute(async (req, res) => {
-    saveProviderApiKey(String(req.params.provider), req.body?.apiKey);
+    await saveProviderApiKey(String(req.params.provider), req.body?.apiKey);
     res.json({ ok: true });
   }));
   router.post("/api/auth/providers", asyncRoute(async (req, res) => {
-    const provider = createProvider(req.body ?? {});
+    const provider = await createProvider(req.body ?? {});
     res.json({ ok: true, provider });
   }));
   router.post("/api/auth/:provider/oauth/start", asyncRoute(async (req, res) => {
@@ -38,7 +38,7 @@ export function registerAuthRoutes(router: express.Router): void {
     res.json({ ok: true });
   });
   router.post("/api/auth/:provider/logout", asyncRoute(async (req, res) => {
-    logoutProvider(String(req.params.provider));
+    await logoutProvider(String(req.params.provider));
     res.json({ ok: true });
   }));
 }

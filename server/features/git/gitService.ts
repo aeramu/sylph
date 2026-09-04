@@ -11,7 +11,7 @@ export async function generateProjectCommitMessage(project: Project) {
   const settings = getSettings();
   if (!settings.commitMessageModel) badRequest("Select a commit message model in Settings");
   const runtime = await getIntrospectionRuntime();
-  return generateCommitMessage(runtime.session.modelRegistry, {
+  return generateCommitMessage(runtime.session.modelRuntime, {
     model: settings.commitMessageModel,
     thinkingLevel: settings.commitMessageThinkingLevel,
     prompt: settings.commitMessagePrompt,

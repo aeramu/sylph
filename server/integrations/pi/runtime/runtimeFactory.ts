@@ -4,12 +4,13 @@ import {
   createAgentSessionRuntime, createAgentSessionServices, createAgentSessionFromServices, createBashToolDefinition, getAgentDir, loadProjectContextFiles,
   type CreateAgentSessionRuntimeFactory,
 } from "@earendil-works/pi-coding-agent";
-import { authStorage, modelRegistry } from "../auth.ts";
+import { getModelRuntime } from "../auth.ts";
 import type { Project } from "../../../features/projects/projectTypes.ts";
 import { mergeProjectContextFiles } from "../../../features/sessions/workspace/projectContextService.ts";
 import { createSessionRuntimeConfiguration } from "../../../features/sessions/runtime/sessionRuntimeConfiguration.ts";
 import { updateAllowedSkills } from "../../../features/permissions/sessionPermissionService.ts";
 import { createPermissionExtension } from "../extensions/permissionExtension.ts";
+import { createBackgroundJobTools } from "../extensions/backgroundJobsExtension.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const askUserQuestionExtensionPath = path.join(__dirname, "../extensions/askUserQuestionExtension.ts");
@@ -25,6 +26,7 @@ export interface RuntimeFactoryOptions {
 
 export async function buildRuntime(sessionManager: any, cwd: string, options: RuntimeFactoryOptions = {}) {
   const factory: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
+    const modelRuntime = await getModelRuntime();
     const configuration = createSessionRuntimeConfiguration({
       sessionId: options.sessionId,
       cwd,
@@ -34,8 +36,7 @@ export async function buildRuntime(sessionManager: any, cwd: string, options: Ru
     });
     const services = await createAgentSessionServices({
       cwd,
-      authStorage,
-      modelRegistry,
+      modelRuntime,
       resourceLoaderOptions: {
         additionalExtensionPaths: [askUserQuestionExtensionPath, schedulerExtensionPath, showArtifactExtensionPath],
         skillsOverride: (base) => {
@@ -55,19 +56,29 @@ export async function buildRuntime(sessionManager: any, cwd: string, options: Ru
           : base,
       },
     });
+    const commandPrefix = services.settingsManager.getShellCommandPrefix();
+    const shellPath = services.settingsManager.getShellPath();
     const scratchBash = configuration.environment.scratchPath ? createBashToolDefinition(cwd, {
-      commandPrefix: services.settingsManager.getShellCommandPrefix(),
-      shellPath: services.settingsManager.getShellPath(),
+      commandPrefix,
+      shellPath,
       spawnHook: (context) => ({ ...context, env: { ...context.env, ...configuration.environment.variables } }),
     }) : undefined;
+    const backgroundJobTools = options.sessionId ? createBackgroundJobTools({
+      sessionId: options.sessionId,
+      cwd,
+      environment: configuration.environment.variables,
+      commandPrefix,
+      shellPath,
+    }) : [];
+    const customTools = [...(scratchBash ? [scratchBash as any] : []), ...backgroundJobTools];
     return {
       ...(await createAgentSessionFromServices({
         services,
         sessionManager,
         sessionStartEvent,
         // The SDK's broad ToolDefinition default is invariant under TS 6;
-        // the concrete bash definition is nevertheless the expected runtime shape.
-        ...(scratchBash ? { customTools: [scratchBash as any] } : {}),
+        // concrete custom definitions nevertheless have the expected runtime shape.
+        ...(customTools.length ? { customTools } : {}),
       })),
       services,
       diagnostics: services.diagnostics,

@@ -86,7 +86,7 @@ export async function sendChat(input: unknown): Promise<SendChatResult> {
     touchRuntime(resolvedSessionId);
 
     if (modelId) {
-      const targetModel = findAvailableModel(runtime.session.modelRegistry.getAvailable(), modelId);
+      const targetModel = findAvailableModel(await runtime.session.modelRuntime.getAvailable(), modelId);
       if (!targetModel) {
         if (!sessionId && useWorktree === true) await rollbackNewWorktreeSession(resolvedSessionId);
         badRequest(`Unknown or unavailable model: ${modelId}`);

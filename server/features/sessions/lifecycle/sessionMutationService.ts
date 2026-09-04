@@ -11,6 +11,9 @@ import { hasManagedWorktrees } from "../workspace/sessionWorkspace.ts";
 import { disposeRuntime, getSettledRuntime } from "../../../integrations/pi/runtime/runtimeManager.ts";
 import { badRequest, conflict, notFound } from "../../../platform/http/errors.ts";
 import { removeSessionWorktrees } from "../worktrees/worktreeService.ts";
+import {
+  hasRunningBackgroundJobs, removeBackgroundJobsForSession,
+} from "../../backgroundJobs/backgroundJobService.ts";
 import { findStoredSession } from "./sessionRepository.ts";
 
 async function resolveSessionBinding(sessionId: string): Promise<{ binding: SessionBinding; manager?: SessionManager }> {
@@ -38,6 +41,8 @@ export interface SessionMutationDependencies {
   getRuntime?: typeof getSettledRuntime;
   dispose?: typeof disposeRuntime;
   removeWorktrees?: typeof removeSessionWorktrees;
+  hasRunningBackgroundJobs?: typeof hasRunningBackgroundJobs;
+  removeBackgroundJobs?: typeof removeBackgroundJobsForSession;
 }
 
 const MAX_SESSION_NAME_LENGTH = 120;
@@ -102,6 +107,9 @@ export async function deleteSession(sessionId: string, dependencies: SessionMuta
 
   const runtime = await (dependencies.getRuntime ?? getSettledRuntime)(sessionId);
   if (runtime?.session?.isStreaming) conflict("Stop the session before deleting it");
+  if ((dependencies.hasRunningBackgroundJobs ?? hasRunningBackgroundJobs)(sessionId)) {
+    conflict("Stop background jobs before deleting the session");
+  }
 
   let branchesKept: Array<string | undefined> = [];
   if (binding && hasManagedWorktrees(binding)) {
@@ -113,6 +121,7 @@ export async function deleteSession(sessionId: string, dependencies: SessionMuta
   const sessionFile = binding?.sessionFile || manager?.getSessionFile?.();
   if (sessionFile) fs.rmSync(sessionFile, { force: true });
   removeSessionScratch(sessionId);
+  await (dependencies.removeBackgroundJobs ?? removeBackgroundJobsForSession)(sessionId);
   clearSessionArtifactRequest(sessionId);
   deleteSessionBinding(sessionId);
   return { success: true, branchesKept: branchesKept.filter((branch): branch is string => !!branch) };

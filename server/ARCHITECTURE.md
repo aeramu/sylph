@@ -7,7 +7,7 @@ The backend uses feature-first modules with a small composition root.
 - `index.ts` — process startup only: construct the dashboard proxy, start timers, and listen.
 - `app.ts` — create the Express application.
 - `config.ts` — environment and data-path constants.
-- `features/` — product behavior grouped by capability. A feature owns its routes, services, repositories, types, and tests.
+- `features/` — product behavior grouped by capability. A feature owns its routes, services, repositories, types, and tests. Long-running process ownership and durable job state live in `features/backgroundJobs/`; Pi receives only thin tool and completion-delivery adapters.
 - `integrations/` — adapters for external runtimes and SDKs. Pi and agent-browser implementation details live here. Pi extensions are adapters under `integrations/pi/extensions/`; the feature policy/use case they expose remains under `features/`.
 - `platform/` — feature-independent primitives for HTTP, events, and local persistence.
 
@@ -56,7 +56,7 @@ Browser interaction state is feature-owned: blocking requests live in `features/
 
 ## Local persistence
 
-Projects, settings, and workspace bindings use `platform/filesystem/jsonFileStore.ts`. Reads do not create files. Writes create parent directories and atomically replace the target via a same-directory temporary file.
+Projects, settings, and workspace bindings use `platform/filesystem/jsonFileStore.ts`. Reads do not create files. Writes create parent directories and atomically replace the target via a same-directory temporary file. Background jobs use one private directory per session/job because logs and detached-worker handoff files have independent lifecycles; their metadata and terminal results use the same same-directory write/rename durability boundary.
 
 ## Adding a capability
 

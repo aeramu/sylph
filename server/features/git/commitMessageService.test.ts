@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { AssistantMessage } from "../../integrations/pi/modelSdk.ts";
-import { commitMessagePrompt, textFromAssistantMessage } from "./commitMessageService.ts";
+import { commitMessagePrompt, generateCommitMessage, textFromAssistantMessage } from "./commitMessageService.ts";
 import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../settings/settingsTypes.ts";
 
 function response(content: AssistantMessage["content"], stopReason: AssistantMessage["stopReason"] = "stop"): AssistantMessage {
@@ -44,5 +44,27 @@ describe("commit message generation", () => {
   it("rejects empty and errored responses", () => {
     expect(() => textFromAssistantMessage(response([]))).toThrow(/empty/);
     expect(() => textFromAssistantMessage({ ...response([], "error"), errorMessage: "provider failed" })).toThrow(/provider failed/);
+  });
+
+  it("uses the asynchronous ModelRuntime surface for model selection and completion", async () => {
+    const model = {
+      id: "commit-model", provider: "test", reasoning: false, input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 1000, maxTokens: 256,
+    } as any;
+    const runtime = {
+      getAvailable: vi.fn(async () => [model]),
+      completeSimple: vi.fn(async () => response([{ type: "text", text: "test: cover model runtime" }])),
+    };
+
+    await expect(generateCommitMessage(runtime, {
+      model: "test/commit-model", thinkingLevel: "off", prompt: "Write a commit message for {{diff}}",
+    }, "+updated")).resolves.toBe("test: cover model runtime");
+
+    expect(runtime.getAvailable).toHaveBeenCalledOnce();
+    expect(runtime.completeSimple).toHaveBeenCalledWith(
+      model,
+      expect.objectContaining({ messages: [expect.objectContaining({ role: "user", content: expect.stringContaining("+updated") })] }),
+      { maxTokens: 256 },
+    );
   });
 });

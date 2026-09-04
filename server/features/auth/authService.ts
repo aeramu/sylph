@@ -1,33 +1,59 @@
-import { authStorage, modelRegistry, refreshAuthState } from "../../integrations/pi/auth.ts";
 import { readModelsJson, writeModelsJson } from "../../integrations/pi/modelsConfig.ts";
 import { getIntrospectionRuntime } from "../../integrations/pi/runtime/runtimeManager.ts";
 import { badRequest, conflict } from "../../platform/http/errors.ts";
 
-export async function listProviders() {
-  refreshAuthState();
+async function currentModelRuntime(): Promise<any> {
   const runtime = await getIntrospectionRuntime();
-  const registry = runtime.session.modelRegistry;
-  registry.refresh?.();
-  const providerIds = Array.from(new Set<string>(registry.getAll().map((model: any) => String(model.provider)))).sort((a, b) => a.localeCompare(b));
-  const oauthIds = new Set(authStorage.getOAuthProviders().map((provider: any) => provider.id));
-  const storedProviders = new Set(authStorage.list());
-  return providerIds.map((id) => {
-    const status = registry.getProviderAuthStatus(id);
-    const credential = authStorage.get(id);
-    return {
-      id, name: registry.getProviderDisplayName(id), authType: oauthIds.has(id) ? "oauth" : "api_key",
-      configured: !!status.configured, source: status.source, label: status.label,
-      stored: storedProviders.has(id), storedType: credential?.type,
-    };
+  const modelRuntime = runtime.session.modelRuntime;
+  await modelRuntime.refresh({ allowNetwork: false });
+  return modelRuntime;
+}
+
+async function persistProviderApiKey(modelRuntime: any, provider: string, apiKey: string): Promise<void> {
+  let keyUsed = false;
+  await modelRuntime.login(provider, "api_key", {
+    async prompt(prompt: any) {
+      if (prompt.type === "select") {
+        const preferred = prompt.options?.find((option: any) =>
+          ["api-key", "bearer-token"].includes(String(option.id)));
+        if (preferred) return String(preferred.id);
+      }
+      if (prompt.type === "secret" && !keyUsed) {
+        keyUsed = true;
+        return apiKey;
+      }
+      throw new Error(`${provider} requires additional interactive authentication fields that Sylph's API-key form does not collect`);
+    },
+    notify() {},
   });
 }
 
+export async function listProviders() {
+  const modelRuntime = await currentModelRuntime();
+  const credentials = await modelRuntime.listCredentials();
+  const storedByProvider = new Map(credentials.map((credential: any) => [String(credential.providerId), credential]));
+  return modelRuntime.getProviders()
+    .map((provider: any) => {
+      const id = String(provider.id);
+      const status = modelRuntime.getProviderAuthStatus(id);
+      const credential: any = storedByProvider.get(id);
+      return {
+        id,
+        name: String(provider.name || id),
+        authType: provider.auth?.oauth ? "oauth" : "api_key",
+        configured: !!status.configured,
+        source: status.source,
+        label: status.label,
+        stored: !!credential,
+        storedType: credential?.type,
+      };
+    })
+    .sort((a: any, b: any) => a.name.localeCompare(b.name));
+}
+
 export async function listProviderModels(provider: string) {
-  const runtime = await getIntrospectionRuntime();
-  const registry = runtime.session.modelRegistry;
-  registry.refresh?.();
-  return registry.getAll()
-    .filter((model: any) => String(model.provider) === provider)
+  const modelRuntime = await currentModelRuntime();
+  return modelRuntime.getModels(provider)
     .sort((a: any, b: any) => String(a.name || a.id).localeCompare(String(b.name || b.id)))
     .map((model: any) => ({
       id: String(model.id),
@@ -36,17 +62,16 @@ export async function listProviderModels(provider: string) {
       input: Array.isArray(model.input) ? model.input.filter((kind: unknown) => kind === "text" || kind === "image") : ["text"],
       contextWindow: Number.isFinite(model.contextWindow) ? model.contextWindow : undefined,
       maxTokens: Number.isFinite(model.maxTokens) ? model.maxTokens : undefined,
-      available: registry.hasConfiguredAuth(model),
+      available: modelRuntime.hasConfiguredAuth(provider),
     }));
 }
 
-export function saveProviderApiKey(provider: string, apiKey: unknown) {
+export async function saveProviderApiKey(provider: string, apiKey: unknown) {
   if (typeof apiKey !== "string" || !apiKey.trim()) badRequest("apiKey is required");
-  authStorage.set(provider, { type: "api_key", key: apiKey.trim() });
-  refreshAuthState();
+  await persistProviderApiKey(await currentModelRuntime(), provider, apiKey.trim());
 }
 
-export function createProvider(input: Record<string, unknown>) {
+export async function createProvider(input: Record<string, unknown>) {
   const provider = typeof input.providerId === "string" ? input.providerId.trim() : "";
   const endpoint = typeof input.baseUrl === "string" ? input.baseUrl.trim() : "";
   const model = typeof input.modelId === "string" ? input.modelId.trim() : "";
@@ -57,7 +82,8 @@ export function createProvider(input: Record<string, unknown>) {
   if (!model) badRequest("modelId is required");
   const config = readModelsJson();
   if (config.providers[provider]) conflict(`Provider ${provider} already exists in models.json`);
-  if (modelRegistry.getAll().some((entry) => entry.provider === provider)) conflict(`Provider ${provider} already exists; pick a different id`);
+  const modelRuntime = await currentModelRuntime();
+  if (modelRuntime.getModels().some((entry: any) => entry.provider === provider)) conflict(`Provider ${provider} already exists; pick a different id`);
   config.providers[provider] = {
     name: displayName, baseUrl: endpoint, api: "openai-completions",
     apiKey: `$${provider.toUpperCase().replace(/[^A-Z0-9]/g, "_")}_API_KEY`,
@@ -67,12 +93,13 @@ export function createProvider(input: Record<string, unknown>) {
     }],
   };
   writeModelsJson(config);
-  if (typeof input.apiKey === "string" && input.apiKey.trim()) authStorage.set(provider, { type: "api_key", key: input.apiKey.trim() });
-  refreshAuthState();
+  await modelRuntime.refresh({ allowNetwork: false });
+  if (typeof input.apiKey === "string" && input.apiKey.trim()) {
+    await persistProviderApiKey(modelRuntime, provider, input.apiKey.trim());
+  }
   return provider;
 }
 
-export function logoutProvider(provider: string) {
-  authStorage.logout(provider);
-  refreshAuthState();
+export async function logoutProvider(provider: string) {
+  await (await currentModelRuntime()).logout(provider);
 }

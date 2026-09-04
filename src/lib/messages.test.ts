@@ -31,6 +31,28 @@ describe('mapHistoryToMessages', () => {
     expect(message.thinking).toBe('Structured');
   });
 
+  it('renders persisted background-job custom messages as notifications', () => {
+    const [message] = mapHistoryToMessages([{
+      role: 'custom',
+      customType: 'sylph.background-jobs',
+      display: true,
+      content: '<background-jobs-completed />',
+      details: { jobs: [{ id: 'bg-1', name: 'Test suite', status: 'failed', exitCode: 1 }] },
+    }]);
+
+    expect(message).toMatchObject({
+      role: 'notification',
+      notifyType: 'error',
+      content: 'Test suite failed (exit 1)',
+    });
+  });
+
+  it('omits non-display custom messages from history', () => {
+    expect(mapHistoryToMessages([{
+      role: 'custom', customType: 'state', display: false, content: 'hidden',
+    }])).toEqual([]);
+  });
+
   it('promotes tool-result images onto the owning assistant message', () => {
     const [message] = mapHistoryToMessages([
       {

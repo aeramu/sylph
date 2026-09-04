@@ -5,10 +5,15 @@ import type { PermissionEvaluation, PermissionPolicy, PermissionToolCall } from 
 
 const PATH_TOOLS = new Set(["read", "write", "edit", "grep", "find", "ls"]);
 const READ_TOOLS = new Set(["read", "grep", "find", "ls"]);
+const BACKGROUND_COMMAND_TOOLS = new Set(["bg_run"]);
+const INTERNAL_TOOLS = new Set([
+  "ask_user_question", "bg_status", "bg_logs", "bg_kill",
+  "create_schedule", "list_schedules", "update_schedule", "delete_schedule",
+]);
 
 /** Evaluate one tool call against Sylph's vendor-neutral permission policy. */
 export function evaluateToolCall(policy: PermissionPolicy, event: PermissionToolCall, cwd: string): PermissionEvaluation {
-  if (event.toolName === "bash") {
+  if (event.toolName === "bash" || BACKGROUND_COMMAND_TOOLS.has(event.toolName)) {
     const input = event.input && typeof event.input === "object" ? event.input as Record<string, unknown> : {};
     return evaluateBash(policy, String(input.command ?? ""), cwd);
   }
@@ -20,9 +25,7 @@ export function evaluateToolCall(policy: PermissionPolicy, event: PermissionTool
     : typeof nested.path === "string" ? nested.path
     : undefined;
   if (typeof rawPath !== "string") {
-    const known = PATH_TOOLS.has(event.toolName)
-      || event.toolName === "ask_user_question"
-      || ["create_schedule", "list_schedules", "update_schedule", "delete_schedule"].includes(event.toolName);
+    const known = PATH_TOOLS.has(event.toolName) || INTERNAL_TOOLS.has(event.toolName);
     const serialized = JSON.stringify(event.input ?? {});
     const fingerprint = createHash("sha256").update(serialized).digest("hex").slice(0, 16);
     const preview = serialized.length > 300 ? `${serialized.slice(0, 300)}…` : serialized;

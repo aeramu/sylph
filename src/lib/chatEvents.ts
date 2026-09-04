@@ -2,6 +2,7 @@ import type { SetStoreFunction } from 'solid-js/store';
 import type { ChatMessage } from '../types';
 import { normalizeAssistantThinking } from './messageThinking';
 import { createId } from './id';
+import { mapCustomMessage } from './messages';
 
 export interface AgentEventCallbacks {
   setProcessing: (v: boolean) => void;
@@ -40,7 +41,10 @@ export function applyAgentEvent(
   if (event.type === 'message_start') {
     const msgId = event.message?.id || event.message?.responseId || createId();
 
-    if (event.message.role === 'assistant') {
+    if (event.message.role === 'custom') {
+      const custom = mapCustomMessage(event.message);
+      if (custom) setMessages(messages.length, custom);
+    } else if (event.message.role === 'assistant') {
       // An assistant message can arrive already terminated with an error
       // (e.g. provider rate limit, usage limit reached). Capture the error
       // text instead of leaving an empty streaming bubble forever.
@@ -152,6 +156,10 @@ export function applyAgentEvent(
         });
       }
     }
+  } else if (event.type === 'message_end' && event.message?.role === 'custom') {
+    // The matching message_start already rendered this durable notification.
+    // A custom message ending must not close an unrelated assistant stream.
+    return;
   } else if (event.type === 'message_end') {
     // message_end can also carry an error if the failure happens mid-stream.
     if (event.message?.stopReason === 'error' && event.message?.errorMessage) {

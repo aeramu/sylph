@@ -6,6 +6,8 @@ import { startEvictionTimer } from "./integrations/pi/runtime/runtimeManager.ts"
 import { startAgentBrowserDashboard } from "./integrations/agent-browser/dashboard.ts";
 import { createAgentBrowserDashboardProxy } from "./integrations/agent-browser/dashboardProxy.ts";
 import { startSchedulerTimer } from "./features/scheduler/schedulerRunner.ts";
+import { startBackgroundJobService } from "./features/backgroundJobs/backgroundJobService.ts";
+import { wakeRuntimeForBackgroundJob } from "./integrations/pi/runtime/runtimeManager.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -15,6 +17,7 @@ const app = createApp({ dashboardMiddleware: dashboardProxy.middleware, distDir 
 
 startEvictionTimer();
 startSchedulerTimer();
+startBackgroundJobService(wakeRuntimeForBackgroundJob);
 void startAgentBrowserDashboard().then((status) => {
   if (!status.available) console.warn(`[agent-browser] Dashboard unavailable: ${status.error}`);
 });

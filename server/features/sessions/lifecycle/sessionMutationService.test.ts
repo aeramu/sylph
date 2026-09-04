@@ -108,14 +108,17 @@ describe("session mutations", () => {
     const { manager, binding } = persistedSession();
     const sessionFile = manager.getSessionFile()!;
     const dispose = vi.fn();
+    const removeBackgroundJobs = vi.fn(async () => undefined);
 
     await deleteSession(binding.sessionId, {
       recover: async () => [], getRuntime: async () => undefined, dispose,
+      hasRunningBackgroundJobs: () => false, removeBackgroundJobs,
     });
 
     expect(fs.existsSync(sessionFile)).toBe(false);
     expect(bindings.getSessionBinding(binding.sessionId)).toBeUndefined();
     expect(dispose).toHaveBeenCalledWith(binding.sessionId, "session deleted");
+    expect(removeBackgroundJobs).toHaveBeenCalledWith(binding.sessionId);
   });
 
   it("does not delete an active session", async () => {
@@ -125,5 +128,19 @@ describe("session mutations", () => {
     })).rejects.toThrow(/Stop the session/);
     expect(bindings.getSessionBinding(binding.sessionId)).toBeDefined();
     expect(fs.existsSync(binding.sessionFile!)).toBe(true);
+  });
+
+  it("does not delete a session while one of its background jobs is running", async () => {
+    const { binding } = persistedSession();
+    const dispose = vi.fn();
+
+    await expect(deleteSession(binding.sessionId, {
+      recover: async () => [], getRuntime: async () => undefined, dispose,
+      hasRunningBackgroundJobs: () => true,
+    })).rejects.toThrow(/Stop background jobs/);
+
+    expect(bindings.getSessionBinding(binding.sessionId)).toBeDefined();
+    expect(fs.existsSync(binding.sessionFile!)).toBe(true);
+    expect(dispose).not.toHaveBeenCalled();
   });
 });
