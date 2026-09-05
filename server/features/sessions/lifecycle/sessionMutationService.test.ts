@@ -21,7 +21,7 @@ vi.mock("../../../config.ts", async (importOriginal) => ({
 const projects = await import("../../projects/projectRepository.ts");
 const bindings = await import("../workspace/workspaceBindingRepository.ts");
 const metadata = await import("../workspace/piSessionMetadata.ts");
-const { deleteSession, moveSessionToProject, renameSession } = await import("./sessionMutationService.ts");
+const { deleteSession, moveSessionToProject, renameSession, setSessionPermissionMode } = await import("./sessionMutationService.ts");
 
 function persistedSession(): { manager: SessionManager; binding: SessionBinding } {
   const cwd = path.join(root, "workspace");
@@ -76,6 +76,26 @@ describe("session mutations", () => {
 
     await expect(renameSession(binding.sessionId, "   ", dependencies)).rejects.toThrow(/required/);
     await expect(renameSession(binding.sessionId, "x".repeat(121), dependencies)).rejects.toThrow(/120 characters/);
+  });
+
+  it("persists permission mode and requires an idle session", async () => {
+    const { manager, binding } = persistedSession();
+    const dispose = vi.fn();
+
+    await expect(setSessionPermissionMode(binding.sessionId, "strict", {
+      recover: async () => [], getRuntime: async () => undefined, dispose,
+    })).resolves.toEqual({ success: true, permissionMode: "strict" });
+
+    expect(bindings.getSessionBinding(binding.sessionId)?.permissionMode).toBe("strict");
+    expect(metadata.getWorkspaceMetadata(SessionManager.open(manager.getSessionFile()!))?.permissionMode).toBe("strict");
+    expect(dispose).toHaveBeenCalledWith(binding.sessionId, "permission mode changed");
+
+    await expect(setSessionPermissionMode(binding.sessionId, "unsafe", {
+      recover: async () => [], getRuntime: async () => undefined,
+    })).rejects.toThrow(/relaxed, balanced, or strict/);
+    await expect(setSessionPermissionMode(binding.sessionId, "relaxed", {
+      recover: async () => [], getRuntime: async () => ({ session: { isStreaming: true } }),
+    })).rejects.toThrow(/Stop the session/);
   });
 
   it("moves a session by updating its indexed and embedded project ownership", async () => {

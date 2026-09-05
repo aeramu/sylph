@@ -6,6 +6,7 @@ import type { AccessIntent, AccessOperation, PermissionDecision, PermissionEvalu
 const NETWORK_COMMANDS = new Set(["wget", "ssh", "scp", "sftp", "rsync"]);
 const ELEVATED_COMMANDS = new Set(["sudo", "su", "doas"]);
 const DESTRUCTIVE_COMMANDS = new Set(["rm", "rmdir", "mv", "cp", "chmod", "chown", "install", "dd"]);
+const WRITE_COMMANDS = new Set(["touch", "mkdir", "mktemp", "truncate", "tee", "ln"]);
 const SCRIPT_INTERPRETERS = new Set(["sh", "bash", "zsh", "dash", "ksh", "node", "python", "python3", "ruby", "perl", "php"]);
 const SAFE_DEVICES = new Set(["/dev/null", "/dev/stdin", "/dev/stdout", "/dev/stderr"]);
 // Text-processing commands whose first non-flag argument is an inline script or search
@@ -31,6 +32,23 @@ COMMAND_FLAG_KINDS.gawk = COMMAND_FLAG_KINDS.awk;
 COMMAND_FLAG_KINDS.mawk = COMMAND_FLAG_KINDS.awk;
 COMMAND_FLAG_KINDS.egrep = COMMAND_FLAG_KINDS.grep;
 COMMAND_FLAG_KINDS.fgrep = COMMAND_FLAG_KINDS.grep;
+
+function gitSubcommand(args: string[]): string | undefined {
+  const optionsWithValues = new Set([
+    "-C", "-c", "--git-dir", "--work-tree", "--namespace", "--super-prefix", "--config-env",
+  ]);
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    const option = arg.includes("=") ? arg.slice(0, arg.indexOf("=")) : arg;
+    if (optionsWithValues.has(option)) {
+      if (arg === option) index++;
+      continue;
+    }
+    if (arg.startsWith("-")) continue;
+    return arg;
+  }
+  return undefined;
+}
 
 /** Argument indexes that hold inline scripts or search patterns rather than filesystem paths. */
 function inlineScriptExemptions(name: string, args: string[]): Set<number> {
@@ -72,6 +90,7 @@ function inlineScriptExemptions(name: string, args: string[]): Set<number> {
 
 export function evaluateBash(policy: PermissionPolicy, command: string, cwd: string): PermissionEvaluation {
   const parsed = parseCommandUnits(command, policy.shellEnvironment);
+  const mode = policy.mode ?? "balanced";
   const intents: AccessIntent[] = [];
   let effectiveCwd = cwd;
   let commandDecision: PermissionDecision = "allow";
@@ -102,19 +121,25 @@ export function evaluateBash(policy: PermissionPolicy, command: string, cwd: str
       if (inReadRoot) intents.push(evaluatePath(policy, "execute", commandPath, effectiveCwd));
     }
     if (ELEVATED_COMMANDS.has(name)) ask(`elevated command ${name}`);
+    if (mode === "strict") ask(`shell command ${name} requires confirmation in Strict mode`);
     if (DESTRUCTIVE_COMMANDS.has(name)) {
       const cleanupTargets = (name === "rm" || name === "rmdir")
-        ? unit.args.filter((arg) => !arg.startsWith("-") && pathLooksExplicit(arg))
+        ? unit.args.filter((arg) => !arg.startsWith("-"))
           .map((arg) => evaluatePath(policy, "delete", expandHome(arg.replace(/^file:\/\//, "")), effectiveCwd))
         : [];
       const scratchCleanup = cleanupTargets.length > 0 && cleanupTargets.every((intent) =>
         intent.decision === "allow" && intent.root?.temporary && intent.canonicalPath !== intent.root.path);
-      if (!scratchCleanup) ask(`destructive command ${name}`);
+      const relaxedWorkspaceCleanup = mode === "relaxed" && (name === "rm" || name === "rmdir")
+        && cleanupTargets.length > 0 && cleanupTargets.every((intent) =>
+          intent.decision === "allow" && !!intent.root && intent.canonicalPath !== intent.root.path);
+      if (!scratchCleanup && !relaxedWorkspaceCleanup) ask(`destructive command ${name}`);
     }
-    if (NETWORK_COMMANDS.has(name)) ask(`network command ${name}`);
+    if (NETWORK_COMMANDS.has(name) && !(mode === "relaxed" && name === "wget")) ask(`network command ${name}`);
     if (name === "git") {
-      const subcommand = unit.args.find((arg) => !arg.startsWith("-"));
-      if (["fetch", "pull", "push", "clone"].includes(subcommand || "")) ask(`networked Git operation ${subcommand}`);
+      const subcommand = gitSubcommand(unit.args);
+      if (subcommand === "push" || (mode !== "relaxed" && ["fetch", "pull", "clone"].includes(subcommand || ""))) {
+        ask(`networked Git operation ${subcommand}`);
+      }
       if (subcommand === "clean" || (subcommand === "reset" && unit.args.includes("--hard"))) ask(`destructive Git operation ${subcommand}`);
       if (subcommand === "push" && unit.args.some((arg) => arg === "-f" || arg.startsWith("--force"))) deny("force-push is denied by default");
     }
@@ -125,19 +150,22 @@ export function evaluateBash(policy: PermissionPolicy, command: string, cwd: str
       const targets = unit.args.filter((arg) => !arg.startsWith("-"));
       if (targets.some((target) => ["/", "~", "$HOME", "${HOME}"].includes(target))) deny("recursive deletion of a filesystem/home root is denied");
       else {
-        const targetIntents = targets.filter(pathLooksExplicit)
+        const targetIntents = targets
           .map((target) => evaluatePath(policy, "delete", expandHome(target.replace(/^file:\/\//, "")), effectiveCwd));
         const scratchCleanup = targetIntents.length > 0 && targetIntents.every((intent) =>
           intent.decision === "allow" && intent.root?.temporary && intent.canonicalPath !== intent.root.path);
-        if (!scratchCleanup) ask("recursive deletion");
+        const relaxedWorkspaceCleanup = mode === "relaxed" && targetIntents.length > 0
+          && targetIntents.every((intent) => intent.decision === "allow" && !!intent.root && intent.canonicalPath !== intent.root.path);
+        if (!scratchCleanup && !relaxedWorkspaceCleanup) ask("recursive deletion");
       }
     }
     for (const redirection of unit.redirections) {
-      if (!pathLooksExplicit(redirection.path)) continue;
       const expanded = expandHome(redirection.path.replace(/^file:\/\//, ""));
       if (!SAFE_DEVICES.has(expanded)) intents.push(evaluatePath(policy, redirection.operation, expanded, effectiveCwd));
     }
-    const operation: AccessOperation = DESTRUCTIVE_COMMANDS.has(name) ? (name === "rm" || name === "rmdir" ? "delete" : "write") : "read";
+    const operation: AccessOperation = DESTRUCTIVE_COMMANDS.has(name)
+      ? (name === "rm" || name === "rmdir" ? "delete" : "write")
+      : WRITE_COMMANDS.has(name) ? "write" : "read";
     const scriptArgumentIndex = SCRIPT_INTERPRETERS.has(name)
       ? unit.args.findIndex((arg) => !arg.startsWith("-"))
       : -1;
@@ -169,7 +197,7 @@ export function evaluateBash(policy: PermissionPolicy, command: string, cwd: str
     decision,
     reason: reasons.join("; ") || "allowed by workspace policy",
     summary: [`Command: ${command}`, ...intentSummaries].join("\n"),
-    approvalKey: `bash:${command}`,
+    approvalKey: `${mode}:bash:${command}`,
     intents,
   };
 }

@@ -1,3 +1,23 @@
+export type BackgroundJobStatus = 'running' | 'completed' | 'failed' | 'killed';
+
+export interface BackgroundJobInfo {
+  id: string;
+  sessionId?: string;
+  name: string;
+  command?: string;
+  cwd?: string;
+  status: BackgroundJobStatus;
+  startedAt?: string;
+  endedAt?: string;
+  workerPid?: number;
+  childPid?: number;
+  exitCode?: number | null;
+  signal?: string | null;
+  error?: string;
+  timeoutSeconds?: number;
+  outputBytes?: number;
+}
+
 export interface ToolCall {
   id?: string;
   name: string;
@@ -5,17 +25,20 @@ export interface ToolCall {
   output?: string;
   resultMsgId?: string;
   args?: Record<string, any>;
+  backgroundJob?: BackgroundJobInfo;
 }
 
 export interface ChatMessage {
   id: string;
-  role: 'user' | 'assistant' | 'notification';
+  role: 'user' | 'assistant' | 'notification' | 'background-job';
   content: string;
   rawContent?: string;
   structuredThinking?: string;
   structuredThinkingActive?: boolean;
   // For role 'notification': controls styling ('info' | 'warning' | 'error').
   notifyType?: string;
+  // For role 'background-job': one card can summarize a batched completion.
+  backgroundJobs?: BackgroundJobInfo[];
   thinking?: string;
   isThinking?: boolean;
   images?: { url: string; mimeType: string }[];
@@ -111,6 +134,7 @@ export interface ModelOption {
 }
 
 export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+export type PermissionMode = 'relaxed' | 'balanced' | 'strict';
 
 export interface ThinkingLevelOption {
   value: ThinkingLevel;

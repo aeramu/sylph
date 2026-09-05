@@ -10,6 +10,7 @@ export interface TurnChip { turn: number; files: number; added: number; deleted:
 export default function MessageTimeline(props: {
   messages: readonly ChatMessage[];
   processing: boolean;
+  sessionId?: string;
   onScroll: () => void;
   onImageClick: (url: string) => void;
   turnChipFor: (index: number) => TurnChip | null;
@@ -19,7 +20,7 @@ export default function MessageTimeline(props: {
 }) {
   return <div class="messages-area" ref={props.areaRef} onScroll={props.onScroll}>
     <For each={props.messages}>{(message, index) => <>
-      <Show when={hasRenderableContent(message)}><MessageBubble msg={message} onImageClick={props.onImageClick}/></Show>
+      <Show when={hasRenderableContent(message)}><MessageBubble msg={message} sessionId={props.sessionId} onImageClick={props.onImageClick}/></Show>
       <Show when={props.turnChipFor(index())} keyed>{(chip) => <div class="turn-diff-row">
         <button class="diff-stats-chip" onClick={() => props.onOpenTurn(chip.turn)} title={`Show file changes from turn ${chip.turn}`}>
           <DiffStats files={chip.files} added={chip.added} deleted={chip.deleted}/>

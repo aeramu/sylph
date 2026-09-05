@@ -8,6 +8,7 @@ import { getSessionStatuses } from "../../interactions/sessionStatusStore.ts";
 import { notFound } from "../../../platform/http/errors.ts";
 import { getRawManagedDirectories, hasManagedWorktrees } from "../workspace/sessionWorkspace.ts";
 import { getSessionBinding } from "../workspace/workspaceBindingRepository.ts";
+import { getPendingUserMessages } from "../../../integrations/pi/runtime/pendingUserMessages.ts";
 
 export async function getSessionDetail(sessionId: string) {
   const binding = getSessionBinding(sessionId);
@@ -30,11 +31,33 @@ export async function getSessionDetail(sessionId: string) {
     const interrupted = reconstructInterruptedQuestion(sessionId, runtime.session);
     if (interrupted) pendingUiRequests.push(interrupted);
   }
+  // Clone live state before reading eventSeq. These operations are synchronous,
+  // so the returned sequence describes exactly this snapshot; later events are
+  // captured and replayed by the client's history buffer without gaps.
+  const messages = structuredClone(runtime.session.messages || []);
+  const streamingMessage = runtime.session.state?.streamingMessage
+    ? structuredClone(runtime.session.state.streamingMessage)
+    : undefined;
+  const pendingUserMessages = structuredClone(getPendingUserMessages(runtime.session));
+  const pendingToolCalls = runtime.session.state?.pendingToolCalls;
+  const activeToolCallIds = pendingToolCalls instanceof Set ? [...pendingToolCalls] : [];
+  const eventSeq = getSessionEventSequence(sessionId);
   return {
-    messages: runtime.session.messages || [], eventSeq: getSessionEventSequence(sessionId),
+    messages, eventSeq,
     name: runtime.session.sessionManager?.getSessionName?.(), isStreaming: !!runtime.session.isStreaming, pendingUiRequests,
     pendingArtifactRequest: getPendingArtifactRequest(sessionId), statuses: getSessionStatuses(sessionId),
     context: getContextInfo(runtime.session), binding: responseBinding,
+    ...(streamingMessage ? { streamingMessage } : {}),
+    pendingUserMessages: pendingUserMessages.map((message) => ({
+      role: "user",
+      content: [
+        { type: "text", text: message.displayText ?? "" },
+        ...(message.images ?? []),
+      ],
+      clientMessageId: message.clientMessageId,
+      steered: message.steered,
+    })),
+    activeToolCallIds,
   };
 }
 

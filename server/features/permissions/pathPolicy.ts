@@ -57,17 +57,25 @@ export function evaluatePath(policy: PermissionPolicy, operation: AccessOperatio
     Array.from(policy.allowedReadFiles ?? []).some((file) => path.resolve(file) === canonicalPath)
     || withinAllowedReadRoot
   );
+  const sensitive = sensitivePathReason(canonicalPath);
   if (!root && !explicitlyAllowedRead) {
-    return { operation, lexicalPath, canonicalPath, decision: policy.externalAccess ?? "ask", reason: "path is outside every workspace root" };
+    const relaxedRead = policy.mode === "relaxed" && operation === "read" && !sensitive;
+    return {
+      operation, lexicalPath, canonicalPath,
+      decision: relaxedRead ? "allow" : policy.externalAccess ?? "ask",
+      reason: sensitive ?? (relaxedRead ? "external read allowed in Relaxed mode" : "path is outside every workspace root"),
+    };
   }
   if (root?.access === "read-only" && operation !== "read") {
     return { operation, lexicalPath, canonicalPath, root, decision: "deny", reason: `workspace root ${root.name} is read-only` };
   }
-  const sensitive = sensitivePathReason(canonicalPath);
+  const strictMutation = policy.mode === "strict" && operation !== "read";
   return {
     operation, lexicalPath, canonicalPath, root,
-    decision: sensitive ? "ask" : "allow",
-    reason: sensitive ?? (explicitlyAllowedRead ? "path is explicitly allowed for reading" : undefined),
+    decision: sensitive || strictMutation ? "ask" : "allow",
+    reason: sensitive ?? (strictMutation
+      ? `${operation} requires confirmation in Strict mode`
+      : explicitlyAllowedRead ? "path is explicitly allowed for reading" : undefined),
   };
 }
 

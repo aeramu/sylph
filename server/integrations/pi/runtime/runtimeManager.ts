@@ -17,6 +17,7 @@ import type { BackgroundJob } from "../../../features/backgroundJobs/backgroundJ
 import {
   deliverBackgroundJobsToRuntime, deliverPendingBackgroundJobsToRuntime,
 } from "./backgroundJobDelivery.ts";
+import { clearPendingUserMessages } from "./pendingUserMessages.ts";
 
 const runtimeRegistry = new RuntimeRegistry<any>();
 const sessionEventSequences = new Map<string, number>();
@@ -35,7 +36,9 @@ export function getSettledRuntime(sessionId: string): Promise<any> {
 }
 
 export function disposeRuntime(sessionId: string, reason = "session runtime disposed") {
+  const runtime = runtimeRegistry.get(sessionId);
   if (!runtimeRegistry.dispose(sessionId)) return;
+  if (runtime?.session) clearPendingUserMessages(runtime.session);
   sessionEventSequences.delete(sessionId);
   rejectPendingForSession(sessionId, reason);
   clearSessionStatuses(sessionId);

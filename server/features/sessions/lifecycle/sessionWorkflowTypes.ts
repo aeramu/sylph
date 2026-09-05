@@ -1,8 +1,10 @@
 import type { Project } from "../../projects/projectTypes.ts";
+import type { PermissionMode } from "../../permissions/permissionTypes.ts";
 import type { SessionHistoryHandle } from "./sessionHistoryPort.ts";
 
 export interface NewSessionOptions {
   directoryId?: string;
+  permissionMode?: PermissionMode;
   /** Standalone cwd when creating a session without a project. */
   standalonePath?: string;
   useWorktree?: boolean;

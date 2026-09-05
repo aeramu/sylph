@@ -179,6 +179,32 @@ describe("Sylph permissions", () => {
     });
   });
 
+  it("supports relaxed, balanced, and strict permission modes", () => {
+    const { parent, frontend, policy } = workspace();
+    const external = path.join(parent, "notes.txt");
+
+    policy.mode = "relaxed";
+    expect(evaluateToolCall(policy, tool("read", { path: external }), frontend)).toMatchObject({ decision: "allow" });
+    expect(evaluateToolCall(policy, tool("bash", { command: "wget https://example.com" }), frontend)).toMatchObject({ decision: "allow" });
+    expect(evaluateToolCall(policy, tool("bash", { command: "rm -rf ./dist" }), frontend)).toMatchObject({ decision: "allow" });
+    expect(evaluateToolCall(policy, tool("write", { path: external }), frontend)).toMatchObject({ decision: "ask" });
+    expect(evaluateToolCall(policy, tool("bash", { command: "git push origin main" }), frontend)).toMatchObject({ decision: "ask" });
+    expect(evaluateToolCall(policy, tool("bash", { command: "git -C ./nested push origin main" }), frontend)).toMatchObject({ decision: "ask" });
+
+    policy.mode = "balanced";
+    expect(evaluateToolCall(policy, tool("read", { path: external }), frontend)).toMatchObject({ decision: "ask" });
+    expect(evaluateToolCall(policy, tool("bash", { command: "npm test" }), frontend)).toMatchObject({ decision: "allow" });
+
+    policy.mode = "strict";
+    expect(evaluateToolCall(policy, tool("write", { path: path.join(frontend, "result.txt") }), frontend)).toMatchObject({ decision: "ask" });
+    expect(evaluateToolCall(policy, tool("bash", { command: "npm test" }), frontend)).toMatchObject({ decision: "ask" });
+    expect(evaluateToolCall(policy, tool("create_schedule", { name: "Later" }), frontend)).toMatchObject({ decision: "ask" });
+    expect(evaluateToolCall(policy, tool("list_schedules", {}), frontend)).toMatchObject({ decision: "allow" });
+
+    expect(evaluateToolCall({ ...policy, mode: "relaxed" }, tool("bash", { command: "git pull" }), frontend).approvalKey)
+      .not.toBe(evaluateToolCall({ ...policy, mode: "strict" }, tool("bash", { command: "git pull" }), frontend).approvalKey);
+  });
+
   it("asks for network and recursive delete commands but permits curl and opaque shell commands", () => {
     const { frontend, policy } = workspace();
     expect(evaluateToolCall(policy, tool("bash", { command: "curl https://example.com" }), frontend).decision).toBe("allow");

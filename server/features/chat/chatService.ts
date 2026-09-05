@@ -7,6 +7,8 @@ import { getOrInitRuntime, rollbackNewWorktreeSession, touchRuntime } from "../.
 import { findAvailableModel, isSameModel } from "../../integrations/pi/modelSelection.ts";
 import { resolveMentionsInPrompt } from "../filesystem/mentionService.ts";
 import { badRequest } from "../../platform/http/errors.ts";
+import { DEFAULT_PERMISSION_MODE, isPermissionMode, type PermissionMode } from "../permissions/permissionTypes.ts";
+import { admitPrompt, withSessionAdmission } from "./chatAdmission.ts";
 
 export interface SendChatCommand {
   sessionId?: string;
@@ -17,10 +19,13 @@ export interface SendChatCommand {
   standalonePath?: string;
   modelId?: string;
   thinkingLevel?: unknown;
+  permissionMode?: PermissionMode;
   images?: unknown[];
   useWorktree?: boolean;
   baseBranches?: Record<string, unknown>;
   baseBranch?: string;
+  clientMessageId?: string;
+  displayText?: string;
 }
 
 export interface SendChatResult {
@@ -33,17 +38,24 @@ export interface SendChatResult {
   directoryId?: string;
   branch?: string;
   worktree?: boolean;
+  permissionMode: PermissionMode;
 }
 
 function normalizeCommand(input: unknown): SendChatCommand {
   const body = input && typeof input === "object" ? input as Record<string, unknown> : {};
   if (typeof body.prompt !== "string" || !body.prompt) badRequest("prompt is required");
+  if (body.permissionMode !== undefined && !isPermissionMode(body.permissionMode)) {
+    badRequest("permissionMode must be relaxed, balanced, or strict");
+  }
   return body as unknown as SendChatCommand;
 }
 
 export async function sendChat(input: unknown): Promise<SendChatResult> {
   const command = normalizeCommand(input);
-  const { sessionId, prompt, mentionText, projectId, directoryId, standalonePath, modelId, thinkingLevel, images, useWorktree, baseBranches, baseBranch } = command;
+  const {
+    sessionId, prompt, mentionText, projectId, directoryId, standalonePath, modelId, thinkingLevel, permissionMode, images,
+    useWorktree, baseBranches, baseBranch, clientMessageId, displayText,
+  } = command;
   let newWorktreeSessionId: string | undefined;
 
   try {
@@ -73,6 +85,7 @@ export async function sendChat(input: unknown): Promise<SendChatResult> {
 
     const runtime = await getOrInitRuntime(sessionId, projectId, {
       directoryId: typeof directoryId === "string" ? directoryId : undefined,
+      permissionMode,
       standalonePath: typeof standalonePath === "string" ? standalonePath.trim() : undefined,
       useWorktree: !sessionId && useWorktree === true,
       baseBranches: baseBranches
@@ -85,67 +98,68 @@ export async function sendChat(input: unknown): Promise<SendChatResult> {
     if (!sessionId && useWorktree === true) newWorktreeSessionId = resolvedSessionId;
     touchRuntime(resolvedSessionId);
 
-    if (modelId) {
-      const targetModel = findAvailableModel(await runtime.session.modelRuntime.getAvailable(), modelId);
-      if (!targetModel) {
-        if (!sessionId && useWorktree === true) await rollbackNewWorktreeSession(resolvedSessionId);
-        badRequest(`Unknown or unavailable model: ${modelId}`);
+    // Serialize model/thinking mutations and prompt admission together, but
+    // release the lock as soon as Pi accepts the turn. Concurrent submissions
+    // then deterministically become steering input instead of both starting.
+    const submission = await withSessionAdmission(runtime.session, async () => {
+      if (modelId) {
+        const targetModel = findAvailableModel(await runtime.session.modelRuntime.getAvailable(), modelId);
+        if (!targetModel) {
+          if (!sessionId && useWorktree === true) await rollbackNewWorktreeSession(resolvedSessionId);
+          badRequest(`Unknown or unavailable model: ${modelId}`);
+        }
+        if (!isSameModel(runtime.session.model, targetModel)) await runtime.session.setModel(targetModel);
       }
-      if (!isSameModel(runtime.session.model, targetModel)) await runtime.session.setModel(targetModel);
-    }
 
-    if (thinkingLevel !== undefined) {
-      if (typeof thinkingLevel !== "string") {
-        if (!sessionId && useWorktree === true) await rollbackNewWorktreeSession(resolvedSessionId);
-        badRequest("thinkingLevel must be a string");
+      if (thinkingLevel !== undefined) {
+        if (typeof thinkingLevel !== "string") {
+          if (!sessionId && useWorktree === true) await rollbackNewWorktreeSession(resolvedSessionId);
+          badRequest("thinkingLevel must be a string");
+        }
+        const availableThinkingLevels = runtime.session.getAvailableThinkingLevels();
+        if (!availableThinkingLevels.includes(thinkingLevel)) {
+          if (!sessionId && useWorktree === true) await rollbackNewWorktreeSession(resolvedSessionId);
+          badRequest(`Thinking level ${thinkingLevel} is not supported by ${runtime.session.model?.id || "the selected model"}`, { availableThinkingLevels });
+        }
+        runtime.session.setThinkingLevel(thinkingLevel);
       }
-      const availableThinkingLevels = runtime.session.getAvailableThinkingLevels();
-      if (!availableThinkingLevels.includes(thinkingLevel)) {
-        if (!sessionId && useWorktree === true) await rollbackNewWorktreeSession(resolvedSessionId);
-        badRequest(`Thinking level ${thinkingLevel} is not supported by ${runtime.session.model?.id || "the selected model"}`, { availableThinkingLevels });
-      }
-      runtime.session.setThinkingLevel(thinkingLevel);
-    }
 
-    const projects = getProjects();
-    const binding = getSessionBinding(resolvedSessionId);
-    const runtimeCwd = binding?.cwd ?? runtime.session.cwd;
-    const resolvedProject = binding
-      ? (binding.projectId ? projects.find((entry) => entry.id === binding.projectId) : undefined)
-      : (typeof runtimeCwd === "string"
-          ? projects.find((entry) => entry.directories.some((directory) => path.resolve(directory.path) === path.resolve(runtimeCwd)))
-          : undefined);
-    const mentionProject = binding?.workspaceKind === "scratch"
-      ? undefined
-      : binding
-        ? projectForSession(resolvedProject ?? projectFromSessionBinding(binding), binding)
-      : resolvedProject && typeof runtimeCwd === "string"
-        ? projectAtDirectory(resolvedProject, directoryId, runtimeCwd)
-        : undefined;
-    const mentionSource = typeof mentionText === "string" ? mentionText : prompt;
-    const promptText = await resolveMentionsInPrompt(mentionProject, prompt, mentionSource);
-    const promptOptions = Array.isArray(images) && images.length > 0 ? { images } : undefined;
-
-    // steer() resolves as soon as the message is queued (the run itself keeps
-    // going), so awaiting it surfaces queueing failures — e.g. extension
-    // commands cannot be steered — as HTTP errors. prompt() instead awaits the
-    // whole run and must stay fire-and-forget.
-    const steered = runtime.session.isStreaming;
-    if (steered) {
-      await runtime.session.steer(promptText, promptOptions?.images);
-    } else {
-      runtime.session.prompt(promptText, promptOptions).catch((err: unknown) => console.error("Prompt error:", err));
-    }
+      const projects = getProjects();
+      const binding = getSessionBinding(resolvedSessionId);
+      const runtimeCwd = binding?.cwd ?? runtime.session.cwd;
+      const resolvedProject = binding
+        ? (binding.projectId ? projects.find((entry) => entry.id === binding.projectId) : undefined)
+        : (typeof runtimeCwd === "string"
+            ? projects.find((entry) => entry.directories.some((directory) => path.resolve(directory.path) === path.resolve(runtimeCwd)))
+            : undefined);
+      const mentionProject = binding?.workspaceKind === "scratch"
+        ? undefined
+        : binding
+          ? projectForSession(resolvedProject ?? projectFromSessionBinding(binding), binding)
+        : resolvedProject && typeof runtimeCwd === "string"
+          ? projectAtDirectory(resolvedProject, directoryId, runtimeCwd)
+          : undefined;
+      const mentionSource = typeof mentionText === "string" ? mentionText : prompt;
+      const promptText = await resolveMentionsInPrompt(mentionProject, prompt, mentionSource);
+      const promptOptions = Array.isArray(images) && images.length > 0 ? { images } : undefined;
+      const steered = await admitPrompt(runtime.session, promptText, {
+        images: promptOptions?.images,
+        clientMessageId: typeof clientMessageId === "string" ? clientMessageId : undefined,
+        displayText: typeof displayText === "string" ? displayText : undefined,
+      });
+      return { steered, binding, resolvedProject };
+    });
 
     return {
       success: true,
       sessionId: resolvedSessionId,
-      ...(steered ? { steered: true } : {}),
-      workspaceKind: binding?.workspaceKind,
-      projectId: resolvedProject?.id,
-      directoryId: binding?.directoryId,
-      branch: binding?.branch,
-      worktree: binding?.worktree,
+      ...(submission.steered ? { steered: true } : {}),
+      workspaceKind: submission.binding?.workspaceKind,
+      projectId: submission.resolvedProject?.id,
+      directoryId: submission.binding?.directoryId,
+      branch: submission.binding?.branch,
+      worktree: submission.binding?.worktree,
+      permissionMode: submission.binding?.permissionMode ?? permissionMode ?? DEFAULT_PERMISSION_MODE,
     };
   } catch (error) {
     if (newWorktreeSessionId) {

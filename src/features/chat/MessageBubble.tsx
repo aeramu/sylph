@@ -5,15 +5,20 @@ import { highlightMarkdownCodeBlocks } from '../../lib/codeHighlight';
 import ThinkingSection from './ThinkingSection';
 import ToolExecution from './ToolExecution';
 import ThinkingIndicator from './components/ThinkingIndicator';
+import BackgroundJobCard from './components/BackgroundJobCard';
 import './MessageBubble.css';
 
-export default function MessageBubble(props: { msg: ChatMessage; onImageClick: (url: string) => void }) {
+export default function MessageBubble(props: { msg: ChatMessage; sessionId?: string; onImageClick: (url: string) => void }) {
   let contentRef: HTMLDivElement | undefined;
 
   createEffect(() => {
     void props.msg.content;
     highlightMarkdownCodeBlocks(contentRef);
   });
+
+  if (props.msg.role === 'background-job') {
+    return <BackgroundJobCard jobs={props.msg.backgroundJobs ?? []} sessionId={props.sessionId} />;
+  }
 
   if (props.msg.role === 'notification') {
     return (
@@ -72,7 +77,9 @@ export default function MessageBubble(props: { msg: ChatMessage; onImageClick: (
         {props.msg.tools && props.msg.tools.length > 0 && (
           <div class="tool-executions">
             <For each={props.msg.tools}>
-              {(tool) => <ToolExecution tool={tool} />}
+              {(tool) => tool.name === 'bg_run' && tool.backgroundJob
+                ? <BackgroundJobCard jobs={[tool.backgroundJob]} sessionId={props.sessionId} embedded />
+                : <ToolExecution tool={tool} />}
             </For>
           </div>
         )}

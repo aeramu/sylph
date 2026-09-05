@@ -94,6 +94,8 @@ describe('Composer', () => {
         thinkingLevels={[]}
         selectedThinkingLevel="off"
         onSelectThinkingLevel={() => {}}
+        permissionMode="balanced"
+        onSelectPermissionMode={() => {}}
         reviewComments={[{
           id: 'comment-1', surface: 'git', path: 'src/api.ts', quote: 'return oldValue', comment: 'Keep the fallback.',
           lineStart: 42, lineEnd: 42, side: 'new', changeSet: 'unstaged',
@@ -106,6 +108,38 @@ describe('Composer', () => {
 
     await userEvent.click(page.getByRole('button', { name: 'Send message' }));
     expect(submitted).toEqual([expect.objectContaining({ id: 'comment-1', path: 'src/api.ts', comment: 'Keep the fallback.' })]);
+  });
+
+  it('changes the permission mode from the composer dropdown', async () => {
+    let selected = 'balanced';
+    mount(() => (
+      <Composer
+        isConnected
+        isProcessing={false}
+        disabled={false}
+        commands={[]}
+        draftKey="permission-test"
+        draftText=""
+        onDraftChange={() => {}}
+        models={[]}
+        selectedModel=""
+        onSelectModel={() => {}}
+        thinkingLevels={[]}
+        selectedThinkingLevel="off"
+        onSelectThinkingLevel={() => {}}
+        permissionMode="balanced"
+        onSelectPermissionMode={(mode) => { selected = mode; }}
+        reviewComments={[]}
+        onRemoveReviewComment={() => {}}
+        onSubmit={() => {}}
+        onStop={() => {}}
+      />
+    ));
+
+    await userEvent.click(page.getByRole('button', { name: 'Permission mode' }));
+    await expect.element(page.getByText('Fewer prompts; external changes still ask')).toBeInTheDocument();
+    await userEvent.click(page.getByText('Strict'));
+    expect(selected).toBe('strict');
   });
 
   it('keeps the textarea as the only visible text renderer when highlighting mentions', async () => {
@@ -124,6 +158,8 @@ describe('Composer', () => {
         thinkingLevels={[]}
         selectedThinkingLevel="off"
         onSelectThinkingLevel={() => {}}
+        permissionMode="balanced"
+        onSelectPermissionMode={() => {}}
         reviewComments={[]}
         onRemoveReviewComment={() => {}}
         onSubmit={() => {}}

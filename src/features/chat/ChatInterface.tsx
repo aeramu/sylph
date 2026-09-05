@@ -1,9 +1,9 @@
 import { createSignal, createEffect, createMemo, Show, onCleanup, onMount } from 'solid-js';
 import { createStore, produce } from 'solid-js/store';
-import type { Attachment, ChatMessage, CommandInfo, ContextInfo, ExtWidget, ProjectInfo, ReviewCommentAttachment } from '../../types';
+import type { Attachment, ChatMessage, CommandInfo, ContextInfo, ExtWidget, PermissionMode, ProjectInfo, ReviewCommentAttachment } from '../../types';
 import { applyAgentEvent } from '../../lib/chatEvents';
 import { trackSessionEvent, setSessionStatus, sessionStatuses } from '../../lib/sessionStatus';
-import { mapHistoryToMessages } from '../../lib/messages';
+import { mapSessionSnapshotMessages } from '../../lib/messages';
 import { computeSessionDiffs, emptyDiffSummary } from '../../lib/sessionDiff';
 import { getChatDraft, setChatDraft } from '../../lib/chatDraft';
 import './ChatInterface.css';
@@ -27,7 +27,7 @@ import { createId } from '../../lib/id';
 import { ApiError } from '../../lib/api';
 import {
   abortSession, acknowledgeArtifact, listCommands, listProjects, recreateWorktree,
-  removeWorktree, respondToUi, sendChat, type SessionBindingInfo,
+  removeWorktree, respondToUi, sendChat, setSessionPermissionMode, type SessionBindingInfo,
 } from './api';
 import { connectSessionStream, PendingSessionEvents, type SessionScopedEvent } from './createSessionStream';
 import { createNewChatSetup } from './createNewChatSetup';
@@ -48,6 +48,8 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   const [commandsList, setCommandsList] = createSignal<CommandInfo[]>([]);
   const [projects, setProjects] = createSignal<ProjectInfo[]>([]);
   const [sessionBinding, setSessionBinding] = createSignal<SessionBindingInfo | null>(null);
+  const [permissionMode, setPermissionMode] = createSignal<PermissionMode>('balanced');
+  const [permissionModeSaving, setPermissionModeSaving] = createSignal(false);
   const [showAddFolder, setShowAddFolder] = createSignal(false);
   const [showStartingFolder, setShowStartingFolder] = createSignal(false);
   const {
@@ -309,6 +311,8 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     setPinnedToBottom(true); // fresh session — follow from the bottom
     setContextInfo(null);
     setSessionBinding(null);
+    setPermissionMode('balanced');
+    setPermissionModeSaving(false);
     setShowAddFolder(false);
     setShowStartingFolder(false);
     setUiRequest(null);
@@ -347,10 +351,11 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       const loaded = await chatHistory.load(sessionId);
       if (!loaded) return;
       const { snapshot: data, events } = loaded;
-      setMessages(mapHistoryToMessages(data.messages || []));
+      setMessages(mapSessionSnapshotMessages(data));
       setSessionName(data.name);
       setContextInfo(data.context || null);
       setSessionBinding(data.binding || null);
+      setPermissionMode(data.binding?.permissionMode ?? 'balanced');
       if (data.binding?.directoryId) setSelectedDirectoryId(data.binding.directoryId);
       // Replace extension statuses with the snapshot's. Their live SSE
       // broadcasts are one-shot: any fired while this session wasn't active
@@ -615,11 +620,15 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
           standalonePath: activeProject()?.directories.length ? undefined : standalonePath().trim() || undefined,
           modelId: selectedModel() || undefined,
           thinkingLevel: selectedThinkingLevel(),
+          permissionMode: permissionMode(),
           images: prepared.images,
           useWorktree: isNewSession && useWorktree(),
           baseBranches: isNewSession && useWorktree() ? selectedBaseBranches() : undefined,
+          clientMessageId: optimisticId,
+          displayText: submittedText,
       });
       if (data.steered) setMessages(m => m.id === optimisticId, 'steered', true);
+      setPermissionMode(data.permissionMode);
       if (data.sessionId && data.sessionId !== props.activeSessionId) {
         // The session-switch effect replays the buffer and clears the flag.
         // Fall back to the locally selected project if the server couldn't
@@ -661,6 +670,25 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     const remaining = reviewComments().filter((comment) => comment.id !== commentId);
     setReviewComments(remaining);
     removeReviewComments(sessionId, [commentId]);
+  };
+
+  const handlePermissionModeChange = async (mode: PermissionMode) => {
+    const previous = permissionMode();
+    setPermissionMode(mode);
+    const sessionId = props.activeSessionId;
+    if (!sessionId) return;
+    setPermissionModeSaving(true);
+    try {
+      const result = await setSessionPermissionMode(sessionId, mode);
+      setPermissionMode(result.permissionMode);
+      setSessionBinding((binding) => binding ? { ...binding, permissionMode: result.permissionMode } : binding);
+    } catch (error) {
+      setPermissionMode(previous);
+      console.error('Failed to change permission mode:', error);
+      alert(error instanceof Error ? error.message : 'Failed to change permission mode');
+    } finally {
+      setPermissionModeSaving(false);
+    }
   };
 
   const handleStop = async () => {
@@ -789,6 +817,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       <MessageTimeline
         messages={messages}
         processing={isProcessing()}
+        sessionId={props.activeSessionId}
         onScroll={handleScroll}
         onImageClick={setLightboxUrl}
         turnChipFor={turnChipFor}
@@ -812,11 +841,12 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
           <Show when={props.activeSessionId}><SessionBar project={activeProject()} binding={sessionBinding()} diff={diffs().session} canAddFolder={!isProcessing() && !uiRequest() && !questionsRequest()}
             onRestore={() => void handleWorktreeRestore()} onRemove={() => void handleWorktreeRemove()} onAddFolder={() => setShowAddFolder(true)} onOpenChanges={() => openChangesPanel()}/></Show>
           <Composer
-            isConnected={isConnected()} isProcessing={isProcessing()} disabled={!!uiRequest() || !!questionsRequest() || !!sessionBinding()?.worktreeMissing}
+            isConnected={isConnected()} isProcessing={isProcessing()} disabled={permissionModeSaving() || !!uiRequest() || !!questionsRequest() || !!sessionBinding()?.worktreeMissing}
             commands={commandsList()} projectId={props.activeProjectId} directoryId={activeDirectory()?.id} sessionId={props.activeSessionId}
             draftKey={chatDraftKey()} draftText={getChatDraft(chatDraftKey())} onDraftChange={(text) => setChatDraft(chatDraftKey(), text)}
             models={models()} selectedModel={selectedModel()} onSelectModel={selectModel} thinkingLevels={thinkingLevelOptions()}
             selectedThinkingLevel={selectedThinkingLevel()} onSelectThinkingLevel={selectThinkingLevel} contextInfo={contextInfo()}
+            permissionMode={permissionMode()} onSelectPermissionMode={(mode) => void handlePermissionModeChange(mode)}
             reviewComments={reviewComments()} onRemoveReviewComment={deleteReviewComment}
             onSubmit={async (text, attachments, comments) => {
               const sent = await handleSubmit(text, attachments, comments);

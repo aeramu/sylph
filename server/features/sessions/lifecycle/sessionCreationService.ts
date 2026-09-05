@@ -90,6 +90,7 @@ export async function createSession(
       baseBranch: active?.baseBranch,
       worktree: createdWorktrees.length > 0,
       managedWorktreeRoot: active?.worktreeRoot,
+      ...(options.permissionMode ? { permissionMode: options.permissionMode } : {}),
     };
     appendWorkspaceMetadata(sessionManager, binding);
     saveSessionBinding(binding);

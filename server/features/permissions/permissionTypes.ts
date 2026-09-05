@@ -1,5 +1,12 @@
 export type PermissionDecision = "allow" | "ask" | "deny";
+export type PermissionMode = "relaxed" | "balanced" | "strict";
 export type AccessOperation = "read" | "write" | "execute" | "delete" | "network";
+
+export const DEFAULT_PERMISSION_MODE: PermissionMode = "balanced";
+
+export function isPermissionMode(value: unknown): value is PermissionMode {
+  return value === "relaxed" || value === "balanced" || value === "strict";
+}
 
 export interface PermissionRoot {
   id: string;
@@ -11,6 +18,7 @@ export interface PermissionRoot {
 
 export interface PermissionPolicy {
   roots: PermissionRoot[];
+  mode?: PermissionMode;
   externalAccess?: Exclude<PermissionDecision, "allow">;
   shellEnvironment?: Record<string, string>;
   allowedReadFiles?: Iterable<string>;

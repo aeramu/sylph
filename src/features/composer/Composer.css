@@ -51,7 +51,8 @@
 }
 
 .model-selector,
-.thinking-selector {
+.thinking-selector,
+.permission-selector {
   display: flex;
   align-items: center;
   gap: 0.4rem;
@@ -208,7 +209,8 @@
 }
 
 .model-selector:hover,
-.thinking-selector:hover {
+.thinking-selector:hover,
+.permission-selector:hover {
   background: rgba(255, 255, 255, 0.05);
   color: var(--text-primary);
 }
@@ -219,13 +221,38 @@
 }
 
 .model-selector:focus,
-.thinking-selector:focus {
+.thinking-selector:focus,
+.permission-selector:focus {
   outline: none;
 }
 
 .model-selector option {
   background: var(--bg-panel);
   color: var(--text-primary);
+}
+
+.permission-selector {
+  gap: 0.35rem;
+}
+
+.permission-selector::before {
+  content: '';
+  width: 0.48rem;
+  height: 0.48rem;
+  flex: none;
+  border-radius: 50%;
+  background: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.12);
+}
+
+.permission-selector.permission-relaxed::before {
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.12);
+}
+
+.permission-selector.permission-strict::before {
+  background: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.12);
 }
 
 .attachment-previews,
@@ -679,10 +706,19 @@
   }
 
   .model-selector .custom-select-label,
+  .permission-selector .custom-select-label,
   .thinking-slider-trigger-value {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .permission-selector {
+    padding-inline: 0.4rem;
+  }
+
+  .permission-selector .custom-select-label {
+    max-width: 4.8rem;
   }
 
   .thinking-slider-popover {

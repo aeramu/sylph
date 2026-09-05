@@ -1,5 +1,5 @@
 import { api } from '../../lib/api';
-import type { ContextInfo, ProjectInfo } from '../../types';
+import type { BackgroundJobInfo, ContextInfo, PermissionMode, ProjectInfo } from '../../types';
 
 export interface GitBranchOption { name: string; current: boolean; remote: boolean }
 export interface DirectorySuggestion { name: string; path: string }
@@ -21,6 +21,7 @@ export interface SessionBindingInfo {
   baseBranch?: string;
   worktree?: boolean;
   worktreeMissing?: boolean;
+  permissionMode?: PermissionMode;
 }
 
 export interface SessionSnapshot {
@@ -33,6 +34,9 @@ export interface SessionSnapshot {
   isStreaming?: boolean;
   pendingUiRequests?: any[];
   pendingArtifactRequest?: { id: string; path: string };
+  streamingMessage?: unknown;
+  pendingUserMessages?: unknown[];
+  activeToolCallIds?: string[];
 }
 
 export interface SendChatInput {
@@ -44,9 +48,20 @@ export interface SendChatInput {
   standalonePath?: string;
   modelId?: string;
   thinkingLevel: string;
+  permissionMode?: PermissionMode;
   images?: unknown[];
   useWorktree: boolean;
   baseBranches?: Record<string, string>;
+  clientMessageId: string;
+  displayText: string;
+}
+
+export interface BackgroundJobLogResult {
+  job: BackgroundJobInfo;
+  text: string;
+  bytesRead: number;
+  totalBytes: number;
+  truncated: boolean;
 }
 
 export interface SendChatResult {
@@ -58,6 +73,7 @@ export interface SendChatResult {
   directoryId?: string;
   branch?: string;
   worktree?: boolean;
+  permissionMode: PermissionMode;
 }
 
 export async function listProjects(): Promise<ProjectInfo[]> {
@@ -92,6 +108,11 @@ export function getSession(sessionId: string): Promise<SessionSnapshot> {
   return api(`/api/sessions/${encodeURIComponent(sessionId)}`);
 }
 
+export function getBackgroundJobLogs(sessionId: string, jobId: string, maxBytes = 20 * 1024): Promise<BackgroundJobLogResult> {
+  const query = new URLSearchParams({ maxBytes: String(maxBytes) });
+  return api(`/api/sessions/${encodeURIComponent(sessionId)}/background-jobs/${encodeURIComponent(jobId)}/logs?${query}`, { cache: 'no-store' });
+}
+
 export function respondToUi(sessionId: string, response: unknown): Promise<void> {
   return api(`/api/sessions/${encodeURIComponent(sessionId)}/ui-response`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(response),
@@ -110,6 +131,12 @@ export function sendChat(input: SendChatInput): Promise<SendChatResult> {
 
 export function abortSession(sessionId: string): Promise<void> {
   return api(`/api/sessions/${encodeURIComponent(sessionId)}/abort`, { method: 'POST' });
+}
+
+export function setSessionPermissionMode(sessionId: string, permissionMode: PermissionMode): Promise<{ permissionMode: PermissionMode }> {
+  return api(`/api/sessions/${encodeURIComponent(sessionId)}/permission-mode`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ permissionMode }),
+  });
 }
 
 export function recreateWorktree(sessionId: string): Promise<void> {

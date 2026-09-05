@@ -10,6 +10,7 @@ import { clearSessionArtifactRequest } from "../../artifacts/artifactPresentatio
 import { hasManagedWorktrees } from "../workspace/sessionWorkspace.ts";
 import { disposeRuntime, getSettledRuntime } from "../../../integrations/pi/runtime/runtimeManager.ts";
 import { badRequest, conflict, notFound } from "../../../platform/http/errors.ts";
+import { isPermissionMode } from "../../permissions/permissionTypes.ts";
 import { removeSessionWorktrees } from "../worktrees/worktreeService.ts";
 import {
   hasRunningBackgroundJobs, removeBackgroundJobsForSession,
@@ -69,6 +70,28 @@ export async function renameSession(
   if (runtime?.session?.setSessionName) runtime.session.setSessionName(name);
   else manager!.appendSessionInfo(name);
   return { success: true as const, name };
+}
+
+/** Change this chat's permission strictness and rebuild its idle runtime. */
+export async function setSessionPermissionMode(
+  sessionId: string,
+  requestedMode: unknown,
+  dependencies: SessionMutationDependencies = {},
+) {
+  if (!isPermissionMode(requestedMode)) badRequest("permissionMode must be relaxed, balanced, or strict");
+  await (dependencies.recover ?? recoverSessionBindingsFromPi)();
+  const { binding, manager } = await resolveSessionBinding(sessionId);
+  const runtime = await (dependencies.getRuntime ?? getSettledRuntime)(sessionId);
+  if (runtime?.session?.isStreaming) conflict("Stop the session before changing permission mode");
+  if (binding.permissionMode === requestedMode) return { success: true as const, permissionMode: requestedMode };
+
+  const updated: SessionBinding = { ...binding, permissionMode: requestedMode };
+  if (manager) appendWorkspaceMetadata(manager, updated);
+  saveSessionBinding(updated);
+  // The next session access rebuilds the runtime with the new policy. Avoid
+  // eagerly initializing a model runtime merely for a settings change.
+  (dependencies.dispose ?? disposeRuntime)(sessionId, "permission mode changed");
+  return { success: true as const, permissionMode: requestedMode };
 }
 
 /** Reassign the organizational project for a session without changing its workspace roots. */

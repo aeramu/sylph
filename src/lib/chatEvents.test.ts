@@ -45,7 +45,7 @@ describe('applyAgentEvent', () => {
     expect(messages[0]).toMatchObject({ isStreaming: false, errorMessage: 'rate limited' });
   });
 
-  it('renders live background-job completion messages without closing an assistant stream', () => {
+  it('renders orphaned live completions as cards without closing an assistant stream', () => {
     const { messages } = run([
       assistantStart('m1'),
       textDelta('working'),
@@ -61,7 +61,53 @@ describe('applyAgentEvent', () => {
 
     expect(messages).toHaveLength(2);
     expect(messages[0]).toMatchObject({ role: 'assistant', content: 'working', isStreaming: true });
-    expect(messages[1]).toMatchObject({ role: 'notification', content: 'Build completed (exit 0)' });
+    expect(messages[1]).toMatchObject({
+      role: 'background-job', backgroundJobs: [{ id: 'bg-1', name: 'Build', status: 'completed', exitCode: 0 }],
+    });
+  });
+
+  it('hydrates and then updates the original live bg_run card without adding a completion row', () => {
+    const { messages } = run([
+      assistantStart('m1'),
+      { type: 'tool_execution_start', toolCallId: 'call-1', toolName: 'bg_run', args: { name: 'Build', command: 'npm run build' } },
+      {
+        type: 'tool_execution_end', toolCallId: 'call-1', toolName: 'bg_run', isError: false,
+        result: { details: { job: { id: 'bg-1', name: 'Build', status: 'running', command: 'npm run build' } } },
+      },
+      {
+        type: 'message_start',
+        message: {
+          role: 'custom', customType: 'sylph.background-jobs', display: true,
+          details: { jobs: [{ id: 'bg-1', name: 'Build', status: 'failed', exitCode: 2, error: 'Build failed' }] },
+        },
+      },
+    ]);
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0].tools?.[0]).toMatchObject({
+      name: 'bg_run', status: 'success',
+      backgroundJob: { id: 'bg-1', name: 'Build', status: 'failed', exitCode: 2, error: 'Build failed' },
+    });
+  });
+
+  it('applies fresher status-tool details to the owning bg_run card', () => {
+    const { messages } = run([
+      assistantStart('m1'),
+      { type: 'tool_execution_start', toolCallId: 'run-1', toolName: 'bg_run', args: { name: 'Server', command: 'npm start' } },
+      {
+        type: 'tool_execution_end', toolCallId: 'run-1', toolName: 'bg_run', isError: false,
+        result: { details: { job: { id: 'bg-1', name: 'Server', status: 'running' } } },
+      },
+      { type: 'tool_execution_start', toolCallId: 'status-1', toolName: 'bg_status', args: { jobId: 'bg-1' } },
+      {
+        type: 'tool_execution_end', toolCallId: 'status-1', toolName: 'bg_status', isError: false,
+        result: { details: { jobs: [{ id: 'bg-1', name: 'Server', status: 'completed', exitCode: 0 }] } },
+      },
+    ]);
+
+    expect(messages[0].tools?.find((tool) => tool.name === 'bg_run')?.backgroundJob).toMatchObject({
+      id: 'bg-1', status: 'completed', exitCode: 0,
+    });
   });
 
   it('appends text deltas to the live assistant message', () => {
@@ -83,16 +129,24 @@ describe('applyAgentEvent', () => {
     });
   });
 
-  it('routes deltas to the streaming message even when a later bubble was appended', () => {
-    // A steering user message can land behind the still-streaming assistant.
+  it('renders another tab’s user event while keeping assistant deltas on the live response', () => {
     const { messages } = run([
       assistantStart('m1'),
       textDelta('a'),
-      { type: 'message_start', message: { id: 'u1', role: 'user' } },
+      { type: 'message_start', message: { clientMessageId: 'u1', role: 'user', content: 'steer', steered: true } },
       textDelta('b'),
+      { type: 'message_end', message: { clientMessageId: 'u1', role: 'user' } },
     ]);
-    const streamed = messages.find((m) => m.id === 'm1');
-    expect(streamed?.content).toBe('ab');
+    expect(messages.find((message) => message.id === 'm1')?.content).toBe('ab');
+    expect(messages.find((message) => message.id === 'u1')).toMatchObject({ content: 'steer', steered: true });
+  });
+
+  it('deduplicates a durable user event against an optimistic bubble', () => {
+    const { messages } = run([
+      { type: 'message_start', message: { clientMessageId: 'u1', role: 'user', content: 'same', steered: true } },
+      { type: 'message_start', message: { clientMessageId: 'u1', role: 'user', content: 'same', steered: true } },
+    ]);
+    expect(messages).toEqual([expect.objectContaining({ id: 'u1', content: 'same', steered: true })]);
   });
 
   it('accumulates thinking deltas and clears the flag on message_end', () => {
@@ -107,11 +161,12 @@ describe('applyAgentEvent', () => {
     expect(messages[0].isStreaming).toBe(false);
   });
 
-  it('tracks a tool call through start, output, and end', () => {
+  it('tracks a tool call using Pi’s snapshot-style partialResult updates', () => {
     const { messages } = run([
       assistantStart('m1'),
       { type: 'tool_execution_start', toolCallId: 'c1', toolName: 'bash', args: { command: 'ls' } },
-      { type: 'tool_execution_update', toolCallId: 'c1', delta: 'file.txt' },
+      { type: 'tool_execution_update', toolCallId: 'c1', partialResult: { content: [{ type: 'text', text: 'file' }] } },
+      { type: 'tool_execution_update', toolCallId: 'c1', partialResult: { content: [{ type: 'text', text: 'file.txt' }] } },
       { type: 'tool_execution_end', toolCallId: 'c1', isError: false },
     ]);
     const t = messages[0].tools![0];

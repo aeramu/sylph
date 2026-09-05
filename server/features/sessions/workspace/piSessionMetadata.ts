@@ -1,5 +1,6 @@
 import fs from "fs";
 import { piSessionHistory } from "../../../integrations/pi/sessionHistoryAdapter.ts";
+import { isPermissionMode, type PermissionMode } from "../../permissions/permissionTypes.ts";
 import type { SessionHistoryHandle } from "../lifecycle/sessionHistoryPort.ts";
 import type { SessionBinding, SessionDirectoryBinding } from "./workspaceTypes.ts";
 import { getSessionBinding, getSessionBindings, saveSessionBinding } from "./workspaceBindingRepository.ts";
@@ -18,6 +19,7 @@ export interface SylphWorkspaceMetadata {
   baseBranch?: string;
   worktree?: boolean;
   managedWorktreeRoot?: string;
+  permissionMode?: PermissionMode;
 }
 
 function validDirectory(value: unknown): value is SessionDirectoryBinding {
@@ -44,7 +46,8 @@ function parseMetadata(value: unknown): SylphWorkspaceMetadata | undefined {
     || (metadata.branch !== undefined && typeof metadata.branch !== "string")
     || (metadata.baseBranch !== undefined && typeof metadata.baseBranch !== "string")
     || (metadata.worktree !== undefined && typeof metadata.worktree !== "boolean")
-    || (metadata.managedWorktreeRoot !== undefined && typeof metadata.managedWorktreeRoot !== "string")) return undefined;
+    || (metadata.managedWorktreeRoot !== undefined && typeof metadata.managedWorktreeRoot !== "string")
+    || (metadata.permissionMode !== undefined && !isPermissionMode(metadata.permissionMode))) return undefined;
   return metadata as unknown as SylphWorkspaceMetadata;
 }
 
@@ -60,6 +63,7 @@ export function workspaceMetadataFromBinding(binding: SessionBinding): SylphWork
     ...(binding.baseBranch ? { baseBranch: binding.baseBranch } : {}),
     ...(binding.worktree !== undefined ? { worktree: binding.worktree } : {}),
     ...(binding.managedWorktreeRoot ? { managedWorktreeRoot: binding.managedWorktreeRoot } : {}),
+    ...(binding.permissionMode ? { permissionMode: binding.permissionMode } : {}),
   };
 }
 
@@ -99,6 +103,7 @@ export function reconcileSessionBinding(sessionManager: SessionHistoryHandle, se
     ...(metadata.baseBranch ? { baseBranch: metadata.baseBranch } : {}),
     ...(metadata.worktree !== undefined ? { worktree: metadata.worktree } : {}),
     ...(metadata.managedWorktreeRoot ? { managedWorktreeRoot: metadata.managedWorktreeRoot } : {}),
+    ...(metadata.permissionMode ? { permissionMode: metadata.permissionMode } : {}),
     ...(existing?.permissionApprovals?.length ? { permissionApprovals: existing.permissionApprovals } : {}),
   };
   if (JSON.stringify(existing) !== JSON.stringify(binding)) saveSessionBinding(binding);

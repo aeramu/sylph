@@ -1,12 +1,17 @@
 import path from "path";
 import { SESSION_BINDINGS_FILE } from "../../../config.ts";
 import { JsonFileStore } from "../../../platform/filesystem/jsonFileStore.ts";
+import { isPermissionMode } from "../../permissions/permissionTypes.ts";
 import type { SessionBinding } from "./workspaceTypes.ts";
 
 function normalizeBindings(value: unknown): SessionBinding[] {
-  return Array.isArray(value)
-    ? value.filter((entry): entry is SessionBinding => !!entry && typeof entry === "object" && typeof entry.sessionId === "string" && typeof entry.cwd === "string")
-    : [];
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((entry): entry is SessionBinding => !!entry && typeof entry === "object" && typeof entry.sessionId === "string" && typeof entry.cwd === "string")
+    .map((entry) => {
+      const { permissionMode, ...binding } = entry;
+      return isPermissionMode(permissionMode) ? { ...binding, permissionMode } : binding;
+    });
 }
 
 const bindingStore = new JsonFileStore<SessionBinding[]>({

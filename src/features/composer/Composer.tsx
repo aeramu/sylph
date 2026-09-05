@@ -1,5 +1,5 @@
 import { createSignal, createEffect, createMemo, Show, on, onCleanup, onMount } from 'solid-js';
-import type { Attachment, CommandInfo, ContextInfo, FileMentionInfo, ModelOption, ReviewCommentAttachment, ThinkingLevel, ThinkingLevelOption } from '../../types';
+import type { Attachment, CommandInfo, ContextInfo, FileMentionInfo, ModelOption, PermissionMode, ReviewCommentAttachment, ThinkingLevel, ThinkingLevelOption } from '../../types';
 import { ACCEPT_ATTR } from '../../lib/attachments';
 import CustomSelect, { type CustomSelectApi } from '../../shared/ui/CustomSelect';
 import ContextIndicator from './ContextIndicator';
@@ -42,6 +42,8 @@ export default function Composer(props: {
   thinkingLevels: ThinkingLevelOption[];
   selectedThinkingLevel: ThinkingLevel;
   onSelectThinkingLevel: (level: ThinkingLevel) => void;
+  permissionMode: PermissionMode;
+  onSelectPermissionMode: (mode: PermissionMode) => void;
   contextInfo?: ContextInfo | null;
   reviewComments: ReviewCommentAttachment[];
   onRemoveReviewComment: (id: string) => void;
@@ -525,6 +527,24 @@ export default function Composer(props: {
             onCommit={commitThinkingSlider}
             onClose={() => setIsThinkingSliderOpen(false)}
             onReturnFocus={() => requestAnimationFrame(() => textareaRef?.focus())}
+          />
+          <CustomSelect
+            triggerClass={`permission-selector permission-${props.permissionMode}`}
+            value={props.permissionMode}
+            onChange={(value) => {
+              props.onSelectPermissionMode(value as PermissionMode);
+              requestAnimationFrame(() => textareaRef?.focus());
+            }}
+            options={[
+              { value: 'relaxed', label: 'Relaxed', description: 'Fewer prompts; external changes still ask', searchText: 'fewer confirmations permissive' },
+              { value: 'balanced', label: 'Balanced', description: 'Workspace work flows; risky actions ask', searchText: 'recommended default' },
+              { value: 'strict', label: 'Strict', description: 'Confirm commands, changes, and side effects', searchText: 'confirm commands writes side effects' },
+            ]}
+            position="top"
+            typeahead
+            ariaLabel="Permission mode"
+            title={`Permission mode: ${props.permissionMode}`}
+            disabled={props.isProcessing || props.disabled}
           />
         </div>
 

@@ -49,6 +49,22 @@ describe("Pi permission extension", () => {
     expect(audits).toEqual(["approved_for_session", "approved_for_session"]);
   });
 
+  it("keeps legacy Balanced approvals working", async () => {
+    const { root, policy } = workspace();
+    const event = tool("bash", { command: "wget https://example.com" });
+    const result = await register(policy, { initialApprovals: ["bash:wget https://example.com"] })(event, { cwd: root, hasUI: false, ui: {} });
+    expect(result).toBeUndefined();
+  });
+
+  it("never lets a persisted approval override a hard denial", async () => {
+    const { root, policy } = workspace();
+    const denied = tool("bash", { command: "rm -rf /" });
+    const approvalKey = `balanced:bash:rm -rf /`;
+    const result = await register(policy, { initialApprovals: [approvalKey] })(denied, { cwd: root, hasUI: false, ui: {} });
+    expect(result).toMatchObject({ block: true });
+    expect(result.reason).toMatch(/recursive deletion/);
+  });
+
   it("fails closed when confirmation needs UI but none is available", async () => {
     const { root, policy } = workspace();
     const handler = register(policy);

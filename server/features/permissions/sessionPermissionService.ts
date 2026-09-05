@@ -4,6 +4,7 @@ import type { Project } from "../projects/projectTypes.ts";
 import type { SessionEnvironment } from "../sessions/scratch/sessionEnvironment.ts";
 import { getSessionBinding, saveSessionBinding } from "../sessions/workspace/workspaceBindingRepository.ts";
 import type { PermissionDecision, PermissionPolicy } from "./permissionPolicy.ts";
+import { DEFAULT_PERMISSION_MODE, isPermissionMode } from "./permissionTypes.ts";
 
 export interface PermissionAuditEvent {
   at: string;
@@ -36,6 +37,7 @@ export interface SessionPermissionInput {
 export function createSessionPermissionConfiguration(input: SessionPermissionInput): SessionPermissionConfiguration {
   const allowedSkillFiles = new Set<string>();
   const allowedSkillRoots = new Set<string>();
+  const binding = getSessionBinding(input.sessionId);
   const roots = [
     ...(!input.scratchIsCwd
       ? (input.project?.directories ?? [{ id: "cwd", name: "workspace", path: input.cwd }]).map((directory) => ({
@@ -50,12 +52,13 @@ export function createSessionPermissionConfiguration(input: SessionPermissionInp
   return {
     policy: {
       roots,
+      mode: isPermissionMode(binding?.permissionMode) ? binding.permissionMode : DEFAULT_PERMISSION_MODE,
       externalAccess: "ask",
       shellEnvironment: input.environment.variables,
       allowedReadFiles: allowedSkillFiles,
       allowedReadRoots: allowedSkillRoots,
     },
-    initialApprovals: getSessionBinding(input.sessionId)?.permissionApprovals ?? [],
+    initialApprovals: binding?.permissionApprovals ?? [],
     onApproval: (approvalKey) => {
       const binding = getSessionBinding(input.sessionId);
       if (!binding) return;

@@ -29,10 +29,18 @@ export function createPermissionExtension(policy: PermissionPolicy, options: Per
       // Routine allows are intentionally not logged because tool inputs can
       // contain secrets. The audit trail records reviewed or blocked access.
       if (evaluation.decision === "allow") return undefined;
-      if (sessionApprovals.has(evaluation.approvalKey)) { audit("approved_for_session"); return undefined; }
+      // Hard denials always win. Persisted approvals are mode-scoped, but they
+      // must also remain unable to override rules tightened in a later release.
       if (evaluation.decision === "deny") {
         audit("deny");
         return { block: true, reason: `[Sylph permission] ${evaluation.reason}` };
+      }
+      const legacyApprovalKey = (policy.mode ?? "balanced") === "balanced"
+        ? evaluation.approvalKey.replace(/^balanced:/, "")
+        : undefined;
+      if (sessionApprovals.has(evaluation.approvalKey) || (legacyApprovalKey && sessionApprovals.has(legacyApprovalKey))) {
+        audit("approved_for_session");
+        return undefined;
       }
       if (!ctx.hasUI) {
         audit("deny");

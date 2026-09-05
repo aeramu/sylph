@@ -1,3 +1,5 @@
+import type { PermissionMode } from "../../permissions/permissionTypes.ts";
+
 export interface SessionDirectoryBinding {
   directoryId: string;
   name: string;
@@ -26,6 +28,8 @@ export interface SessionBinding {
   baseBranch?: string;
   worktree?: boolean;
   managedWorktreeRoot?: string;
+  /** Permission policy selected for this chat. Missing bindings use Balanced. */
+  permissionMode?: PermissionMode;
   /** Permission fingerprints approved for the lifetime of this session. */
   permissionApprovals?: string[];
 }

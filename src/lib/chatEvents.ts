@@ -2,7 +2,9 @@ import type { SetStoreFunction } from 'solid-js/store';
 import type { ChatMessage } from '../types';
 import { normalizeAssistantThinking } from './messageThinking';
 import { createId } from './id';
-import { mapCustomMessage } from './messages';
+import {
+  backgroundJobsFromCustomMessage, backgroundJobsFromToolDetails, mapAgentUserMessage, mapCustomMessage,
+} from './messages';
 
 export interface AgentEventCallbacks {
   setProcessing: (v: boolean) => void;
@@ -39,24 +41,50 @@ export function applyAgentEvent(
   callbacks: AgentEventCallbacks,
 ) {
   if (event.type === 'message_start') {
-    const msgId = event.message?.id || event.message?.responseId || createId();
+    const msgId = event.message?.clientMessageId || event.message?.id || event.message?.responseId || createId();
 
-    if (event.message.role === 'custom') {
-      const custom = mapCustomMessage(event.message);
-      if (custom) setMessages(messages.length, custom);
+    if (event.message.role === 'user') {
+      const incoming = mapAgentUserMessage({ ...event.message, id: msgId });
+      const existing = messages.findIndex((message) => message.id === msgId);
+      if (existing >= 0) {
+        // The submitting tab already has an optimistic bubble. Reconcile its
+        // durable metadata; other tabs append the same event as a new row.
+        setMessages(existing, (message) => ({ ...message, ...incoming }));
+      } else {
+        setMessages(messages.length, incoming);
+      }
+    } else if (event.message.role === 'custom') {
+      const jobs = backgroundJobsFromCustomMessage(event.message);
+      const unlinked = jobs.filter((job) => {
+        const ownsJob = (message: ChatMessage) => message.tools?.some((tool) => tool.name === 'bg_run' && tool.backgroundJob?.id === job.id) === true;
+        if (!messages.some(ownsJob)) return true;
+        setMessages(
+          ownsJob,
+          'tools',
+          tool => tool.name === 'bg_run' && tool.backgroundJob?.id === job.id,
+          'backgroundJob',
+          job,
+        );
+        return false;
+      });
+      const custom = mapCustomMessage(event.message, jobs.length > 0 ? unlinked : undefined);
+      if (custom && !messages.some((message) => message.id === custom.id)) setMessages(messages.length, custom);
     } else if (event.message.role === 'assistant') {
       // An assistant message can arrive already terminated with an error
       // (e.g. provider rate limit, usage limit reached). Capture the error
       // text instead of leaving an empty streaming bubble forever.
       const isError = event.message.stopReason === 'error' && event.message.errorMessage;
-      setMessages(messages.length, {
-        id: msgId,
-        role: 'assistant',
-        content: '',
-        rawContent: '',
-        isStreaming: !isError,
-        ...(isError ? { errorMessage: event.message.errorMessage } : {}),
-      });
+      const existing = messages.findIndex((message) => message.id === msgId);
+      if (existing < 0) {
+        setMessages(messages.length, {
+          id: msgId,
+          role: 'assistant',
+          content: '',
+          rawContent: '',
+          isStreaming: !isError,
+          ...(isError ? { errorMessage: event.message.errorMessage } : {}),
+        });
+      }
     } else if (event.message.role === 'toolResult') {
       const toolCallId = event.message.toolCallId;
       let initialOutput = '';
@@ -71,6 +99,7 @@ export function applyAgentEvent(
           .map((c: any) => ({ url: `data:${c.mimeType};base64,${c.data}`, mimeType: c.mimeType }));
       }
 
+      const detailJobs = backgroundJobsFromToolDetails(event.message.details);
       setMessages(
         m => m.role === 'assistant' && !!m.tools?.some(t => t.id === toolCallId),
         'tools',
@@ -79,9 +108,19 @@ export function applyAgentEvent(
           ...tool,
           resultMsgId: msgId,
           status: (event.message.isError ? 'error' : 'success') as 'error' | 'success',
-          output: initialOutput || tool.output
+          output: initialOutput || tool.output,
+          ...(tool.name === 'bg_run' && detailJobs[0] ? { backgroundJob: detailJobs[0] } : {}),
         })
       );
+      for (const job of detailJobs) {
+        setMessages(
+          message => message.tools?.some((tool) => tool.name === 'bg_run' && tool.backgroundJob?.id === job.id) === true,
+          'tools',
+          tool => tool.name === 'bg_run' && tool.backgroundJob?.id === job.id,
+          'backgroundJob',
+          job,
+        );
+      }
       if (resultImages.length) {
         setMessages(
           m => m.role === 'assistant' && !!m.tools?.some(t => t.id === toolCallId),
@@ -156,9 +195,9 @@ export function applyAgentEvent(
         });
       }
     }
-  } else if (event.type === 'message_end' && event.message?.role === 'custom') {
-    // The matching message_start already rendered this durable notification.
-    // A custom message ending must not close an unrelated assistant stream.
+  } else if (event.type === 'message_end' && (event.message?.role === 'custom' || event.message?.role === 'user')) {
+    // Their matching message_start already rendered the row. Neither message
+    // type should close an unrelated assistant stream.
     return;
   } else if (event.type === 'message_end') {
     // message_end can also carry an error if the failure happens mid-stream.
@@ -194,22 +233,33 @@ export function applyAgentEvent(
     if (idx >= 0) {
       const toolName = event.toolName || event.name || (event.toolCall && event.toolCall.name) || 'tool';
       if (event.toolCallId) activeToolNames.set(event.toolCallId, toolName);
-      setMessages(idx, 'tools', (t) => [...(t || []), {
-        id: event.toolCallId,
-        name: toolName,
-        status: 'running' as const,
-        args: event.args,
-      }]);
+      const existingTool = messages[idx].tools?.findIndex((tool) => tool.id === event.toolCallId) ?? -1;
+      if (existingTool >= 0) {
+        setMessages(idx, 'tools', existingTool, (tool) => ({ ...tool, name: toolName, status: 'running' as const, args: event.args ?? tool.args }));
+      } else {
+        setMessages(idx, 'tools', (tools) => [...(tools || []), {
+          id: event.toolCallId,
+          name: toolName,
+          status: 'running' as const,
+          args: event.args,
+        }]);
+      }
     }
   } else if (event.type === 'tool_execution_update') {
     // Match the tool by id anywhere (like toolResult message_start does):
     // the owning assistant message need not be the last one anymore.
     if (event.toolCallId) {
+      const snapshot = Array.isArray(event.partialResult?.content)
+        ? event.partialResult.content
+          .filter((part: any) => part?.type === 'text')
+          .map((part: any) => part.text || '')
+          .join('')
+        : undefined;
       setMessages(
         m => m.role === 'assistant' && !!m.tools?.some(t => t.id === event.toolCallId),
         'tools',
         t => t.id === event.toolCallId,
-        tool => ({ ...tool, output: (tool.output || '') + (event.delta || '') })
+        tool => ({ ...tool, output: snapshot ?? ((tool.output || '') + (event.delta || '')) })
       );
     }
   } else if (event.type === 'tool_execution_end') {
@@ -219,13 +269,27 @@ export function applyAgentEvent(
         || event.toolCall?.name
         || activeToolNames.get(event.toolCallId)
         || messages.flatMap((message) => message.tools ?? []).find((tool) => tool.id === event.toolCallId)?.name;
+      const detailJobs = backgroundJobsFromToolDetails(event.result?.details);
       activeToolNames.delete(event.toolCallId);
       setMessages(
         m => m.role === 'assistant' && !!m.tools?.some(t => t.id === event.toolCallId),
         'tools',
         t => t.id === event.toolCallId,
-        tool => ({ ...tool, status: (event.isError ? 'error' : 'success') as 'error' | 'success' })
+        tool => ({
+          ...tool,
+          status: (event.isError ? 'error' : 'success') as 'error' | 'success',
+          ...(toolName === 'bg_run' && detailJobs[0] ? { backgroundJob: detailJobs[0] } : {}),
+        })
       );
+      for (const job of detailJobs) {
+        setMessages(
+          message => message.tools?.some((tool) => tool.name === 'bg_run' && tool.backgroundJob?.id === job.id) === true,
+          'tools',
+          tool => tool.name === 'bg_run' && tool.backgroundJob?.id === job.id,
+          'backgroundJob',
+          job,
+        );
+      }
       if (!event.isError && (toolName === 'edit' || toolName === 'write')) {
         callbacks.onSuccessfulFileMutation?.();
       }

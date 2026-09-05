@@ -1,4 +1,4 @@
-import type { ChatMessage, ToolCall } from '../types';
+import type { BackgroundJobInfo, BackgroundJobStatus, ChatMessage, ToolCall } from '../types';
 import { normalizeAssistantThinking } from './messageThinking';
 import { createId } from './id';
 
@@ -8,29 +8,80 @@ function contentText(content: unknown): string {
   return content.filter((part: any) => part?.type === 'text').map((part: any) => part.text || '').join('');
 }
 
-/** Convert a displayable Pi custom message into Sylph's notification row. */
-export function mapCustomMessage(message: any): ChatMessage | undefined {
+const BACKGROUND_JOB_STATUSES = new Set<BackgroundJobStatus>(['running', 'completed', 'failed', 'killed']);
+
+function mapBackgroundJob(value: unknown): BackgroundJobInfo | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const job = value as Record<string, unknown>;
+  const id = typeof job.id === 'string' ? job.id : '';
+  const status = typeof job.status === 'string' && BACKGROUND_JOB_STATUSES.has(job.status as BackgroundJobStatus)
+    ? job.status as BackgroundJobStatus
+    : undefined;
+  if (!id || !status) return undefined;
+  const stringField = (key: string) => typeof job[key] === 'string' ? job[key] as string : undefined;
+  const numberField = (key: string) => typeof job[key] === 'number' && Number.isFinite(job[key]) ? job[key] as number : undefined;
+  return {
+    id,
+    name: stringField('name')?.trim() || id,
+    status,
+    sessionId: stringField('sessionId'),
+    command: stringField('command'),
+    cwd: stringField('cwd'),
+    startedAt: stringField('startedAt'),
+    endedAt: stringField('endedAt'),
+    workerPid: numberField('workerPid'),
+    childPid: numberField('childPid'),
+    exitCode: job.exitCode === null ? null : numberField('exitCode'),
+    signal: job.signal === null ? null : stringField('signal'),
+    error: stringField('error'),
+    timeoutSeconds: numberField('timeoutSeconds'),
+    outputBytes: numberField('outputBytes'),
+  };
+}
+
+function mappedBackgroundJobs(values: unknown[]): BackgroundJobInfo[] {
+  const seen = new Set<string>();
+  return values.map(mapBackgroundJob).filter((job): job is BackgroundJobInfo => {
+    if (!job || seen.has(job.id)) return false;
+    seen.add(job.id);
+    return true;
+  });
+}
+
+export function backgroundJobsFromToolDetails(details: unknown): BackgroundJobInfo[] {
+  if (!details || typeof details !== 'object') return [];
+  const record = details as Record<string, unknown>;
+  return mappedBackgroundJobs([
+    ...(Array.isArray(record.jobs) ? record.jobs : []),
+    ...(record.job ? [record.job] : []),
+  ]);
+}
+
+export function backgroundJobsFromCustomMessage(message: any): BackgroundJobInfo[] {
+  if (message?.role !== 'custom' || message.display === false || message.customType !== 'sylph.background-jobs') return [];
+  return backgroundJobsFromToolDetails(message.details);
+}
+
+/** Convert a displayable Pi custom message into a dedicated timeline row when supported. */
+export function mapCustomMessage(message: any, selectedJobs?: BackgroundJobInfo[]): ChatMessage | undefined {
   if (message?.role !== 'custom' || message.display === false) return undefined;
-  const jobs = Array.isArray(message.details?.jobs) ? message.details.jobs : [];
-  let content = contentText(message.content);
-  let notifyType = 'info';
-  if (jobs.length > 0) {
-    const lines = jobs.map((job: any) => {
-      const status = String(job.status || 'finished');
-      const exit = job.exitCode === undefined ? '' : ` (exit ${job.exitCode ?? 'unknown'})`;
-      return `${String(job.name || job.id || 'Background job')} ${status}${exit}`;
-    });
-    content = lines.length === 1 ? lines[0] : `${lines.length} background jobs finished:\n${lines.map((line: string) => `• ${line}`).join('\n')}`;
-    notifyType = jobs.some((job: any) => job.status === 'failed')
-      ? 'error'
-      : jobs.some((job: any) => job.status === 'killed') ? 'warning' : 'info';
+  if (message.customType === 'sylph.background-jobs') {
+    const jobs = selectedJobs ?? backgroundJobsFromCustomMessage(message);
+    if (jobs.length === 0) return undefined;
+    return {
+      id: message.id || message.responseId || `background-jobs:${jobs.map((job) => job.id).join(':')}`,
+      role: 'background-job',
+      content: '',
+      backgroundJobs: jobs,
+    };
   }
+  const content = contentText(message.content);
   if (!content.trim()) return undefined;
   return {
     id: message.id || message.responseId || createId(),
     role: 'notification',
     content,
-    notifyType,
+    notifyType: 'info',
   };
 }
 
@@ -42,6 +93,7 @@ export function hasRenderableContent(m: ChatMessage): boolean {
   return (
     m.role === 'user' ||
     m.role === 'notification' ||
+    (m.role === 'background-job' && (m.backgroundJobs?.length ?? 0) > 0) ||
     !!m.isStreaming ||
     !!m.isThinking ||
     !!m.content?.trim() ||
@@ -50,6 +102,98 @@ export function hasRenderableContent(m: ChatMessage): boolean {
     (m.tools?.length ?? 0) > 0 ||
     (m.images?.length ?? 0) > 0
   );
+}
+
+function messageId(message: any): string {
+  return message.clientMessageId || message.id || message.responseId || createId();
+}
+
+export function mapAgentUserMessage(message: any): ChatMessage {
+  const images = Array.isArray(message.content)
+    ? message.content
+      .filter((part: any) => part?.type === 'image' && part.data && part.mimeType)
+      .map((part: any) => ({ url: `data:${part.mimeType};base64,${part.data}`, mimeType: part.mimeType }))
+    : [];
+  return {
+    id: messageId(message),
+    role: 'user',
+    content: typeof message.displayText === 'string' ? message.displayText : contentText(message.content),
+    images: images.length ? images : undefined,
+    ...(message.steered === true ? { steered: true } : {}),
+  };
+}
+
+export function mapAgentAssistantMessage(message: any): ChatMessage {
+  let content = '';
+  let structuredThinking = '';
+  const tools: ToolCall[] = [];
+
+  if (typeof message.content === 'string') {
+    content = message.content;
+  } else if (Array.isArray(message.content)) {
+    message.content.forEach((part: any) => {
+      if (part.type === 'text') {
+        content += part.text || '';
+      } else if (part.type === 'thinking') {
+        structuredThinking += part.thinking || '';
+      } else if (part.type === 'toolCall') {
+        tools.push({ id: part.id, name: part.name, status: 'running', output: '', args: part.arguments });
+      }
+    });
+  }
+
+  const baseMessage: ChatMessage = {
+    id: messageId(message),
+    role: 'assistant',
+    content,
+    rawContent: content,
+    structuredThinking: structuredThinking || undefined,
+    tools,
+  };
+  const mapped: ChatMessage = { ...baseMessage, ...normalizeAssistantThinking(baseMessage) };
+  if (message.stopReason === 'error' && message.errorMessage) mapped.errorMessage = message.errorMessage;
+  return mapped;
+}
+
+export function mapSessionSnapshotMessages(snapshot: {
+  messages?: any[];
+  streamingMessage?: any;
+  pendingUserMessages?: any[];
+  activeToolCallIds?: string[];
+}): ChatMessage[] {
+  const rawMessages = snapshot.messages || [];
+  // Pi exposes a message between message_start and message_end outside the
+  // finalized transcript. Include user/tool-result/custom messages in the
+  // normal fold so a reconnect in that narrow window cannot lose the row.
+  const transientMessage = snapshot.streamingMessage?.role !== 'assistant'
+    ? snapshot.streamingMessage
+    : undefined;
+  const mapped = mapHistoryToMessages(transientMessage ? [...rawMessages, transientMessage] : rawMessages);
+  const activeToolCallIds = new Set(snapshot.activeToolCallIds || []);
+  if (activeToolCallIds.size > 0) {
+    for (const message of mapped) {
+      message.tools?.forEach((tool) => {
+        if (tool.id && activeToolCallIds.has(tool.id)) tool.status = 'running';
+      });
+    }
+  }
+
+  if (snapshot.streamingMessage?.role === 'assistant') {
+    const streaming = mapAgentAssistantMessage(snapshot.streamingMessage);
+    streaming.isStreaming = true;
+    const content = Array.isArray(snapshot.streamingMessage.content) ? snapshot.streamingMessage.content : [];
+    streaming.structuredThinkingActive = content.at(-1)?.type === 'thinking';
+    Object.assign(streaming, normalizeAssistantThinking(streaming));
+    const existing = mapped.findIndex((message) => message.id === streaming.id);
+    if (existing >= 0) mapped[existing] = streaming;
+    else mapped.push(streaming);
+  }
+
+  for (const pending of snapshot.pendingUserMessages || []) {
+    const message = mapAgentUserMessage(pending);
+    if (!mapped.some((existing) => existing.id === message.id)) mapped.push(message);
+  }
+  return mapped;
 }
 
 // Map the raw session history from /api/sessions/:sessionId into renderable ChatMessages:
@@ -61,72 +205,25 @@ export function mapHistoryToMessages(rawMessages: any[]): ChatMessage[] {
 
   for (const m of rawMessages) {
     if (m.role === 'user') {
-      let contentStr = '';
-      const images: { url: string; mimeType: string }[] = [];
-      if (typeof m.content === 'string') {
-        contentStr = m.content;
-      } else if (Array.isArray(m.content)) {
-        m.content.forEach((c: any) => {
-          if (c.type === 'text') {
-            contentStr += c.text || '';
-          } else if (c.type === 'image' && c.data) {
-            images.push({ url: `data:${c.mimeType};base64,${c.data}`, mimeType: c.mimeType });
-          }
-        });
-      }
-
-      mapped.push({
-        id: m.id || createId(),
-        role: 'user',
-        content: contentStr,
-        images: images.length ? images : undefined,
-      });
+      mapped.push(mapAgentUserMessage(m));
       currentAssistantMessage = null;
     } else if (m.role === 'custom') {
-      const custom = mapCustomMessage(m);
+      const jobs = backgroundJobsFromCustomMessage(m);
+      const unlinked = jobs.filter((job) => {
+        for (let index = mapped.length - 1; index >= 0; index--) {
+          const tool = mapped[index].tools?.find((candidate) => candidate.name === 'bg_run' && candidate.backgroundJob?.id === job.id);
+          if (tool) {
+            tool.backgroundJob = job;
+            return false;
+          }
+        }
+        return true;
+      });
+      const custom = mapCustomMessage(m, jobs.length > 0 ? unlinked : undefined);
       if (custom) mapped.push(custom);
       currentAssistantMessage = null;
     } else if (m.role === 'assistant') {
-      let contentStr = '';
-      let thinkingStr = '';
-      const tools: ToolCall[] = [];
-
-      if (typeof m.content === 'string') {
-        contentStr = m.content;
-      } else if (Array.isArray(m.content)) {
-        m.content.forEach((c: any) => {
-          if (c.type === 'text') {
-            contentStr += c.text;
-          } else if (c.type === 'thinking') {
-            thinkingStr += c.thinking || '';
-          } else if (c.type === 'toolCall') {
-            tools.push({
-              id: c.id,
-              name: c.name,
-              status: 'running',
-              output: '',
-              args: c.arguments,
-            });
-          }
-        });
-      }
-
-      const baseMessage: ChatMessage = {
-        id: m.id || createId(),
-        role: 'assistant',
-        content: contentStr,
-        rawContent: contentStr,
-        structuredThinking: thinkingStr || undefined,
-        tools,
-      };
-      const msg: ChatMessage = {
-        ...baseMessage,
-        ...normalizeAssistantThinking(baseMessage),
-      };
-      // Preserve error state from persisted history.
-      if (m.stopReason === 'error' && m.errorMessage) {
-        msg.errorMessage = m.errorMessage;
-      }
+      const msg = mapAgentAssistantMessage(m);
       mapped.push(msg);
       currentAssistantMessage = msg;
     } else if (m.role === 'toolResult' && currentAssistantMessage && currentAssistantMessage.tools) {
@@ -146,6 +243,17 @@ export function mapHistoryToMessages(rawMessages: any[]): ChatMessage[] {
         }
         tool.output = resultStr;
         tool.status = m.isError ? 'error' : 'success';
+        const detailJobs = backgroundJobsFromToolDetails(m.details);
+        if (tool.name === 'bg_run' && detailJobs[0]) tool.backgroundJob = detailJobs[0];
+        for (const job of detailJobs) {
+          for (let index = mapped.length - 1; index >= 0; index--) {
+            const launch = mapped[index].tools?.find((candidate) => candidate.name === 'bg_run' && candidate.backgroundJob?.id === job.id);
+            if (launch) {
+              launch.backgroundJob = job;
+              break;
+            }
+          }
+        }
       }
     }
   }

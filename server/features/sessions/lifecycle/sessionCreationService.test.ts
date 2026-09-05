@@ -48,11 +48,11 @@ describe("session creation", () => {
       listAll: vi.fn(async () => []),
     };
 
-    const result = await createSession(undefined, [], { standalonePath: cwd }, history);
+    const result = await createSession(undefined, [], { standalonePath: cwd, permissionMode: "relaxed" }, history);
 
     expect(history.create).toHaveBeenCalledWith(cwd);
     expect(result).toMatchObject({ sessionManager: manager, targetCwd: cwd, runtimeDirectoryId: "root", created: true });
-    expect(bindings.getSessionBinding("session-1")).toMatchObject({ workspaceKind: "directories", cwd, directoryId: "root" });
+    expect(bindings.getSessionBinding("session-1")).toMatchObject({ workspaceKind: "directories", cwd, directoryId: "root", permissionMode: "relaxed" });
   });
 
   it("requires a starting directory for a project with roots", async () => {

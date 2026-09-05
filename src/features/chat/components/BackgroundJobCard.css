@@ -1,0 +1,242 @@
+.background-job-card {
+  width: 100%;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  overflow: hidden;
+  animation: chat-notification-in 0.2s ease-out;
+}
+
+.background-job-card.embedded {
+  margin-top: 0.4rem;
+}
+
+.background-job-main {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 0.65rem 0.75rem;
+}
+
+.background-job-summary,
+.background-job-group-summary {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.background-job-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex: 1;
+  padding: 0;
+  text-align: left;
+}
+
+.background-job-title-wrap {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.12rem;
+}
+
+.background-job-title {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 0.86rem;
+  font-weight: 550;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.background-job-subtitle {
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  line-height: 1.25;
+}
+
+.background-job-status.completed { color: var(--success); }
+.background-job-status.failed { color: var(--danger); }
+.background-job-status.killed { color: #fbbf24; }
+.background-job-status.running { color: #93c5fd; }
+
+.background-job-status-icon {
+  display: inline-flex;
+  width: 1.15rem;
+  height: 1.15rem;
+  flex: 0 0 1.15rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+}
+
+.background-job-status-icon svg {
+  width: 0.9rem;
+  height: 0.9rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.2;
+}
+
+.background-job-status-icon.completed { color: var(--success); background: color-mix(in srgb, var(--success) 12%, transparent); }
+.background-job-status-icon.failed { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
+.background-job-status-icon.killed { color: #fbbf24; background: rgba(245, 158, 11, 0.12); }
+.background-job-status-icon.running { color: #93c5fd; background: rgba(59, 130, 246, 0.12); }
+
+.background-job-spinner {
+  width: 0.62rem;
+  height: 0.62rem;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 999px;
+  animation: background-job-spin 0.8s linear infinite;
+}
+
+@keyframes background-job-spin { to { transform: rotate(360deg); } }
+
+.background-job-chevron {
+  display: inline-flex;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.background-job-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.background-job-actions button {
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.72rem;
+  padding: 0.35rem 0.45rem;
+}
+
+.background-job-actions button:hover,
+.background-job-actions button:focus-visible {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+}
+
+.background-job-details {
+  padding: 0 0.75rem 0.75rem 2.55rem;
+}
+
+.background-job-error {
+  margin-bottom: 0.65rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  color: #fca5a5;
+  overflow-wrap: anywhere;
+}
+
+.background-job-metadata {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.35rem 0.75rem;
+  margin: 0 0 0.7rem;
+}
+
+.background-job-metadata dt {
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.background-job-metadata dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.background-job-metadata code {
+  display: block;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.background-job-output-heading {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.3rem;
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.background-job-output,
+.background-job-output-state {
+  box-sizing: border-box;
+  width: 100%;
+  max-height: 280px;
+  margin: 0;
+  padding: 0.65rem 0.75rem;
+  overflow: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.28);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.background-job-output-state.error { color: var(--danger); }
+.background-job-truncated { margin-top: 0.3rem; font-size: 0.68rem; color: var(--text-secondary); }
+
+.background-job-group-summary {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.65rem 0.75rem;
+  color: var(--text-primary);
+  text-align: left;
+}
+
+.background-job-group-items {
+  border-top: 1px solid var(--border-color);
+}
+
+.background-job-item.nested + .background-job-item.nested {
+  border-top: 1px solid rgba(255, 255, 255, 0.045);
+}
+
+@media (max-width: 640px) {
+  .background-job-main { align-items: flex-start; }
+  .background-job-actions { flex-direction: column; align-items: stretch; }
+  .background-job-actions button { padding-block: 0.2rem; }
+  .background-job-summary .background-job-chevron { display: none; }
+  .background-job-details { padding-left: 0.75rem; }
+  .background-job-metadata { grid-template-columns: 1fr; gap: 0.15rem; }
+  .background-job-metadata dd { margin-bottom: 0.4rem; }
+}

@@ -29,11 +29,17 @@ export function evaluateToolCall(policy: PermissionPolicy, event: PermissionTool
     const serialized = JSON.stringify(event.input ?? {});
     const fingerprint = createHash("sha256").update(serialized).digest("hex").slice(0, 16);
     const preview = serialized.length > 300 ? `${serialized.slice(0, 300)}…` : serialized;
+    const strictSideEffect = policy.mode === "strict" && event.toolName !== "ask_user_question"
+      && !["bg_status", "bg_logs", "list_schedules"].includes(event.toolName);
+    const unknownTool = !known;
+    const decision = strictSideEffect || (unknownTool && policy.mode === "strict") ? "ask" : "allow";
+    const reason = strictSideEffect ? "tool requires confirmation in Strict mode"
+      : known ? "tool has no filesystem access intent" : "custom tool access cannot be fully inspected";
     return {
-      decision: "allow",
-      reason: known ? "tool has no filesystem access intent" : "custom tool access cannot be fully inspected",
+      decision,
+      reason,
       summary: `Tool: ${event.toolName}${known ? "" : `\nInput: ${preview}`}`,
-      approvalKey: `tool:${event.toolName}:${fingerprint}`,
+      approvalKey: `${policy.mode ?? "balanced"}:tool:${event.toolName}:${fingerprint}`,
       intents: [],
     };
   }
@@ -43,7 +49,7 @@ export function evaluateToolCall(policy: PermissionPolicy, event: PermissionTool
     decision: intent.decision,
     reason: intent.reason || "allowed by workspace policy",
     summary: `Tool: ${event.toolName}\n${describeIntent(intent)}${intent.canonicalPath !== intent.lexicalPath ? `\nResolved: ${intent.canonicalPath}` : ""}`,
-    approvalKey: `${event.toolName}:${intent.root?.id ?? "external"}:${intent.canonicalPath}`,
+    approvalKey: `${policy.mode ?? "balanced"}:${event.toolName}:${intent.root?.id ?? "external"}:${intent.canonicalPath}`,
     intents: [intent],
   };
 }
@@ -51,5 +57,5 @@ export function evaluateToolCall(policy: PermissionPolicy, event: PermissionTool
 export { parseCommandUnits } from "./shellParser.ts";
 export type {
   AccessIntent, AccessOperation, PermissionDecision, PermissionEvaluation,
-  PermissionPolicy, PermissionRoot, PermissionToolCall,
+  PermissionMode, PermissionPolicy, PermissionRoot, PermissionToolCall,
 } from "./permissionTypes.ts";

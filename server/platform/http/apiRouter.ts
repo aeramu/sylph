@@ -2,6 +2,7 @@ import express from "express";
 import { registerArtifactRoutes } from "../../features/artifacts/artifactRoutes.ts";
 import { registerAuthRoutes } from "../../features/auth/authRoutes.ts";
 import { registerChatRoutes } from "../../features/chat/chatRoutes.ts";
+import { registerBackgroundJobRoutes } from "../../features/backgroundJobs/backgroundJobRoutes.ts";
 import { registerFilesystemRoutes } from "../../features/filesystem/filesystemRoutes.ts";
 import { registerProjectGitRoutes } from "../../features/git/projectGitRoutes.ts";
 import { registerProjectRoutes } from "../../features/projects/projectRoutes.ts";
@@ -24,6 +25,7 @@ export function createApiRouter(): express.Router {
   registerProjectRoutes(router);
   registerFilesystemRoutes(router);
   registerArtifactRoutes(router);
+  registerBackgroundJobRoutes(router);
   registerSessionRoutes(router);
   registerSessionWorkspaceRoutes(router);
   registerWorktreeRoutes(router);
