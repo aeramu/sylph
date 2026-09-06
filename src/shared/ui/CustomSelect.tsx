@@ -4,7 +4,6 @@ import './CustomSelect.css';
 export interface CustomSelectOption {
   value: string;
   label: string;
-  description?: string;
   icon?: string;
   group?: string;
   provider?: string;
@@ -30,8 +29,6 @@ interface CustomSelectProps {
   searchPlaceholder?: string;
   noOptionsText?: string;
   disabled?: boolean;
-  ariaLabel?: string;
-  title?: string;
   groupBy?: (option: CustomSelectOption) => string | undefined;
   api?: (api: CustomSelectApi) => void;
 }
@@ -277,8 +274,6 @@ export default function CustomSelect(props: CustomSelectProps) {
         onKeyDown={handleKeyNav}
         type="button"
         disabled={props.disabled}
-        aria-label={props.ariaLabel}
-        title={props.title}
       >
         {selectedOption()?.icon && renderIcon(selectedOption()?.icon)}
         <span class="custom-select-label">
@@ -324,10 +319,7 @@ export default function CustomSelect(props: CustomSelectProps) {
                           }}
                         >
                           {opt.icon && renderIcon(opt.icon)}
-                          <span class="custom-select-option-content">
-                            <span>{opt.label}</span>
-                            <Show when={opt.description}><small>{opt.description}</small></Show>
-                          </span>
+                          {opt.label}
                         </div>
                       )}
                     </For>

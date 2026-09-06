@@ -8,6 +8,7 @@ import AttachmentList from './components/AttachmentList';
 import ReviewCommentList from './components/ReviewCommentList';
 import AutocompletePopup from './components/AutocompletePopup';
 import ThinkingSelector from './components/ThinkingSelector';
+import PermissionModeSelector from './components/PermissionModeSelector';
 import { createAttachments } from './createAttachments';
 import { createSpeechInput } from './createSpeechInput';
 import { detectActiveMention, filterCommands, formatMention, highlightMentions } from './createAutocomplete';
@@ -528,22 +529,12 @@ export default function Composer(props: {
             onClose={() => setIsThinkingSliderOpen(false)}
             onReturnFocus={() => requestAnimationFrame(() => textareaRef?.focus())}
           />
-          <CustomSelect
-            triggerClass={`permission-selector permission-${props.permissionMode}`}
+          <PermissionModeSelector
             value={props.permissionMode}
-            onChange={(value) => {
-              props.onSelectPermissionMode(value as PermissionMode);
+            onChange={(mode) => {
+              props.onSelectPermissionMode(mode);
               requestAnimationFrame(() => textareaRef?.focus());
             }}
-            options={[
-              { value: 'relaxed', label: 'Relaxed', description: 'Fewer prompts; external changes still ask', searchText: 'fewer confirmations permissive' },
-              { value: 'balanced', label: 'Balanced', description: 'Workspace work flows; risky actions ask', searchText: 'recommended default' },
-              { value: 'strict', label: 'Strict', description: 'Confirm commands, changes, and side effects', searchText: 'confirm commands writes side effects' },
-            ]}
-            position="top"
-            typeahead
-            ariaLabel="Permission mode"
-            title={`Permission mode: ${props.permissionMode}`}
             disabled={props.isProcessing || props.disabled}
           />
         </div>
