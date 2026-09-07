@@ -1,4 +1,5 @@
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { canonicalizeExistingPrefix, combineDecision, describeIntent, evaluatePath, expandHome, isWithin } from "./pathPolicy.ts";
 import { commandName, parseCommandUnits, pathLooksExplicit } from "./shellParser.ts";
 import type { AccessIntent, AccessOperation, PermissionDecision, PermissionEvaluation, PermissionPolicy } from "./permissionTypes.ts";
@@ -105,6 +106,10 @@ export function evaluateBash(policy: PermissionPolicy, command: string, cwd: str
 
   for (const unit of parsed.units) {
     const name = commandName(unit.command);
+    for (const redirection of unit.redirections) {
+      const expanded = expandHome(redirection.path.replace(/^file:\/\//, ""));
+      if (!SAFE_DEVICES.has(expanded)) intents.push(evaluatePath(policy, redirection.operation, expanded, effectiveCwd));
+    }
     if (name === "cd") {
       const target = unit.args[0] || process.env.HOME;
       if (target) {
@@ -159,23 +164,24 @@ export function evaluateBash(policy: PermissionPolicy, command: string, cwd: str
         if (!scratchCleanup && !relaxedWorkspaceCleanup) ask("recursive deletion");
       }
     }
-    for (const redirection of unit.redirections) {
-      const expanded = expandHome(redirection.path.replace(/^file:\/\//, ""));
-      if (!SAFE_DEVICES.has(expanded)) intents.push(evaluatePath(policy, redirection.operation, expanded, effectiveCwd));
-    }
+    const exemptArguments = inlineScriptExemptions(name, unit.args);
+    const inPlaceEdit = name === "sed" && unit.args.some((arg, index) =>
+      !exemptArguments.has(index) && (arg === "--in-place" || arg.startsWith("--in-place=") || /^-[^-]*i/.test(arg)));
+    // In-place suffixes and clustered options vary across sed implementations.
+    // Require review even when an operand cannot be confidently identified.
+    if (inPlaceEdit) ask("in-place edit requires confirmation");
     const operation: AccessOperation = DESTRUCTIVE_COMMANDS.has(name)
       ? (name === "rm" || name === "rmdir" ? "delete" : "write")
-      : WRITE_COMMANDS.has(name) ? "write" : "read";
+      : WRITE_COMMANDS.has(name) || inPlaceEdit ? "write" : "read";
     const scriptArgumentIndex = SCRIPT_INTERPRETERS.has(name)
       ? unit.args.findIndex((arg) => !arg.startsWith("-"))
       : -1;
-    const exemptArguments = inlineScriptExemptions(name, unit.args);
     for (const [argumentIndex, arg] of unit.args.entries()) {
       if (exemptArguments.has(argumentIndex)) continue;
       // Numeric route arguments such as `/1000` are commonly passed to scripts and
       // are not filesystem paths. Keep checking the interpreter's script operand.
       if (scriptArgumentIndex >= 0 && argumentIndex > scriptArgumentIndex && /^\/\d+$/.test(arg)) continue;
-      if (!pathLooksExplicit(arg)) continue;
+      if (!pathLooksExplicit(arg) && !(inPlaceEdit && arg && !arg.startsWith("-"))) continue;
       const expanded = expandHome(arg.replace(/^file:\/\//, ""));
       if (SAFE_DEVICES.has(expanded)) continue;
       intents.push(evaluatePath(policy, operation === "read" && SCRIPT_INTERPRETERS.has(name) ? "execute" : operation, expanded, effectiveCwd));
@@ -197,7 +203,14 @@ export function evaluateBash(policy: PermissionPolicy, command: string, cwd: str
     decision,
     reason: reasons.join("; ") || "allowed by workspace policy",
     summary: [`Command: ${command}`, ...intentSummaries].join("\n"),
-    approvalKey: `${mode}:bash:${command}`,
+    approvalKey: `${mode}:bash:v2:${createHash("sha256").update(JSON.stringify({
+      command,
+      cwd: canonicalizeExistingPrefix(cwd),
+      environment: Object.entries(policy.shellEnvironment ?? {}).sort(([a], [b]) => a.localeCompare(b)),
+      intents: intents.map(({ operation, canonicalPath, root, decision }) => ({
+        operation, canonicalPath, rootId: root?.id, access: root?.access, decision,
+      })),
+    })).digest("hex")}`,
     intents,
   };
 }

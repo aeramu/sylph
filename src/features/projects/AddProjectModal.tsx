@@ -1,4 +1,5 @@
 import { createSignal, For, onMount, Show } from 'solid-js';
+import { Portal } from 'solid-js/web';
 import type { ProjectInfo } from '../../types';
 import DirectoryPicker, { folderName } from '../../shared/ui/DirectoryPicker';
 import { createDirectory, listDirectories, saveProject } from './api';
@@ -95,6 +96,7 @@ export default function AddProjectModal(props: {
   });
 
   return (
+    <Portal>
     <div class="skills-modal-overlay project-modal-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) props.onClose(); }}>
       <div class="skills-modal project-modal" role="dialog" aria-modal="true" aria-labelledby="project-modal-title">
         <div class="project-modal-header">
@@ -159,5 +161,6 @@ export default function AddProjectModal(props: {
         </div>
       </div>
     </div>
+    </Portal>
   );
 }

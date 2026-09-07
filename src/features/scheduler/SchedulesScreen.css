@@ -6,7 +6,7 @@
   color: var(--text-primary);
   background:
     radial-gradient(circle at 85% -10%, rgba(91, 106, 255, 0.12), transparent 34rem),
-    var(--bg-primary);
+    var(--bg-color);
 }
 
 .schedules-header {
@@ -19,7 +19,7 @@
   gap: 2rem;
   padding: 2.3rem clamp(1.4rem, 4vw, 4rem) 1.7rem;
   border-bottom: 1px solid var(--border-color);
-  background: color-mix(in srgb, var(--bg-primary) 87%, transparent);
+  background: color-mix(in srgb, var(--bg-color) 87%, transparent);
   backdrop-filter: blur(18px);
 }
 
@@ -64,12 +64,12 @@
   border-radius: 9px;
   outline: none;
   color: var(--text-primary);
-  background: var(--bg-secondary);
+  background: var(--control-bg);
   font: inherit;
 }
 .schedules-toolbar-fields select, .schedules-toolbar-fields input { height: 37px; padding: 0 0.68rem; font-size: 0.78rem; }
 .schedules-toolbar-fields input { width: 190px; }
-.schedules-toolbar-fields :is(input, select):focus, .schedule-editor :is(input, textarea, select):focus { border-color: rgba(125, 139, 255, 0.7); box-shadow: 0 0 0 3px rgba(105,119,255,0.1); }
+.schedules-toolbar-fields :is(input, select):focus, .schedule-editor :is(input, textarea, select):focus { border-color: var(--focus-border); box-shadow: var(--focus-ring); }
 
 .schedules-notice { display: flex; justify-content: space-between; gap: 1rem; align-items: center; margin: 0 0 1rem; padding: 0.7rem 0.9rem; border: 1px solid; border-radius: 9px; font-size: 0.8rem; }
 .schedules-notice.success { border-color: rgba(70, 190, 126, 0.3); color: #9ee2bb; background: rgba(47, 143, 92, 0.09); }
@@ -100,7 +100,7 @@
 .schedule-prompt { margin: 0.82rem 0 0.88rem; color: var(--text-secondary); font-size: 0.81rem; line-height: 1.48; white-space: pre-wrap; }
 .schedule-card-meta { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 0.6rem; padding-top: 0.78rem; border-top: 1px solid color-mix(in srgb, var(--border-color) 72%, transparent); }
 .schedule-card-meta > div { min-width: 0; display: flex; flex-direction: column; gap: 0.18rem; }
-.schedule-card-meta span { color: var(--text-tertiary); font-size: 0.64rem; font-weight: 650; letter-spacing: 0.045em; text-transform: uppercase; }
+.schedule-card-meta span { color: var(--text-secondary); font-size: 0.64rem; font-weight: 650; letter-spacing: 0.045em; text-transform: uppercase; }
 .schedule-card-meta strong, .schedule-chat-link { overflow: hidden; color: var(--text-secondary); font-size: 0.72rem; font-weight: 520; text-overflow: ellipsis; white-space: nowrap; }
 .schedule-chat-link { width: max-content; padding: 0; border: 0; color: #9ca8ff; background: transparent; cursor: pointer; }
 .schedule-chat-link:hover { text-decoration: underline; }
@@ -114,20 +114,20 @@
 .schedules-empty h2 { margin: 0; color: var(--text-primary); font-size: 1rem; }
 .schedules-empty p { max-width: 400px; margin: 0.5rem 0; font-size: 0.81rem; line-height: 1.5; }
 
-.schedule-editor-overlay { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; padding: 1rem; background: rgba(3,5,9,0.7); backdrop-filter: blur(5px); }
-.schedule-editor { width: min(620px, 100%); max-height: calc(100vh - 2rem); overflow: auto; padding: 1.25rem; border: 1px solid var(--border-color); border-radius: 14px; background: #171a21; box-shadow: 0 24px 80px rgba(0,0,0,0.5); }
+.schedule-editor-overlay { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; padding: 1rem; background: var(--dialog-overlay); backdrop-filter: blur(var(--dialog-blur)); }
+.schedule-editor { width: min(620px, 100%); max-height: calc(100vh - 2rem); overflow: auto; padding: var(--dialog-padding); border: 1px solid var(--border-color); border-radius: var(--dialog-radius); background: var(--dialog-bg); box-shadow: 0 24px 80px rgba(0,0,0,0.5); }
 .schedule-editor-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; }
-.schedule-editor-header h2 { margin: 0.15rem 0 0; font-size: 1.15rem; }
+.schedule-editor-header h2 { margin: 0.15rem 0 0; font-size: 1.25rem; }
 .schedule-editor-kicker { color: #8c99f8; font-size: 0.67rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.09em; }
 .schedule-editor > label, .schedule-editor-grid label { display: flex; flex-direction: column; gap: 0.38rem; margin-top: 0.85rem; color: var(--text-secondary); font-size: 0.73rem; font-weight: 650; }
-.schedule-editor input, .schedule-editor select { height: 39px; padding: 0 0.72rem; }
+.schedule-editor input, .schedule-editor select { height: var(--control-height); padding: 0 0.75rem; }
 .schedule-editor textarea { padding: 0.68rem 0.72rem; resize: vertical; line-height: 1.45; }
 .schedule-editor-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; }
-.schedule-field-help { color: var(--text-tertiary); font-size: 0.66rem; font-weight: 450; }
+.schedule-field-help { color: var(--text-secondary); font-size: 0.66rem; font-weight: 450; }
 .schedule-editor-error { margin-top: 0.8rem; color: #ffaaaa; font-size: 0.75rem; }
 .schedule-editor-actions { display: flex; justify-content: flex-end; gap: 0.55rem; margin-top: 1.2rem; }
-.schedule-editor-actions button { padding: 0.53rem 0.82rem; border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-secondary); background: rgba(255,255,255,0.035); cursor: pointer; }
-.schedule-editor-actions button.primary { border-color: rgba(107,121,255,0.5); color: white; background: #5968df; }
+.schedule-editor-actions button { padding: var(--action-padding); font-size: var(--action-font-size); font-weight: 600; border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-secondary); background: rgba(255,255,255,0.035); cursor: pointer; }
+.schedule-editor-actions button.primary { border-color: var(--accent); color: white; background: var(--accent); }
 .schedule-editor-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .sidebar-schedules-button { margin-bottom: 0.3rem; }
@@ -158,3 +158,7 @@
   .schedule-card-meta { grid-template-columns: 1fr; }
   .schedule-editor-grid { grid-template-columns: 1fr; }
 }
+
+.schedule-editor :is(input, textarea, select) { font-size: var(--control-font-size); font-weight: 400; }
+.schedule-editor-actions button { border-radius: var(--control-radius); }
+.schedule-editor-actions button.primary:hover:not(:disabled) { background: var(--accent-hover); }

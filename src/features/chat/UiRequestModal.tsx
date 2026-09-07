@@ -67,16 +67,16 @@ export default function UiRequestModal(props: { request: UiRequest; onRespond: (
           <button class="ui-request-btn approve" onClick={submitSelected}>Submit ↵</button>
         </Show>
         <Show when={props.request.method === 'confirm'}>
-          <button class="ui-request-btn approve" onClick={() => respond({ id: props.request.id, confirmed: true })}>Confirm</button>
           <button class="ui-request-btn" onClick={() => respond({ id: props.request.id, confirmed: false })}>Cancel</button>
+          <button class="ui-request-btn approve" onClick={() => respond({ id: props.request.id, confirmed: true })}>Confirm</button>
         </Show>
         <Show when={props.request.method === 'input'}>
-          <button class="ui-request-btn approve" onClick={() => respond({ id: props.request.id, value: textValue() })}>Submit</button>
           <button class="ui-request-btn" onClick={cancel}>Cancel</button>
+          <button class="ui-request-btn approve" onClick={() => respond({ id: props.request.id, value: textValue() })}>Submit</button>
         </Show>
         <Show when={props.request.method === 'editor'}>
-          <button class="ui-request-btn approve" onClick={() => respond({ id: props.request.id, value: textValue() })}>Submit</button>
           <button class="ui-request-btn" onClick={cancel}>Cancel</button>
+          <button class="ui-request-btn approve" onClick={() => respond({ id: props.request.id, value: textValue() })}>Submit</button>
         </Show>
       </>}
     >

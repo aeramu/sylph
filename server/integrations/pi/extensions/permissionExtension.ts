@@ -35,7 +35,9 @@ export function createPermissionExtension(policy: PermissionPolicy, options: Per
         audit("deny");
         return { block: true, reason: `[Sylph permission] ${evaluation.reason}` };
       }
-      const legacyApprovalKey = (policy.mode ?? "balanced") === "balanced"
+      // Command-only shell approvals do not bind the resolved targets or cwd.
+      const legacyApprovalKey = event.toolName !== "bash" && event.toolName !== "bg_run"
+        && (policy.mode ?? "balanced") === "balanced"
         ? evaluation.approvalKey.replace(/^balanced:/, "")
         : undefined;
       if (sessionApprovals.has(evaluation.approvalKey) || (legacyApprovalKey && sessionApprovals.has(legacyApprovalKey))) {

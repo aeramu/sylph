@@ -13,6 +13,22 @@
   --success: #22c55e;
   --system-msg: #3b82f6;
 
+  --dialog-bg: #101218;
+  --dialog-radius: 18px;
+  --dialog-padding: 1.25rem 1.5rem;
+  --dialog-footer-padding: 1rem 1.5rem;
+  --dialog-overlay: rgba(4, 6, 12, 0.72);
+  --dialog-blur: 9px;
+  --control-radius: 9px;
+  --control-height: 42px;
+  --control-bg: rgba(255, 255, 255, 0.035);
+  --control-font-size: 1rem;
+  --action-padding: 0.58rem 0.9rem;
+  --action-font-size: 0.8rem;
+  --focus-border: color-mix(in srgb, var(--accent) 65%, var(--border-color));
+  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--accent) 13%, transparent);
+  --accent-hover: color-mix(in srgb, var(--accent) 88%, white);
+
   /* App.tsx updates these from VisualViewport while a mobile keyboard is
      open. The dvh fallback handles browsers without that API. */
   --app-viewport-height: 100dvh;
@@ -219,5 +235,28 @@ body {
      sits too close to the screen edge to fit the popover. */
   .context-indicator {
     position: static;
+  }
+}
+
+/* Native controls do not inherit the page font by default. Preserve local
+   size and line-height choices while keeping the app's typeface consistent. */
+button, input, select, textarea {
+  font-family: inherit;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 640px) {
+  :root {
+    --dialog-padding: 1.25rem 1rem;
+    --dialog-footer-padding: 1rem;
   }
 }

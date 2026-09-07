@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { describeIntent, evaluatePath } from "./pathPolicy.ts";
+import { describeIntent, evaluatePath, resolveFileToolPath } from "./pathPolicy.ts";
 import { evaluateBash } from "./shellPolicy.ts";
 import type { PermissionEvaluation, PermissionPolicy, PermissionToolCall } from "./permissionTypes.ts";
 
@@ -44,7 +44,16 @@ export function evaluateToolCall(policy: PermissionPolicy, event: PermissionTool
     };
   }
 
-  const intent = evaluatePath(policy, READ_TOOLS.has(event.toolName) ? "read" : "write", rawPath, cwd);
+  let checkedPath = rawPath;
+  if (PATH_TOOLS.has(event.toolName)) {
+    try { checkedPath = resolveFileToolPath(rawPath, cwd); } catch {
+      return {
+        decision: "deny", reason: "invalid file tool path", summary: `Tool: ${event.toolName}\nPath: ${rawPath}`,
+        approvalKey: "invalid-path", intents: [],
+      };
+    }
+  }
+  const intent = evaluatePath(policy, READ_TOOLS.has(event.toolName) ? "read" : "write", checkedPath, cwd);
   return {
     decision: intent.decision,
     reason: intent.reason || "allowed by workspace policy",

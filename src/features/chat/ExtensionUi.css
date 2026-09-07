@@ -140,17 +140,18 @@
 }
 
 .ui-request-btn {
-  padding: 0.5rem 1rem;
-  border-radius: 10px;
+  padding: var(--action-padding);
+  border-radius: var(--control-radius);
   border: 1px solid var(--border-color);
   background: transparent;
   color: var(--text-primary);
-  font-size: 0.875rem;
+  font-size: var(--action-font-size);
+  font-weight: 600;
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s;
 }
 
-.ui-request-btn:hover {
+.ui-request-btn:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.05);
 }
 
@@ -160,8 +161,8 @@
   color: white;
 }
 
-.ui-request-btn.approve:hover {
-  background: #4f46e5;
+.ui-request-btn.approve:hover:not(:disabled) {
+  background: var(--accent-hover);
 }
 
 .ui-request-text,

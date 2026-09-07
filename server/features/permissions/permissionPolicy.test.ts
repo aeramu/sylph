@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { pathToFileURL } from "node:url";
 import { evaluateToolCall, parseCommandUnits, type PermissionPolicy } from "./permissionPolicy.ts";
 
 const temporaryRoots: string[] = [];
@@ -29,6 +30,64 @@ function workspace() {
 const tool = (toolName: string, input: Record<string, unknown>) => ({ toolName, input } as any);
 
 describe("Sylph permissions", () => {
+  it("normalizes file-tool paths before checking workspace containment", () => {
+    const { parent, frontend, policy } = workspace();
+    const external = path.join(parent, "outside file.txt");
+    for (const rawPath of ["~/sylph-review.txt", `@${external}`, pathToFileURL(external).href, `@${external.replace(" ", "\u202f")}`]) {
+      for (const toolName of ["read", "write", "edit", "grep", "find", "ls"]) {
+        expect(evaluateToolCall(policy, tool(toolName, { path: rawPath }), frontend).decision).toBe("ask");
+      }
+    }
+    expect(evaluateToolCall(policy, tool("read", { path: "file:///%ZZ" }), frontend).decision).toBe("deny");
+    expect(evaluateToolCall(policy, tool("write", { path: "@./local.txt" }), frontend).decision).toBe("allow");
+  });
+
+  it("resolves dangling symlink chains and denies resolution loops", () => {
+    const { parent, frontend, policy } = workspace();
+    const external = path.join(parent, "missing.txt");
+    fs.symlinkSync("../missing.txt", path.join(frontend, "link"));
+    fs.symlinkSync("link", path.join(frontend, "chain"));
+    const result = evaluateToolCall(policy, tool("write", { path: "chain" }), frontend);
+    expect(result.decision).toBe("ask");
+    expect(result.intents[0].canonicalPath).toBe(path.join(fs.realpathSync(parent), "missing.txt"));
+    fs.symlinkSync("local.txt", path.join(frontend, "local-link"));
+    expect(evaluateToolCall(policy, tool("write", { path: "local-link" }), frontend).decision).toBe("allow");
+    fs.symlinkSync("loop", path.join(frontend, "loop"));
+    expect(evaluateToolCall(policy, tool("write", { path: "loop" }), frontend).decision).toBe("deny");
+    expect(fs.existsSync(external)).toBe(false);
+  });
+
+  it("checks cd redirections against the directory before cd", () => {
+    const { parent, frontend, api, policy } = workspace();
+    for (const mode of ["balanced", "relaxed"] as const) {
+      for (const redirect of [">", ">>", "<"]) {
+        const result = evaluateToolCall({ ...policy, mode }, tool("bash", {
+          command: `cd . ${redirect} ${JSON.stringify(path.join(parent, ".env"))}`,
+        }), frontend);
+        expect(result.decision).toBe("ask");
+      }
+    }
+    const result = evaluateToolCall(policy, tool("bash", { command: `cd ${JSON.stringify(api)} > ./output.txt` }), frontend);
+    expect(result.intents.find((intent) => intent.operation === "write")?.canonicalPath)
+      .toBe(path.join(fs.realpathSync(frontend), "output.txt"));
+    policy.roots[1].access = "read-only";
+    expect(evaluateToolCall(policy, tool("bash", { command: `cd . > ${JSON.stringify(path.join(api, "output.txt"))}` }), frontend).decision).toBe("deny");
+  });
+
+  it("gates in-place sed edits in Relaxed mode and respects read-only roots", () => {
+    const { parent, frontend, api, policy } = workspace();
+    policy.mode = "relaxed";
+    for (const flags of ["-i.bak", "-i", "-i ''", "-ni.bak", "--in-place", "--in-place=.bak"]) {
+      const command = `sed ${flags} 's/a/b/' ${JSON.stringify(path.join(parent, "outside.txt"))}`;
+      const result = evaluateToolCall(policy, tool("bash", { command }), frontend);
+      expect(result.decision).toBe("ask");
+      expect(result.intents.some((intent) => intent.operation === "write")).toBe(true);
+    }
+    policy.roots[1].access = "read-only";
+    expect(evaluateToolCall(policy, tool("bash", { command: `sed -i.bak 's/a/b/' ${JSON.stringify(path.join(api, "file.txt"))}` }), frontend).decision).toBe("deny");
+    expect(evaluateToolCall(policy, tool("bash", { command: "sed -n 's/a/b/p' ./file.txt" }), frontend).decision).toBe("allow");
+  });
+
   it("allows file access in every workspace root", () => {
     const { frontend, api, policy } = workspace();
     expect(evaluateToolCall(policy, tool("write", { path: path.join(frontend, "src.ts") }), frontend).decision).toBe("allow");

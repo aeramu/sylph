@@ -3,6 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { PermissionPolicy } from "../../../features/permissions/permissionPolicy.ts";
+import { createWriteToolDefinition } from "@earendil-works/pi-coding-agent";
+import { evaluateToolCall } from "../../../features/permissions/permissionPolicy.ts";
+import { canonicalizeExistingPrefix } from "../../../features/permissions/pathPolicy.ts";
+import { pathToFileURL } from "node:url";
 import { createPermissionExtension } from "./permissionExtension.ts";
 
 const temporaryRoots: string[] = [];
@@ -28,6 +32,23 @@ function register(policy: PermissionPolicy, options = {}) {
 }
 
 describe("Pi permission extension", () => {
+  it("checks the same normalized destination that the Pi write tool uses", async () => {
+    const { root, policy } = workspace();
+    const outside = path.join(path.dirname(root), "outside file.txt");
+    let destination: string | undefined;
+    const writer = createWriteToolDefinition(root, { operations: {
+      mkdir: async () => {},
+      writeFile: async (filePath) => { destination = filePath; },
+    } });
+    for (const rawPath of ["~/sylph-review.txt", `@${outside}`, pathToFileURL(outside).href, `@${outside.replace(" ", "\u202f")}`]) {
+      const input = { path: rawPath, content: "fixture" };
+      const evaluation = evaluateToolCall(policy, tool("write", input), root);
+      await writer.execute("test", input, undefined, undefined, { cwd: root } as any);
+      expect(evaluation.decision).toBe("ask");
+      expect(evaluation.intents[0].canonicalPath).toBe(canonicalizeExistingPrefix(destination!));
+    }
+  });
+
   it("persists a session approval and reuses it without prompting", async () => {
     const { root, policy } = workspace();
     const approvals: string[] = [];
@@ -49,11 +70,48 @@ describe("Pi permission extension", () => {
     expect(audits).toEqual(["approved_for_session", "approved_for_session"]);
   });
 
-  it("keeps legacy Balanced approvals working", async () => {
+  it("requires renewed approval for old command-only shell keys", async () => {
     const { root, policy } = workspace();
     const event = tool("bash", { command: "wget https://example.com" });
-    const result = await register(policy, { initialApprovals: ["bash:wget https://example.com"] })(event, { cwd: root, hasUI: false, ui: {} });
-    expect(result).toBeUndefined();
+    for (const key of ["bash:wget https://example.com", "balanced:bash:wget https://example.com"]) {
+      const result = await register(policy, { initialApprovals: [key] })(event, { cwd: root, hasUI: false, ui: {} });
+      expect(result).toMatchObject({ block: true });
+    }
+  });
+
+  it("rechecks approved shell access when a symlink target changes", async () => {
+    const { root, policy } = workspace();
+    const first = path.join(root, ".env.first");
+    const second = path.join(root, ".env.second");
+    const link = path.join(root, "link");
+    fs.writeFileSync(first, "first");
+    fs.writeFileSync(second, "second");
+    fs.symlinkSync(first, link);
+    const approvals: string[] = [];
+    const handler = register(policy, { onApproval: (key: string) => approvals.push(key) });
+    const event = tool("bash", { command: "cat ./link" });
+    await handler(event, { cwd: root, hasUI: true, ui: { select: async () => "Allow matching access for this session" } });
+    const resumed = register(policy, { initialApprovals: approvals });
+    expect(await resumed(event, { cwd: root, hasUI: false, ui: {} })).toBeUndefined();
+    fs.unlinkSync(link);
+    fs.symlinkSync(second, link);
+    expect(await resumed(event, { cwd: root, hasUI: false, ui: {} })).toMatchObject({ block: true });
+  });
+
+  it("rechecks shell approvals when cwd or configured environment changes", async () => {
+    const { root, policy } = workspace();
+    const nested = path.join(root, "nested");
+    fs.mkdirSync(nested);
+    policy.mode = "strict";
+    policy.shellEnvironment = { TMPDIR: root };
+    const approvals: string[] = [];
+    const event = tool("bash", { command: "npm test" });
+    await register(policy, { onApproval: (key: string) => approvals.push(key) })(event, {
+      cwd: root, hasUI: true, ui: { select: async () => "Allow matching access for this session" },
+    });
+    expect(await register(policy, { initialApprovals: approvals })(event, { cwd: nested, hasUI: false, ui: {} })).toMatchObject({ block: true });
+    policy.shellEnvironment.TMPDIR = nested;
+    expect(await register(policy, { initialApprovals: approvals })(event, { cwd: root, hasUI: false, ui: {} })).toMatchObject({ block: true });
   });
 
   it("never lets a persisted approval override a hard denial", async () => {

@@ -1,7 +1,7 @@
 .project-modal-overlay {
   z-index: 70;
-  background: rgba(4, 6, 12, 0.72);
-  backdrop-filter: blur(9px);
+  background: var(--dialog-overlay);
+  backdrop-filter: blur(var(--dialog-blur));
 }
 
 .project-modal {
@@ -9,8 +9,8 @@
   max-height: min(860px, calc(100vh - 2rem));
   padding: 0;
   overflow: hidden;
-  border-radius: 20px;
-  background: #101218;
+  border-radius: var(--dialog-radius);
+  background: var(--dialog-bg);
   border-color: rgba(255, 255, 255, 0.1);
   box-shadow: 0 30px 100px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.025) inset;
 }
@@ -19,7 +19,7 @@
   display: flex;
   justify-content: space-between;
   gap: 1.5rem;
-  padding: 1.6rem 1.75rem 1.4rem;
+  padding: var(--dialog-padding);
   border-bottom: 1px solid var(--border-color);
   background: linear-gradient(145deg, rgba(99, 102, 241, 0.09), transparent 55%);
 }
@@ -36,7 +36,7 @@
 .project-modal-header h2 {
   margin: 0;
   color: var(--text-primary);
-  font-size: 1.35rem;
+  font-size: 1.25rem;
   letter-spacing: -0.02em;
 }
 
@@ -53,7 +53,7 @@
   height: 32px;
   flex: 0 0 auto;
   border: 1px solid transparent;
-  border-radius: 9px;
+  border-radius: var(--control-radius);
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
@@ -68,7 +68,7 @@
 
 .project-modal-body {
   min-height: 0;
-  padding: 1.35rem 1.75rem;
+  padding: var(--dialog-padding);
   overflow-y: auto;
 }
 
@@ -90,12 +90,12 @@
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
-  height: 42px;
+  height: var(--control-height);
   padding: 0 0.85rem;
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
+  border-radius: var(--control-radius);
   outline: 0;
-  background: rgba(255, 255, 255, 0.035);
+  background: var(--control-bg);
   color: var(--text-primary);
   font: inherit;
   font-size: 1rem;
@@ -103,9 +103,9 @@
 }
 
 .project-field input:focus {
-  border-color: rgba(190, 195, 205, 0.48);
+  border-color: var(--focus-border);
   background: rgba(255, 255, 255, 0.055);
-  box-shadow: 0 0 0 3px rgba(190, 195, 205, 0.08);
+  box-shadow: var(--focus-ring);
 }
 
 .project-field input::placeholder { color: #5f6472; }
@@ -123,7 +123,7 @@
   flex: 0 0 auto;
   padding: 0.5rem 0.7rem;
   border: 1px solid rgba(99, 102, 241, 0.3);
-  border-radius: 9px;
+  border-radius: var(--control-radius);
   background: rgba(99, 102, 241, 0.08);
   color: #b9baff;
   cursor: pointer;
@@ -184,23 +184,23 @@
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  padding: 1rem 1.75rem;
+  padding: var(--dialog-footer-padding);
   border-top: 1px solid var(--border-color);
   background: rgba(0, 0, 0, 0.16);
 }
 
 .project-modal-footer-actions { display: flex; gap: 0.6rem; margin-left: auto; }
-.project-modal-footer button { padding: 0.58rem 0.9rem; border-radius: 9px; cursor: pointer; font: inherit; font-size: 0.76rem; font-weight: 600; }
+.project-modal-footer button { padding: var(--action-padding); border-radius: var(--control-radius); cursor: pointer; font: inherit; font-size: var(--action-font-size); font-weight: 600; }
 .project-modal-footer button:disabled { cursor: not-allowed; opacity: 0.45; }
 .project-cancel-button { border: 1px solid var(--border-color); background: transparent; color: var(--text-secondary); }
-.project-cancel-button:hover { color: var(--text-primary); background: rgba(255, 255, 255, 0.04); }
-.project-save-button { border: 1px solid rgba(99, 102, 241, 0.7); background: var(--accent); color: white; box-shadow: 0 8px 22px rgba(99, 102, 241, 0.18); }
-.project-save-button:hover:not(:disabled) { filter: brightness(1.08); }
+.project-cancel-button:hover:not(:disabled) { color: var(--text-primary); background: rgba(255, 255, 255, 0.04); }
+.project-save-button { border: 1px solid var(--accent); background: var(--accent); color: white; }
+.project-save-button:hover:not(:disabled) { background: var(--accent-hover); }
 .project-delete-button { border: 1px solid rgba(239, 68, 68, 0.2); background: transparent; color: #ef8585; }
 .project-delete-button:hover:not(:disabled) { border-color: rgba(239, 68, 68, 0.45); background: rgba(239, 68, 68, 0.08); color: #fca5a5; }
 
 @media (max-width: 640px) {
-  .project-modal { width: calc(100vw - 1rem); max-height: calc(100vh - 1rem); border-radius: 15px; }
+  .project-modal { width: calc(100vw - 1rem); max-height: calc(100vh - 1rem); border-radius: var(--dialog-radius); }
   .project-modal-header, .project-modal-body, .project-modal-footer { padding-right: 1rem; padding-left: 1rem; }
   .project-directory-card .directory-picker-fields { padding-right: 2rem; }
   .project-roots-heading { align-items: stretch; flex-direction: column; }

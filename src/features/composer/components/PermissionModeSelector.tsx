@@ -189,7 +189,6 @@ export default function PermissionModeSelector(props: {
             }}
             onKeyDown={handleKeyDown}
           >
-            <div class="permission-mode-heading">How should agent actions be approved?</div>
             <For each={OPTIONS}>{(option, index) => (
               <button
                 type="button"

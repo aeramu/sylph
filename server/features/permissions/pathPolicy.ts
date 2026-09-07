@@ -1,5 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
+import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
 import type {
   AccessIntent, AccessOperation, PermissionDecision, PermissionPolicy, PermissionRoot,
 } from "./permissionTypes.ts";
@@ -8,17 +10,45 @@ const SENSITIVE_BASENAMES = new Set([".netrc", ".npmrc", ".pypirc"]);
 const SENSITIVE_PATH_PARTS = new Set([".ssh", ".aws", ".gnupg", ".kube"]);
 const SENSITIVE_EXTENSIONS = new Set([".pem", ".key", ".p12", ".pfx"]);
 
-export function canonicalizeExistingPrefix(value: string): string {
-  let current = path.resolve(value);
-  const suffix: string[] = [];
-  while (!fs.existsSync(current)) {
-    const parent = path.dirname(current);
-    if (parent === current) return path.resolve(value);
-    suffix.unshift(path.basename(current));
-    current = parent;
+/** Match the path syntax accepted by Pi file tools; shell paths keep shell semantics. */
+export function resolveFileToolPath(value: string, cwd: string): string {
+  let normalized = value.replace(/[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g, " ");
+  if (normalized.startsWith("@")) normalized = normalized.slice(1);
+  if (process.platform === "win32" && !normalized.startsWith("//") && !normalized.includes("\\")) {
+    const drive = normalized.match(/^\/(?:mnt\/|cygdrive\/)?([a-z])(?:\/(.*))?$/i);
+    if (drive) normalized = `${drive[1].toUpperCase()}:\\${drive[2]?.replaceAll("/", "\\") ?? ""}`;
   }
-  try { current = fs.realpathSync(current); } catch { /* lexical fallback */ }
-  return path.resolve(current, ...suffix);
+  if (normalized === "~") normalized = homedir();
+  else if (normalized.startsWith("~/") || (process.platform === "win32" && normalized.startsWith("~\\"))) {
+    normalized = path.join(homedir(), normalized.slice(2));
+  }
+  if (normalized.startsWith("file://")) normalized = fileURLToPath(normalized);
+  return path.resolve(cwd, normalized);
+}
+
+export function canonicalizeExistingPrefix(value: string): string {
+  let links = 0;
+  const resolve = (target: string): string => {
+    const absolute = path.resolve(target);
+    const root = path.parse(absolute).root;
+    let current = root;
+    for (const part of absolute.slice(root.length).split(path.sep).filter(Boolean)) {
+      current = path.join(current, part);
+      let stat: fs.Stats;
+      try { stat = fs.lstatSync(current); } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        throw error;
+      }
+      if (stat.isSymbolicLink()) {
+        if (++links > 40) throw new Error("too many symbolic links");
+        current = resolve(path.resolve(path.dirname(current), fs.readlinkSync(current)));
+      } else {
+        current = fs.realpathSync(current);
+      }
+    }
+    return current;
+  };
+  return resolve(value);
 }
 
 export function isWithin(root: string, target: string) {
@@ -49,8 +79,14 @@ function sensitivePathReason(filePath: string): string | undefined {
 
 export function evaluatePath(policy: PermissionPolicy, operation: AccessOperation, rawPath: string, cwd: string): AccessIntent {
   const lexicalPath = path.resolve(cwd, rawPath);
-  const canonicalPath = canonicalizeExistingPrefix(lexicalPath);
-  const root = rootForPath(policy.roots, canonicalPath);
+  let canonicalPath: string;
+  let root: PermissionRoot | undefined;
+  try {
+    canonicalPath = canonicalizeExistingPrefix(lexicalPath);
+    root = rootForPath(policy.roots, canonicalPath);
+  } catch {
+    return { operation, lexicalPath, decision: "deny", reason: "path could not be safely resolved" };
+  }
   const withinAllowedReadRoot = Array.from(policy.allowedReadRoots ?? [])
     .some((allowedRoot) => isWithin(path.resolve(allowedRoot), canonicalPath));
   const explicitlyAllowedRead = operation === "read" && (

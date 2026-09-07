@@ -137,7 +137,7 @@ describe('Composer', () => {
     ));
 
     await userEvent.click(page.getByRole('button', { name: 'Permission mode' }));
-    await expect.element(page.getByText('How should agent actions be approved?')).toBeInTheDocument();
+    await expect.element(page.getByRole('menu', { name: 'Permission behavior' })).toBeInTheDocument();
     await expect.element(page.getByText('Fewer prompts; external changes still need approval')).toBeInTheDocument();
     await userEvent.click(page.getByRole('menuitemradio', { name: /Ask for approval/ }));
     expect(selected).toBe('strict');
