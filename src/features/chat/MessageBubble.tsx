@@ -3,7 +3,7 @@ import type { ChatMessage } from '../../types';
 import { renderMarkdown } from '../../lib/markdown';
 import { highlightMarkdownCodeBlocks } from '../../lib/codeHighlight';
 import ThinkingSection from './ThinkingSection';
-import ToolExecution from './ToolExecution';
+import ToolGroup from './ToolGroup';
 import ThinkingIndicator from './components/ThinkingIndicator';
 import BackgroundJobCard from './components/BackgroundJobCard';
 import './MessageBubble.css';
@@ -74,15 +74,9 @@ export default function MessageBubble(props: { msg: ChatMessage; sessionId?: str
           </div>
         </Show>
 
-        {props.msg.tools && props.msg.tools.length > 0 && (
-          <div class="tool-executions">
-            <For each={props.msg.tools}>
-              {(tool) => tool.name === 'bg_run' && tool.backgroundJob
-                ? <BackgroundJobCard jobs={[tool.backgroundJob]} sessionId={props.sessionId} embedded />
-                : <ToolExecution tool={tool} />}
-            </For>
-          </div>
-        )}
+        <Show when={props.msg.tools?.length}>
+          <ToolGroup items={(props.msg.tools ?? []).map(tool => ({ kind: 'tool' as const, tool }))} sessionId={props.sessionId} />
+        </Show>
 
         <Show when={props.msg.isStreaming}><ThinkingIndicator /></Show>
       </div>

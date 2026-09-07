@@ -1,8 +1,9 @@
-import { For, Show } from 'solid-js';
+import { createMemo, For, Show } from 'solid-js';
 import type { ChatMessage } from '../../../types';
-import { hasRenderableContent } from '../../../lib/messages';
+import { groupToolMessages } from '../../../lib/toolGroups';
 import DiffStats from '../../changes/DiffStats';
 import MessageBubble from '../MessageBubble';
+import ToolGroup from '../ToolGroup';
 import ThinkingIndicator from './ThinkingIndicator';
 
 export interface TurnChip { turn: number; files: number; added: number; deleted: number }
@@ -18,15 +19,25 @@ export default function MessageTimeline(props: {
   areaRef: (element: HTMLDivElement) => void;
   endRef: (element: HTMLDivElement) => void;
 }) {
+  const groups = createMemo(() => new Map(groupToolMessages(props.messages, index => !!props.turnChipFor(index))
+    .map(group => [group.id, group])));
+  const groupIds = createMemo(() => [...groups().keys()]);
   return <div class="messages-area" ref={props.areaRef} onScroll={props.onScroll}>
-    <For each={props.messages}>{(message, index) => <>
-      <Show when={hasRenderableContent(message)}><MessageBubble msg={message} sessionId={props.sessionId} onImageClick={props.onImageClick}/></Show>
-      <Show when={props.turnChipFor(index())} keyed>{(chip) => <div class="turn-diff-row">
-        <button class="diff-stats-chip" onClick={() => props.onOpenTurn(chip.turn)} title={`Show file changes from turn ${chip.turn}`}>
-          <DiffStats files={chip.files} added={chip.added} deleted={chip.deleted}/>
-        </button>
-      </div>}</Show>
-    </>}</For>
+    <For each={groupIds()}>{id => {
+      const group = () => groups().get(id)!;
+      const message = () => { const row = group(); return row.kind === 'message' ? row.message : undefined; };
+      const items = () => { const row = group(); return row.kind === 'work' ? row.items : []; };
+      const chip = () => { const row = group(); return row.kind === 'turn' ? props.turnChipFor(row.index) : null; };
+      return <>
+        <Show when={message()}>{value => <MessageBubble msg={value()} sessionId={props.sessionId} onImageClick={props.onImageClick}/>}</Show>
+        <Show when={items().length}><ToolGroup items={items()} sessionId={props.sessionId}/></Show>
+        <Show when={chip()} keyed>{value => <div class="turn-diff-row">
+          <button class="diff-stats-chip" onClick={() => props.onOpenTurn(value.turn)} title={`Show file changes from turn ${value.turn}`}>
+            <DiffStats files={value.files} added={value.added} deleted={value.deleted}/>
+          </button>
+        </div>}</Show>
+      </>;
+    }}</For>
     <Show when={props.processing && !props.messages.find((message) => message.isStreaming)}>
       <div class="message assistant"><div class="message-bubble"><ThinkingIndicator /></div></div>
     </Show>
