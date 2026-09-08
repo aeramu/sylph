@@ -59,8 +59,10 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     thinkingLevelOptions,
     loadModels,
     selectModel,
+    rememberSessionModel,
+    restoreSessionModel,
     selectThinkingLevel,
-  } = createModelPreferences();
+  } = createModelPreferences(() => props.activeSessionId);
   const [uiRequest, setUiRequest] = createSignal<UiRequest | null>(null);
   const [questionsRequest, setQuestionsRequest] = createSignal<QuestionsRequest | null>(null);
   const [statusEntries, setStatusEntries] = createStore<Record<string, string>>({});
@@ -352,6 +354,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       if (!loaded) return;
       const { snapshot: data, events } = loaded;
       setMessages(mapSessionSnapshotMessages(data));
+      restoreSessionModel(sessionId, data.modelId);
       setSessionName(data.name);
       setContextInfo(data.context || null);
       setSessionBinding(data.binding || null);
@@ -609,6 +612,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     };
 
     try {
+      const submittedModel = selectedModel();
       const data = await sendChat({
           prompt: prepared.prompt,
           // The typed message only — mentions live here, not in the appended
@@ -618,7 +622,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
           projectId: props.activeProjectId,
           directoryId: selectedDirectoryId() || undefined,
           standalonePath: activeProject()?.directories.length ? undefined : standalonePath().trim() || undefined,
-          modelId: selectedModel() || undefined,
+          modelId: submittedModel || undefined,
           thinkingLevel: selectedThinkingLevel(),
           permissionMode: permissionMode(),
           images: prepared.images,
@@ -630,6 +634,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       if (data.steered) setMessages(m => m.id === optimisticId, 'steered', true);
       setPermissionMode(data.permissionMode);
       if (data.sessionId && data.sessionId !== props.activeSessionId) {
+        rememberSessionModel(data.sessionId, submittedModel);
         // The session-switch effect replays the buffer and clears the flag.
         // Fall back to the locally selected project if the server couldn't
         // resolve one, so the sidebar draft still lands in the right group.
@@ -844,7 +849,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
             isConnected={isConnected()} isProcessing={isProcessing()} disabled={permissionModeSaving() || !!uiRequest() || !!questionsRequest() || !!sessionBinding()?.worktreeMissing}
             commands={commandsList()} projectId={props.activeProjectId} directoryId={activeDirectory()?.id} sessionId={props.activeSessionId}
             draftKey={chatDraftKey()} draftText={getChatDraft(chatDraftKey())} onDraftChange={(text) => setChatDraft(chatDraftKey(), text)}
-            models={models()} selectedModel={selectedModel()} onSelectModel={selectModel} thinkingLevels={thinkingLevelOptions()}
+            models={models()} selectedModel={selectedModel()} onSelectModel={(model) => { void selectModel(model).catch((error) => alert(error instanceof Error ? error.message : 'Failed to save model')); }} thinkingLevels={thinkingLevelOptions()}
             selectedThinkingLevel={selectedThinkingLevel()} onSelectThinkingLevel={selectThinkingLevel} contextInfo={contextInfo()}
             permissionMode={permissionMode()} onSelectPermissionMode={(mode) => void handlePermissionModeChange(mode)}
             reviewComments={reviewComments()} onRemoveReviewComment={deleteReviewComment}

@@ -21,7 +21,7 @@ vi.mock("../../../config.ts", async (importOriginal) => ({
 const projects = await import("../../projects/projectRepository.ts");
 const bindings = await import("../workspace/workspaceBindingRepository.ts");
 const metadata = await import("../workspace/piSessionMetadata.ts");
-const { deleteSession, moveSessionToProject, renameSession, setSessionPermissionMode } = await import("./sessionMutationService.ts");
+const { deleteSession, moveSessionToProject, renameSession, setSessionModel, setSessionPermissionMode } = await import("./sessionMutationService.ts");
 
 function persistedSession(): { manager: SessionManager; binding: SessionBinding } {
   const cwd = path.join(root, "workspace");
@@ -162,5 +162,33 @@ describe("session mutations", () => {
     expect(bindings.getSessionBinding(binding.sessionId)).toBeDefined();
     expect(fs.existsSync(binding.sessionFile!)).toBe(true);
     expect(dispose).not.toHaveBeenCalled();
+  });
+});
+
+describe("session model selection", () => {
+  it("writes the selected model to the session history without a prompt", async () => {
+    const { manager, binding } = persistedSession();
+    const model = { provider: "test", id: "large" };
+    const setModel = vi.fn(async () => { manager.appendModelChange(model.provider, model.id); });
+    const getRuntime = async () => ({ session: {
+      model: { provider: "test", id: "flash" },
+      modelRuntime: { getAvailable: async () => [model] }, setModel,
+    } });
+    await expect(setSessionModel(binding.sessionId, "test/large", getRuntime as any))
+      .resolves.toEqual({ modelId: "test/large" });
+    expect(setModel).toHaveBeenCalledWith(model);
+    expect(SessionManager.open(manager.getSessionFile()!).buildSessionContext().model)
+      .toEqual({ provider: "test", modelId: "large" });
+  });
+
+  it("rejects invalid and unavailable models without changing the session", async () => {
+    const setModel = vi.fn();
+    const getRuntime = vi.fn(async () => ({ session: {
+      modelRuntime: { getAvailable: async () => [] }, setModel,
+    } }));
+    await expect(setSessionModel("session", "", getRuntime as any)).rejects.toThrow(/required/);
+    expect(getRuntime).not.toHaveBeenCalled();
+    await expect(setSessionModel("session", "test/missing", getRuntime as any)).rejects.toThrow(/unavailable/);
+    expect(setModel).not.toHaveBeenCalled();
   });
 });

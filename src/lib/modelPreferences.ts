@@ -13,10 +13,18 @@ interface ModelsResponse {
   }>;
 }
 
-export function createModelPreferences() {
+export function createModelPreferences(sessionId: () => string | undefined = () => undefined) {
   const [models, setModels] = createSignal<ModelOption[]>([]);
   const [selectedModel, setSelectedModel] = createSignal('');
   const [selectedThinkingLevel, setSelectedThinkingLevel] = createSignal<ThinkingLevel>('medium');
+  const sessionModels = new Map<string, string>();
+  const [sessionRevision, setSessionRevision] = createSignal(0);
+  const pendingSaves = new Map<string, Promise<void>>();
+  const rememberSessionModel = (id: string, model: string) => {
+    if (!model) return;
+    sessionModels.set(id, model);
+    setSessionRevision((value) => value + 1);
+  };
 
   try {
     const saved = localStorage.getItem('sylph.thinkingLevel') as ThinkingLevel | null;
@@ -42,18 +50,48 @@ export function createModelPreferences() {
       };
     });
     setModels(mapped);
+  };
 
-    let saved: string | null = null;
-    try { saved = localStorage.getItem('sylph.selectedModel'); } catch {}
+  createEffect(() => {
+    sessionRevision();
+    const id = sessionId();
+    const mapped = models();
+    if (!mapped.length) return;
+    let saved = id ? sessionModels.get(id) : undefined;
+    try {
+      saved ||= localStorage.getItem('sylph.selectedModel') || undefined;
+    } catch {}
     const initial = (saved && mapped.find((model) => model.value === saved))
       || mapped.find((model) => model.value.toLowerCase().includes('flash'))
       || mapped[0];
     if (initial) setSelectedModel(initial.value);
+  });
+
+  const restoreSessionModel = (id: string, model?: string) => {
+    if (model && !pendingSaves.has(id)) rememberSessionModel(id, model);
   };
 
-  const selectModel = (id: string) => {
+  const selectModel = async (id: string) => {
+    const previous = selectedModel();
     setSelectedModel(id);
+    const activeSession = sessionId();
     try { localStorage.setItem('sylph.selectedModel', id); } catch {}
+    if (!activeSession) return;
+    rememberSessionModel(activeSession, id);
+    const save = (pendingSaves.get(activeSession) ?? Promise.resolve()).catch(() => {}).then(async () => {
+      await api(`/api/sessions/${encodeURIComponent(activeSession)}/model`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ modelId: id }),
+      });
+    });
+    pendingSaves.set(activeSession, save);
+    try {
+      await save;
+    } catch (error) {
+      if (pendingSaves.get(activeSession) === save) rememberSessionModel(activeSession, previous);
+      throw error;
+    } finally {
+      if (pendingSaves.get(activeSession) === save) pendingSaves.delete(activeSession);
+    }
   };
 
   const selectThinkingLevel = (level: ThinkingLevel) => {
@@ -92,6 +130,8 @@ export function createModelPreferences() {
     thinkingLevelOptions,
     loadModels,
     selectModel,
+    rememberSessionModel,
+    restoreSessionModel,
     selectThinkingLevel,
   };
 }

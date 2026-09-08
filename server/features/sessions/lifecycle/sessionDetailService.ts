@@ -18,8 +18,10 @@ export async function getSessionDetail(sessionId: string) {
   if (worktreeMissing) {
     if (!binding?.sessionFile || !fs.existsSync(binding.sessionFile)) notFound("Session history not found");
     const detached = SessionManager.open(binding.sessionFile);
+    const context = detached.buildSessionContext();
     return {
-      messages: detached.buildSessionContext().messages || [], eventSeq: getSessionEventSequence(sessionId),
+      modelId: context.model ? `${context.model.provider}/${context.model.modelId}` : undefined,
+      messages: context.messages || [], eventSeq: getSessionEventSequence(sessionId),
       name: detached.getSessionName(), isStreaming: false, pendingUiRequests: [],
       pendingArtifactRequest: getPendingArtifactRequest(sessionId), statuses: getSessionStatuses(sessionId),
       context: undefined, binding: responseBinding,
@@ -44,6 +46,7 @@ export async function getSessionDetail(sessionId: string) {
   const eventSeq = getSessionEventSequence(sessionId);
   return {
     messages, eventSeq,
+    modelId: runtime.session.model ? `${runtime.session.model.provider}/${runtime.session.model.id}` : undefined,
     name: runtime.session.sessionManager?.getSessionName?.(), isStreaming: !!runtime.session.isStreaming, pendingUiRequests,
     pendingArtifactRequest: getPendingArtifactRequest(sessionId), statuses: getSessionStatuses(sessionId),
     context: getContextInfo(runtime.session), binding: responseBinding,

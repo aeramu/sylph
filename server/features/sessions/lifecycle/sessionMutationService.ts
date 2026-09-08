@@ -1,3 +1,5 @@
+import { findAvailableModel, isSameModel } from "../../../integrations/pi/modelSelection.ts";
+import { withSessionAdmission } from "../../chat/chatAdmission.ts";
 import fs from "fs";
 import path from "path";
 import { SessionManager } from "../../../integrations/pi/sessionSdk.ts";
@@ -8,7 +10,7 @@ import type { SessionBinding } from "../workspace/workspaceTypes.ts";
 import { removeSessionScratch } from "../scratch/sessionScratch.ts";
 import { clearSessionArtifactRequest } from "../../artifacts/artifactPresentationRequests.ts";
 import { hasManagedWorktrees } from "../workspace/sessionWorkspace.ts";
-import { disposeRuntime, getSettledRuntime } from "../../../integrations/pi/runtime/runtimeManager.ts";
+import { disposeRuntime, getOrInitRuntime, getSettledRuntime } from "../../../integrations/pi/runtime/runtimeManager.ts";
 import { badRequest, conflict, notFound } from "../../../platform/http/errors.ts";
 import { isPermissionMode } from "../../permissions/permissionTypes.ts";
 import { removeSessionWorktrees } from "../worktrees/worktreeService.ts";
@@ -148,4 +150,16 @@ export async function deleteSession(sessionId: string, dependencies: SessionMuta
   clearSessionArtifactRequest(sessionId);
   deleteSessionBinding(sessionId);
   return { success: true, branchesKept: branchesKept.filter((branch): branch is string => !!branch) };
+}
+
+/** Persist model selection in Pi's session history, even before the next prompt. */
+export async function setSessionModel(sessionId: string, modelId: unknown, getRuntime = getOrInitRuntime) {
+  if (typeof modelId !== "string" || !modelId.trim()) badRequest("modelId is required");
+  const runtime = await getRuntime(sessionId);
+  return withSessionAdmission(runtime.session, async () => {
+    const model = findAvailableModel(await runtime.session.modelRuntime.getAvailable(), modelId);
+    if (!model) badRequest(`Unknown or unavailable model: ${modelId}`);
+    if (!isSameModel(runtime.session.model, model)) await runtime.session.setModel(model);
+    return { modelId: `${model.provider}/${model.id}` };
+  });
 }

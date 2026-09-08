@@ -25,6 +25,7 @@ export interface SessionBindingInfo {
 }
 
 export interface SessionSnapshot {
+  modelId?: string;
   messages?: unknown[];
   name?: string;
   context?: ContextInfo;
