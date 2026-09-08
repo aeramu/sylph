@@ -158,3 +158,16 @@ describe("scheduler service", () => {
     expect(tools.get("create_schedule").parameters.properties).not.toHaveProperty("directoryId");
   });
 });
+
+it("persists an edited model and passes it to scheduled runs", async () => {
+  const schedule = scheduler.createSchedule({ name: "Model test", prompt: "Summarize", kind: "once", runAt: tomorrow(), timezone: "UTC" });
+  scheduler.updateSchedule(schedule.id, { modelId: "provider/model" });
+  scheduler.updateSchedule(schedule.id, { name: "Renamed" });
+  expect(repository.getSchedule(schedule.id)?.modelId).toBe("provider/model");
+  const sender = vi.fn().mockResolvedValue({ success: true, sessionId: "result" });
+  await runDueSchedules({ sender, now: new Date(new Date(schedule.runAt!).getTime() + 1000) });
+  expect(sender).toHaveBeenCalledWith({ prompt: "Summarize", modelId: "provider/model" });
+  scheduler.updateSchedule(schedule.id, { modelId: null });
+  expect(repository.getSchedule(schedule.id)?.modelId).toBeUndefined();
+  expect(() => scheduler.updateSchedule(schedule.id, { modelId: 42 })).toThrow(/modelId/);
+});

@@ -4,6 +4,7 @@ export interface Schedule {
   id: string;
   name: string;
   prompt: string;
+  modelId?: string;
   kind: ScheduleKind;
   /** ISO 8601 instant for a one-time schedule. */
   runAt?: string;
@@ -28,6 +29,8 @@ export interface Schedule {
 export interface ScheduleInput {
   name?: unknown;
   prompt?: unknown;
+  /** null clears the override and uses the server default. */
+  modelId?: unknown;
   kind?: unknown;
   runAt?: unknown;
   cron?: unknown;

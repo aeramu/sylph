@@ -1,5 +1,5 @@
 import { api } from '../../lib/api';
-import type { BackgroundJobInfo, ContextInfo, PermissionMode, ProjectInfo } from '../../types';
+import type { BackgroundJobInfo, ContextInfo, ThinkingLevel, PermissionMode, ProjectInfo } from '../../types';
 
 export interface GitBranchOption { name: string; current: boolean; remote: boolean }
 export interface DirectorySuggestion { name: string; path: string }
@@ -26,6 +26,7 @@ export interface SessionBindingInfo {
 
 export interface SessionSnapshot {
   modelId?: string;
+  thinkingLevel?: ThinkingLevel;
   messages?: unknown[];
   name?: string;
   context?: ContextInfo;

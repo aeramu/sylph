@@ -6,6 +6,7 @@ export interface Schedule {
   id: string;
   name: string;
   prompt: string;
+  modelId?: string;
   kind: ScheduleKind;
   runAt?: string;
   cron?: string;
@@ -25,6 +26,7 @@ export interface Schedule {
 export interface SchedulePatch {
   name?: string;
   prompt?: string;
+  modelId?: string | null;
   kind?: ScheduleKind;
   runAt?: string;
   cron?: string;
@@ -56,4 +58,12 @@ export function runSchedule(schedule: Schedule): Promise<{ scheduleId: string; l
 export function deleteSchedule(schedule: Schedule): Promise<{ success: boolean }> {
   const query = schedule.projectId ? `?projectId=${encodeURIComponent(schedule.projectId)}` : '';
   return api(`/api/schedules/${encodeURIComponent(schedule.id)}${query}`, { method: 'DELETE' });
+}
+
+export async function listScheduleModels(): Promise<Array<{ value: string; label: string }>> {
+  const data = await api<{ models: Array<{ id: string; provider: string; value?: string }> }>('/api/models');
+  return data.models.map((model) => ({
+    value: model.value || `${model.provider}/${model.id}`,
+    label: `${model.provider} / ${model.id}`,
+  }));
 }

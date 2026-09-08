@@ -24,6 +24,13 @@ describe("session bindings", () => {
     }
   });
 
+  it("migrates legacy modes and preserves all four current modes", () => {
+    const modes = ["strict", "balanced", "read-only", "safe", "ai", "relaxed"];
+    fs.writeFileSync(storeFile, JSON.stringify(modes.map((permissionMode) => ({ sessionId: permissionMode, cwd: "/workspace", permissionMode }))));
+    expect(bindings.getSessionBindings().map((binding) => binding.permissionMode))
+      .toEqual(["safe", "safe", "read-only", "safe", "ai", "relaxed"]);
+  });
+
   it("persists, replaces, filters, and deletes a session cwd binding", () => {
     bindings.saveSessionBinding({
       sessionId: "session-1",

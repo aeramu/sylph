@@ -80,7 +80,7 @@ export async function setSessionPermissionMode(
   requestedMode: unknown,
   dependencies: SessionMutationDependencies = {},
 ) {
-  if (!isPermissionMode(requestedMode)) badRequest("permissionMode must be relaxed, balanced, or strict");
+  if (!isPermissionMode(requestedMode)) badRequest("permissionMode must be read-only, safe, ai, or relaxed");
   await (dependencies.recover ?? recoverSessionBindingsFromPi)();
   const { binding, manager } = await resolveSessionBinding(sessionId);
   const runtime = await (dependencies.getRuntime ?? getSettledRuntime)(sessionId);
@@ -153,13 +153,15 @@ export async function deleteSession(sessionId: string, dependencies: SessionMuta
 }
 
 /** Persist model selection in Pi's session history, even before the next prompt. */
-export async function setSessionModel(sessionId: string, modelId: unknown, getRuntime = getOrInitRuntime) {
+export async function setSessionModel(sessionId: string, modelId: unknown, getRuntime = getOrInitRuntime, thinkingLevel?: unknown) {
   if (typeof modelId !== "string" || !modelId.trim()) badRequest("modelId is required");
+  if (thinkingLevel !== undefined && !["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(thinkingLevel as string)) badRequest("Invalid thinkingLevel");
   const runtime = await getRuntime(sessionId);
   return withSessionAdmission(runtime.session, async () => {
     const model = findAvailableModel(await runtime.session.modelRuntime.getAvailable(), modelId);
     if (!model) badRequest(`Unknown or unavailable model: ${modelId}`);
     if (!isSameModel(runtime.session.model, model)) await runtime.session.setModel(model);
-    return { modelId: `${model.provider}/${model.id}` };
+    if (thinkingLevel !== undefined) runtime.session.setThinkingLevel(thinkingLevel);
+    return { modelId: `${model.provider}/${model.id}`, thinkingLevel: runtime.session.thinkingLevel };
   });
 }

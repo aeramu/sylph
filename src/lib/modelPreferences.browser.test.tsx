@@ -20,6 +20,7 @@ async function setup(initialSession?: string) {
     return { ...createModelPreferences(session), setSession };
   });
   await state.loadModels();
+  if (initialSession) state.restoreSessionModel(initialSession, 'test/flash', 'medium');
   return state;
 }
 
@@ -33,7 +34,7 @@ it('restores each session selection, including unsent changes and after remounti
   state.setSession('b');
   expect(state.selectedModel()).toBe('test/flash');
   dispose?.();
-  expect(api).toHaveBeenCalledWith('/api/sessions/a/model', expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ modelId: 'test/large' }) }));
+  expect(api).toHaveBeenCalledWith('/api/sessions/a/model', expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ modelId: 'test/large', thinkingLevel: 'medium' }) }));
   const restored = await setup('a');
   restored.restoreSessionModel('a', 'test/large');
   expect(restored.selectedModel()).toBe('test/large');
@@ -49,7 +50,7 @@ it('attaches the submitted model to a new session and keeps a default for new ch
   state.setSession('created');
   expect(state.selectedModel()).toBe('test/large');
   state.setSession(undefined);
-  expect(state.selectedModel()).toBe('test/flash');
+  expect(state.selectedModel()).toBe('test/large');
 });
 
 it('falls back to an available model when the saved model was removed', async () => {
@@ -77,4 +78,26 @@ it('restores the prior selection when saving fails', async () => {
   vi.mocked(api).mockRejectedValueOnce(new Error('Save failed'));
   await expect(state.selectModel('test/large')).rejects.toThrow('Save failed');
   expect(state.selectedModel()).toBe('test/flash');
+});
+
+it('restores effort and model independently for each session and after a fresh mount', async () => {
+  const state = await setup('a');
+  await state.selectModel('test/large');
+  await state.selectThinkingLevel('high');
+  state.setSession('b');
+  expect(state.preferencesReady()).toBe(false);
+  expect(state.selectedModel()).toBe('');
+  state.restoreSessionModel('b', 'test/flash', 'low');
+  expect(state.selectedThinkingLevel()).toBe('low');
+  await state.selectThinkingLevel('minimal');
+  state.setSession('a');
+  state.restoreSessionModel('a', 'test/large', 'high');
+  expect(state.selectedModel()).toBe('test/large');
+  expect(state.selectedThinkingLevel()).toBe('high');
+  dispose?.();
+  localStorage.clear();
+  const fresh = await setup('b');
+  fresh.restoreSessionModel('b', 'test/flash', 'minimal');
+  expect(fresh.selectedThinkingLevel()).toBe('minimal');
+  expect(fresh.selectedModel()).toBe('test/flash');
 });

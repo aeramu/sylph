@@ -15,6 +15,7 @@ function normalizeSchedule(value: unknown): Schedule | undefined {
     id: record.id,
     name: record.name,
     prompt: record.prompt,
+    ...(optionalString(record.modelId) ? { modelId: optionalString(record.modelId) } : {}),
     kind,
     ...(optionalString(record.runAt) ? { runAt: optionalString(record.runAt) } : {}),
     ...(optionalString(record.cron) ? { cron: optionalString(record.cron) } : {}),

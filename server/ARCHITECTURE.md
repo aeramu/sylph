@@ -50,6 +50,10 @@ Domain models live in `*Types.ts` modules rather than repositories. Repositories
 
 The permission feature separates `permissionTypes.ts`, canonical path/sensitive-file logic in `pathPolicy.ts`, shell parsing in `shellParser.ts`, shell risk evaluation in `shellPolicy.ts`, and a small tool-call facade in `permissionPolicy.ts`.
 
+The four session modes are `read-only`, `safe` (default), `ai`, and `relaxed`. Legacy `strict` and `balanced` metadata migrate to `safe`. Read only denies changes and uninspectable shell execution. Ask for approval allows routine workspace access and asks for risky or external actions. AI mode reviews commands, mutations, and flagged reads with the independently configured `permissionReviewModel`; missing models, invalid responses, or timeouts fall back to manual approval. AI approvals are not cached. Relaxed permits access except recognized catastrophic commands. Catastrophe checks run before AI review or approval reuse.
+
+Shell checks inspect tool inputs; they are not an operating-system sandbox and cannot prove the behavior of arbitrary scripts or prevent filesystem races. The AI reviewer receives tool input and workspace context as untrusted data, has no tools, and uses a bounded request timeout.
+
 ## Extension UI
 
 Browser interaction state is feature-owned: blocking requests live in `features/interactions/uiRequestBroker.ts`, extension statuses in `sessionStatusStore.ts`, and artifact presentation requests in the artifacts feature. `integrations/pi/ui/extensionUiAdapter.ts` only maps Pi UI methods to those stores and the SSE transport.

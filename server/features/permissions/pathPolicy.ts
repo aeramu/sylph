@@ -79,6 +79,10 @@ function sensitivePathReason(filePath: string): string | undefined {
 
 export function evaluatePath(policy: PermissionPolicy, operation: AccessOperation, rawPath: string, cwd: string): AccessIntent {
   const lexicalPath = path.resolve(cwd, rawPath);
+  if (policy.mode === "relaxed") return { operation, lexicalPath, decision: "allow", reason: "Relaxed allows file access" };
+  if (policy.mode === "read-only" && operation !== "read") {
+    return { operation, lexicalPath, decision: "deny", reason: "Read only blocks changes and execution" };
+  }
   let canonicalPath: string;
   let root: PermissionRoot | undefined;
   try {
@@ -95,23 +99,20 @@ export function evaluatePath(policy: PermissionPolicy, operation: AccessOperatio
   );
   const sensitive = sensitivePathReason(canonicalPath);
   if (!root && !explicitlyAllowedRead) {
-    const relaxedRead = policy.mode === "relaxed" && operation === "read" && !sensitive;
+
     return {
       operation, lexicalPath, canonicalPath,
-      decision: relaxedRead ? "allow" : policy.externalAccess ?? "ask",
-      reason: sensitive ?? (relaxedRead ? "external read allowed in Relaxed mode" : "path is outside every workspace root"),
+      decision: policy.externalAccess ?? "ask",
+      reason: sensitive ?? "path is outside every workspace root",
     };
   }
   if (root?.access === "read-only" && operation !== "read") {
     return { operation, lexicalPath, canonicalPath, root, decision: "deny", reason: `workspace root ${root.name} is read-only` };
   }
-  const strictMutation = policy.mode === "strict" && operation !== "read";
   return {
     operation, lexicalPath, canonicalPath, root,
-    decision: sensitive || strictMutation ? "ask" : "allow",
-    reason: sensitive ?? (strictMutation
-      ? `${operation} requires confirmation in Strict mode`
-      : explicitlyAllowedRead ? "path is explicitly allowed for reading" : undefined),
+    decision: sensitive ? "ask" : "allow",
+    reason: sensitive ?? (explicitlyAllowedRead ? "path is explicitly allowed for reading" : undefined),
   };
 }
 

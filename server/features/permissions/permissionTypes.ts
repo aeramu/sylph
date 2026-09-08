@@ -1,11 +1,11 @@
 export type PermissionDecision = "allow" | "ask" | "deny";
-export type PermissionMode = "relaxed" | "balanced" | "strict";
+export type PermissionMode = "read-only" | "safe" | "ai" | "relaxed";
 export type AccessOperation = "read" | "write" | "execute" | "delete" | "network";
 
-export const DEFAULT_PERMISSION_MODE: PermissionMode = "balanced";
+export const DEFAULT_PERMISSION_MODE: PermissionMode = "safe";
 
 export function isPermissionMode(value: unknown): value is PermissionMode {
-  return value === "relaxed" || value === "balanced" || value === "strict";
+  return value === "read-only" || value === "safe" || value === "ai" || value === "relaxed";
 }
 
 export interface PermissionRoot {
@@ -45,4 +45,10 @@ export interface PermissionEvaluation {
 export interface PermissionToolCall {
   toolName: string;
   input: unknown;
+}
+
+/** Legacy modes migrate without silently enabling model calls. */
+export function normalizePermissionMode(value: unknown): PermissionMode | undefined {
+  if (value === "strict" || value === "balanced") return "safe";
+  return isPermissionMode(value) ? value : undefined;
 }

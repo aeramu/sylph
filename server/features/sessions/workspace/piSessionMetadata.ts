@@ -1,6 +1,6 @@
 import fs from "fs";
 import { piSessionHistory } from "../../../integrations/pi/sessionHistoryAdapter.ts";
-import { isPermissionMode, type PermissionMode } from "../../permissions/permissionTypes.ts";
+import { normalizePermissionMode, type PermissionMode } from "../../permissions/permissionTypes.ts";
 import type { SessionHistoryHandle } from "../lifecycle/sessionHistoryPort.ts";
 import type { SessionBinding, SessionDirectoryBinding } from "./workspaceTypes.ts";
 import { getSessionBinding, getSessionBindings, saveSessionBinding } from "./workspaceBindingRepository.ts";
@@ -47,8 +47,8 @@ function parseMetadata(value: unknown): SylphWorkspaceMetadata | undefined {
     || (metadata.baseBranch !== undefined && typeof metadata.baseBranch !== "string")
     || (metadata.worktree !== undefined && typeof metadata.worktree !== "boolean")
     || (metadata.managedWorktreeRoot !== undefined && typeof metadata.managedWorktreeRoot !== "string")
-    || (metadata.permissionMode !== undefined && !isPermissionMode(metadata.permissionMode))) return undefined;
-  return metadata as unknown as SylphWorkspaceMetadata;
+    || (metadata.permissionMode !== undefined && !normalizePermissionMode(metadata.permissionMode))) return undefined;
+  return { ...metadata, permissionMode: normalizePermissionMode(metadata.permissionMode) } as unknown as SylphWorkspaceMetadata;
 }
 
 export function workspaceMetadataFromBinding(binding: SessionBinding): SylphWorkspaceMetadata {

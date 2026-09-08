@@ -8,6 +8,7 @@ import { getModelRuntime } from "../auth.ts";
 import type { Project } from "../../../features/projects/projectTypes.ts";
 import { mergeProjectContextFiles } from "../../../features/sessions/workspace/projectContextService.ts";
 import { createSessionRuntimeConfiguration } from "../../../features/sessions/runtime/sessionRuntimeConfiguration.ts";
+import { createAiPermissionReviewer } from "../../../features/permissions/aiPermissionReview.ts";
 import { updateAllowedSkills } from "../../../features/permissions/sessionPermissionService.ts";
 import { createPermissionExtension } from "../extensions/permissionExtension.ts";
 import { createBackgroundJobTools } from "../extensions/backgroundJobsExtension.ts";
@@ -45,7 +46,7 @@ export async function buildRuntime(sessionManager: any, cwd: string, options: Ru
         },
         extensionFactories: configuration.permission ? [{
           name: "sylph-permissions",
-          factory: createPermissionExtension(configuration.permission.policy, configuration.permission),
+          factory: createPermissionExtension(configuration.permission.policy, { ...configuration.permission, review: createAiPermissionReviewer(modelRuntime) }),
         }] : [],
         agentsFilesOverride: (base) => ({
           agentsFiles: mergeProjectContextFiles(base.agentsFiles, options.project, (directoryPath) =>

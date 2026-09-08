@@ -82,17 +82,17 @@ describe("session mutations", () => {
     const { manager, binding } = persistedSession();
     const dispose = vi.fn();
 
-    await expect(setSessionPermissionMode(binding.sessionId, "strict", {
+    await expect(setSessionPermissionMode(binding.sessionId, "safe", {
       recover: async () => [], getRuntime: async () => undefined, dispose,
-    })).resolves.toEqual({ success: true, permissionMode: "strict" });
+    })).resolves.toEqual({ success: true, permissionMode: "safe" });
 
-    expect(bindings.getSessionBinding(binding.sessionId)?.permissionMode).toBe("strict");
-    expect(metadata.getWorkspaceMetadata(SessionManager.open(manager.getSessionFile()!))?.permissionMode).toBe("strict");
+    expect(bindings.getSessionBinding(binding.sessionId)?.permissionMode).toBe("safe");
+    expect(metadata.getWorkspaceMetadata(SessionManager.open(manager.getSessionFile()!))?.permissionMode).toBe("safe");
     expect(dispose).toHaveBeenCalledWith(binding.sessionId, "permission mode changed");
 
     await expect(setSessionPermissionMode(binding.sessionId, "unsafe", {
       recover: async () => [], getRuntime: async () => undefined,
-    })).rejects.toThrow(/relaxed, balanced, or strict/);
+    })).rejects.toThrow(/read-only, safe, ai, or relaxed/);
     await expect(setSessionPermissionMode(binding.sessionId, "relaxed", {
       recover: async () => [], getRuntime: async () => ({ session: { isStreaming: true } }),
     })).rejects.toThrow(/Stop the session/);
@@ -175,7 +175,7 @@ describe("session model selection", () => {
       modelRuntime: { getAvailable: async () => [model] }, setModel,
     } });
     await expect(setSessionModel(binding.sessionId, "test/large", getRuntime as any))
-      .resolves.toEqual({ modelId: "test/large" });
+      .resolves.toEqual({ modelId: "test/large", thinkingLevel: undefined });
     expect(setModel).toHaveBeenCalledWith(model);
     expect(SessionManager.open(manager.getSessionFile()!).buildSessionContext().model)
       .toEqual({ provider: "test", modelId: "large" });
@@ -191,4 +191,20 @@ describe("session model selection", () => {
     await expect(setSessionModel("session", "test/missing", getRuntime as any)).rejects.toThrow(/unavailable/);
     expect(setModel).not.toHaveBeenCalled();
   });
+});
+
+it.each(["high", "max"])("persists model and effort %s together in the session history", async (effort) => {
+  const { manager, binding } = persistedSession();
+  const model = { provider: "test", id: "large" };
+  const session = {
+    model: { provider: "test", id: "flash" }, thinkingLevel: "medium",
+    modelRuntime: { getAvailable: async () => [model] },
+    setModel: async () => { manager.appendModelChange(model.provider, model.id); },
+    setThinkingLevel: (level: string) => { session.thinkingLevel = level; manager.appendThinkingLevelChange(level as any); },
+  };
+  await expect(setSessionModel(binding.sessionId, "test/large", (async () => ({ session })) as any, effort))
+    .resolves.toEqual({ modelId: "test/large", thinkingLevel: effort });
+  const context = SessionManager.open(manager.getSessionFile()!).buildSessionContext();
+  expect(context.model).toEqual({ provider: "test", modelId: "large" });
+  expect(context.thinkingLevel).toBe(effort);
 });

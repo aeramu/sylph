@@ -2,7 +2,7 @@ import { createMemo, createResource, createSignal, For, Show } from 'solid-js';
 import type { ProjectInfo } from '../../types';
 import { listProjects } from '../projects/api';
 import {
-  deleteSchedule, listAllSchedules, runSchedule, updateSchedule,
+  deleteSchedule, listAllSchedules, listScheduleModels, runSchedule, updateSchedule,
   type Schedule, type SchedulePatch,
 } from './api';
 import './SchedulesScreen.css';
@@ -36,11 +36,17 @@ function directoryLabel(schedule: Schedule, projects: ProjectInfo[]) {
   return project?.directories.find((directory) => directory.id === schedule.directoryId)?.name || 'Removed directory';
 }
 
-function ScheduleEditor(props: {
+export function ScheduleEditor(props: {
   schedule: Schedule;
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
+  const [modelId, setModelId] = createSignal(props.schedule.modelId || '');
+  const [modelError, setModelError] = createSignal('');
+  const [models] = createResource(async () => {
+    try { return await listScheduleModels(); }
+    catch { setModelError('Could not load models. You can keep the saved model or use the server default.'); return []; }
+  });
   const [name, setName] = createSignal(props.schedule.name);
   const [prompt, setPrompt] = createSignal(props.schedule.prompt);
   const [kind, setKind] = createSignal<'once' | 'cron'>(props.schedule.kind);
@@ -56,7 +62,7 @@ function ScheduleEditor(props: {
     setError('');
     try {
       const patch: SchedulePatch = {
-        name: name(), prompt: prompt(), kind: kind(), timezone: timezone(),
+        name: name(), prompt: prompt(), modelId: modelId() || null, kind: kind(), timezone: timezone(),
         ...(kind() === 'once' ? { runAt: new Date(runAt()).toISOString() } : { cron: cron() }),
       };
       await updateSchedule(props.schedule, patch);
@@ -82,6 +88,14 @@ function ScheduleEditor(props: {
       <div class="schedule-editor-header"><div><div class="schedule-editor-kicker">Edit schedule</div><h2>{props.schedule.name}</h2></div><button type="button" onClick={props.onClose} aria-label="Close">✕</button></div>
       <label>Name<input value={name()} onInput={(event) => setName(event.currentTarget.value)} required maxlength={120}/></label>
       <label>Agent instructions<textarea value={prompt()} onInput={(event) => setPrompt(event.currentTarget.value)} rows={7} required/></label>
+      <label>Model<select aria-label="Model" value={modelId()} onChange={(event) => setModelId(event.currentTarget.value)} disabled={models.loading || busy()}>
+        <option value="" selected={!modelId()}>Server default</option>
+        <Show when={modelId() && !(models() || []).some((model) => model.value === modelId())}>
+          <option value={modelId()} selected>{modelId()} (saved)</option>
+        </Show>
+        <For each={models() || []}>{(model) => <option value={model.value} selected={modelId() === model.value}>{model.label}</option>}</For>
+      </select><span class="schedule-field-help">Used for future runs, including Run now.</span></label>
+      <Show when={modelError()}><div class="schedule-editor-error">{modelError()}</div></Show>
       <div class="schedule-editor-grid">
         <label>Type<select value={kind()} onChange={(event) => setKind(event.currentTarget.value as 'once' | 'cron')}><option value="once">One time</option><option value="cron">Recurring</option></select></label>
         <label>Timezone<input value={timezone()} onInput={(event) => setTimezone(event.currentTarget.value)} placeholder="Europe/London" required/></label>

@@ -134,7 +134,7 @@ export interface ModelOption {
 }
 
 export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
-export type PermissionMode = 'relaxed' | 'balanced' | 'strict';
+export type PermissionMode = 'read-only' | 'safe' | 'ai' | 'relaxed';
 
 export interface ThinkingLevelOption {
   value: ThinkingLevel;

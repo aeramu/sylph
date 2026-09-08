@@ -4,6 +4,8 @@ import { page, userEvent } from 'vitest/browser';
 import { afterEach, describe, expect, it } from 'vitest';
 import AutocompletePopup from './AutocompletePopup';
 import Composer from '../Composer';
+import PermissionModeSelector from './PermissionModeSelector';
+import type { PermissionMode } from '../../../types';
 import SettingsNavigation, { type SettingsSection } from '../../settings/components/SettingsNavigation';
 import ProvidersSettings from '../../settings/components/ProvidersSettings';
 import ProviderDetail from '../../settings/components/ProviderDetail';
@@ -94,7 +96,7 @@ describe('Composer', () => {
         thinkingLevels={[]}
         selectedThinkingLevel="off"
         onSelectThinkingLevel={() => {}}
-        permissionMode="balanced"
+        permissionMode="safe"
         onSelectPermissionMode={() => {}}
         reviewComments={[{
           id: 'comment-1', surface: 'git', path: 'src/api.ts', quote: 'return oldValue', comment: 'Keep the fallback.',
@@ -110,8 +112,29 @@ describe('Composer', () => {
     expect(submitted).toEqual([expect.objectContaining({ id: 'comment-1', path: 'src/api.ts', comment: 'Keep the fallback.' })]);
   });
 
+  it('updates the selector icon after every mode change', async () => {
+    const [mode, setMode] = createSignal<PermissionMode>('safe');
+    mount(() => <PermissionModeSelector value={mode()} onChange={setMode} />);
+    const icon = () => document.querySelector('.permission-mode-trigger-icon')!.innerHTML;
+    const hand = icon();
+    const seen = new Set([hand]);
+    for (const label of ['Read only', 'Auto approve', 'Relaxed', 'Ask for approval']) {
+      await userEvent.click(page.getByRole('button', { name: 'Permission mode' }));
+      const option = page.getByRole('menuitemradio', { name: new RegExp(label) });
+      const menuIcon = document.querySelector('.permission-mode-menu')!
+        .querySelectorAll('.permission-mode-option');
+      const expected = Array.from(menuIcon).find((element) => element.textContent?.includes(label))!
+        .querySelector('.permission-mode-option-icon')!.innerHTML;
+      await userEvent.click(option);
+      await expect.poll(icon).toBe(expected);
+      seen.add(icon());
+    }
+    expect(seen.size).toBe(4);
+    expect(icon()).toBe(hand);
+  });
+
   it('changes the permission mode from the composer dropdown', async () => {
-    let selected = 'balanced';
+    let selected = 'safe';
     mount(() => (
       <Composer
         isConnected
@@ -127,7 +150,7 @@ describe('Composer', () => {
         thinkingLevels={[]}
         selectedThinkingLevel="off"
         onSelectThinkingLevel={() => {}}
-        permissionMode="balanced"
+        permissionMode="safe"
         onSelectPermissionMode={(mode) => { selected = mode; }}
         reviewComments={[]}
         onRemoveReviewComment={() => {}}
@@ -138,9 +161,9 @@ describe('Composer', () => {
 
     await userEvent.click(page.getByRole('button', { name: 'Permission mode' }));
     await expect.element(page.getByRole('menu', { name: 'Permission behavior' })).toBeInTheDocument();
-    await expect.element(page.getByText('Fewer prompts; external changes still need approval')).toBeInTheDocument();
-    await userEvent.click(page.getByRole('menuitemradio', { name: /Ask for approval/ }));
-    expect(selected).toBe('strict');
+    await expect.element(page.getByText('Allow everything except catastrophic commands')).toBeInTheDocument();
+    await userEvent.click(page.getByRole('menuitemradio', { name: /Read only/ }));
+    expect(selected).toBe('read-only');
   });
 
   it('keeps the textarea as the only visible text renderer when highlighting mentions', async () => {
@@ -159,7 +182,7 @@ describe('Composer', () => {
         thinkingLevels={[]}
         selectedThinkingLevel="off"
         onSelectThinkingLevel={() => {}}
-        permissionMode="balanced"
+        permissionMode="safe"
         onSelectPermissionMode={() => {}}
         reviewComments={[]}
         onRemoveReviewComment={() => {}}

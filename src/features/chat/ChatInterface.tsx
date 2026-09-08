@@ -48,7 +48,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
   const [commandsList, setCommandsList] = createSignal<CommandInfo[]>([]);
   const [projects, setProjects] = createSignal<ProjectInfo[]>([]);
   const [sessionBinding, setSessionBinding] = createSignal<SessionBindingInfo | null>(null);
-  const [permissionMode, setPermissionMode] = createSignal<PermissionMode>('balanced');
+  const [permissionMode, setPermissionMode] = createSignal<PermissionMode>('safe');
   const [permissionModeSaving, setPermissionModeSaving] = createSignal(false);
   const [showAddFolder, setShowAddFolder] = createSignal(false);
   const [showStartingFolder, setShowStartingFolder] = createSignal(false);
@@ -61,6 +61,8 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     selectModel,
     rememberSessionModel,
     restoreSessionModel,
+    preferencesReady,
+    waitForPreferenceSave,
     selectThinkingLevel,
   } = createModelPreferences(() => props.activeSessionId);
   const [uiRequest, setUiRequest] = createSignal<UiRequest | null>(null);
@@ -313,7 +315,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     setPinnedToBottom(true); // fresh session — follow from the bottom
     setContextInfo(null);
     setSessionBinding(null);
-    setPermissionMode('balanced');
+    setPermissionMode('safe');
     setPermissionModeSaving(false);
     setShowAddFolder(false);
     setShowStartingFolder(false);
@@ -354,11 +356,11 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       if (!loaded) return;
       const { snapshot: data, events } = loaded;
       setMessages(mapSessionSnapshotMessages(data));
-      restoreSessionModel(sessionId, data.modelId);
+      restoreSessionModel(sessionId, data.modelId, data.thinkingLevel);
       setSessionName(data.name);
       setContextInfo(data.context || null);
       setSessionBinding(data.binding || null);
-      setPermissionMode(data.binding?.permissionMode ?? 'balanced');
+      setPermissionMode(data.binding?.permissionMode ?? 'safe');
       if (data.binding?.directoryId) setSelectedDirectoryId(data.binding.directoryId);
       // Replace extension statuses with the snapshot's. Their live SSE
       // broadcasts are one-shot: any fired while this session wasn't active
@@ -612,7 +614,9 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
     };
 
     try {
+      await waitForPreferenceSave();
       const submittedModel = selectedModel();
+      const submittedEffort = selectedThinkingLevel();
       const data = await sendChat({
           prompt: prepared.prompt,
           // The typed message only — mentions live here, not in the appended
@@ -623,7 +627,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
           directoryId: selectedDirectoryId() || undefined,
           standalonePath: activeProject()?.directories.length ? undefined : standalonePath().trim() || undefined,
           modelId: submittedModel || undefined,
-          thinkingLevel: selectedThinkingLevel(),
+          thinkingLevel: submittedEffort,
           permissionMode: permissionMode(),
           images: prepared.images,
           useWorktree: isNewSession && useWorktree(),
@@ -634,7 +638,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
       if (data.steered) setMessages(m => m.id === optimisticId, 'steered', true);
       setPermissionMode(data.permissionMode);
       if (data.sessionId && data.sessionId !== props.activeSessionId) {
-        rememberSessionModel(data.sessionId, submittedModel);
+        rememberSessionModel(data.sessionId, submittedModel, submittedEffort);
         // The session-switch effect replays the buffer and clears the flag.
         // Fall back to the locally selected project if the server couldn't
         // resolve one, so the sidebar draft still lands in the right group.
@@ -846,11 +850,11 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
           <Show when={props.activeSessionId}><SessionBar project={activeProject()} binding={sessionBinding()} diff={diffs().session} canAddFolder={!isProcessing() && !uiRequest() && !questionsRequest()}
             onRestore={() => void handleWorktreeRestore()} onRemove={() => void handleWorktreeRemove()} onAddFolder={() => setShowAddFolder(true)} onOpenChanges={() => openChangesPanel()}/></Show>
           <Composer
-            isConnected={isConnected()} isProcessing={isProcessing()} disabled={permissionModeSaving() || !!uiRequest() || !!questionsRequest() || !!sessionBinding()?.worktreeMissing}
+            isConnected={isConnected()} isProcessing={isProcessing()} disabled={!preferencesReady() || permissionModeSaving() || !!uiRequest() || !!questionsRequest() || !!sessionBinding()?.worktreeMissing}
             commands={commandsList()} projectId={props.activeProjectId} directoryId={activeDirectory()?.id} sessionId={props.activeSessionId}
             draftKey={chatDraftKey()} draftText={getChatDraft(chatDraftKey())} onDraftChange={(text) => setChatDraft(chatDraftKey(), text)}
             models={models()} selectedModel={selectedModel()} onSelectModel={(model) => { void selectModel(model).catch((error) => alert(error instanceof Error ? error.message : 'Failed to save model')); }} thinkingLevels={thinkingLevelOptions()}
-            selectedThinkingLevel={selectedThinkingLevel()} onSelectThinkingLevel={selectThinkingLevel} contextInfo={contextInfo()}
+            selectedThinkingLevel={selectedThinkingLevel()} onSelectThinkingLevel={(level) => { void selectThinkingLevel(level).catch((error) => alert(error instanceof Error ? error.message : 'Failed to save effort')); }} contextInfo={contextInfo()}
             permissionMode={permissionMode()} onSelectPermissionMode={(mode) => void handlePermissionModeChange(mode)}
             reviewComments={reviewComments()} onRemoveReviewComment={deleteReviewComment}
             onSubmit={async (text, attachments, comments) => {

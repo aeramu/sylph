@@ -6,7 +6,7 @@ import { getSettings, updateSettings } from "./settingsRepository.ts";
 import { COMMIT_MESSAGE_THINKING_LEVELS, type CommitMessageThinkingLevel } from "./settingsTypes.ts";
 
 export async function saveSettings(input: Record<string, unknown>) {
-  const { commitMessageModel, commitMessageThinkingLevel, commitMessagePrompt } = input;
+  const { permissionReviewModel, commitMessageModel, commitMessageThinkingLevel, commitMessagePrompt } = input;
   if (commitMessageModel !== undefined && typeof commitMessageModel !== "string") badRequest("commitMessageModel must be a string");
   if (commitMessageThinkingLevel !== undefined && (typeof commitMessageThinkingLevel !== "string"
     || !COMMIT_MESSAGE_THINKING_LEVELS.includes(commitMessageThinkingLevel as CommitMessageThinkingLevel))) {
@@ -14,6 +14,13 @@ export async function saveSettings(input: Record<string, unknown>) {
   }
   if (commitMessagePrompt !== undefined && (typeof commitMessagePrompt !== "string" || !commitMessagePrompt.trim())) {
     badRequest("commitMessagePrompt must be a non-empty string");
+  }
+  if (permissionReviewModel !== undefined && typeof permissionReviewModel !== "string") badRequest("permissionReviewModel must be a string");
+  if (typeof permissionReviewModel === "string" && permissionReviewModel) {
+    const runtime = await getIntrospectionRuntime();
+    if (!findAvailableModel(await runtime.session.modelRuntime.getAvailable(), permissionReviewModel)) {
+      badRequest(`Unknown or unavailable approval model: ${permissionReviewModel}`);
+    }
   }
   const current = getSettings();
   const requestedModel = (commitMessageModel as string | undefined) ?? current.commitMessageModel;
@@ -28,6 +35,7 @@ export async function saveSettings(input: Record<string, unknown>) {
     }
   }
   return updateSettings({
+    permissionReviewModel: (permissionReviewModel as string | undefined) ?? current.permissionReviewModel,
     commitMessageModel: requestedModel,
     commitMessageThinkingLevel: requestedThinkingLevel,
     commitMessagePrompt: (commitMessagePrompt as string | undefined) ?? current.commitMessagePrompt,

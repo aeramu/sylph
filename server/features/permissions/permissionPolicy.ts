@@ -18,6 +18,10 @@ export function evaluateToolCall(policy: PermissionPolicy, event: PermissionTool
     return evaluateBash(policy, String(input.command ?? ""), cwd);
   }
 
+  if (policy.mode === "relaxed") return {
+    decision: "allow", reason: "Relaxed allows tool access", summary: `Tool: ${event.toolName}`,
+    approvalKey: "relaxed", intents: [],
+  };
   const input = event.input && typeof event.input === "object" ? event.input as Record<string, unknown> : {};
   const nested = input.arguments && typeof input.arguments === "object" ? input.arguments as Record<string, unknown> : {};
   const rawPath = PATH_TOOLS.has(event.toolName) ? input.path ?? "."
@@ -29,17 +33,14 @@ export function evaluateToolCall(policy: PermissionPolicy, event: PermissionTool
     const serialized = JSON.stringify(event.input ?? {});
     const fingerprint = createHash("sha256").update(serialized).digest("hex").slice(0, 16);
     const preview = serialized.length > 300 ? `${serialized.slice(0, 300)}…` : serialized;
-    const strictSideEffect = policy.mode === "strict" && event.toolName !== "ask_user_question"
-      && !["bg_status", "bg_logs", "list_schedules"].includes(event.toolName);
-    const unknownTool = !known;
-    const decision = strictSideEffect || (unknownTool && policy.mode === "strict") ? "ask" : "allow";
-    const reason = strictSideEffect ? "tool requires confirmation in Strict mode"
-      : known ? "tool has no filesystem access intent" : "custom tool access cannot be fully inspected";
+    const sideEffect = !["ask_user_question", "bg_status", "bg_logs", "list_schedules"].includes(event.toolName);
+    const decision = sideEffect ? (policy.mode === "read-only" ? "deny" : "ask") : "allow";
+    const reason = sideEffect ? "tool side effects require review" : "tool has no filesystem access intent";
     return {
       decision,
       reason,
       summary: `Tool: ${event.toolName}${known ? "" : `\nInput: ${preview}`}`,
-      approvalKey: `${policy.mode ?? "balanced"}:tool:${event.toolName}:${fingerprint}`,
+      approvalKey: `${policy.mode ?? "safe"}:tool:${event.toolName}:${fingerprint}`,
       intents: [],
     };
   }
@@ -58,7 +59,7 @@ export function evaluateToolCall(policy: PermissionPolicy, event: PermissionTool
     decision: intent.decision,
     reason: intent.reason || "allowed by workspace policy",
     summary: `Tool: ${event.toolName}\n${describeIntent(intent)}${intent.canonicalPath !== intent.lexicalPath ? `\nResolved: ${intent.canonicalPath}` : ""}`,
-    approvalKey: `${policy.mode ?? "balanced"}:${event.toolName}:${intent.root?.id ?? "external"}:${intent.canonicalPath}`,
+    approvalKey: `${policy.mode ?? "safe"}:${event.toolName}:${intent.root?.id ?? "external"}:${intent.canonicalPath}`,
     intents: [intent],
   };
 }

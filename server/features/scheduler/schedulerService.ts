@@ -16,6 +16,11 @@ function text(value: unknown, field: string): string {
   return value.trim();
 }
 
+function modelId(value: unknown): string | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  return text(value, "modelId");
+}
+
 function kind(value: unknown): ScheduleKind {
   if (value !== "once" && value !== "cron") badRequest("kind must be once or cron");
   return value;
@@ -71,6 +76,7 @@ export function createSchedule(input: ScheduleInput, ownership: ScheduleOwnershi
     id: `schedule-${randomUUID()}`,
     name: text(input.name, "name"),
     prompt: text(input.prompt, "prompt"),
+    modelId: modelId(input.modelId),
     ...timing,
     enabled: input.enabled !== false,
     ...(ownership.projectId ? { projectId: ownership.projectId } : {}),
@@ -110,6 +116,7 @@ export function updateSchedule(id: string, input: ScheduleInput, projectId?: str
     ...current,
     name: text(combined.name, "name"),
     prompt: text(combined.prompt, "prompt"),
+    modelId: input.modelId === undefined ? current.modelId : modelId(input.modelId),
     ...timing,
     enabled,
     lastError: undefined,

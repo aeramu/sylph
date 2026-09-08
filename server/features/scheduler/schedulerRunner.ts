@@ -8,6 +8,7 @@ export const SCHEDULER_INTERVAL_MS = 30_000;
 
 export type ScheduledChatSender = (input: {
   prompt: string;
+  modelId?: string;
   projectId?: string;
   directoryId?: string;
 }) => Promise<SendChatResult>;
@@ -74,6 +75,7 @@ export async function runSchedule(
     if (schedule.projectId && !getProjectById(schedule.projectId)) throw new Error("Scheduled project no longer exists");
     const result = await (options.sender ?? sendChat)({
       prompt: schedule.prompt,
+      ...(schedule.modelId ? { modelId: schedule.modelId } : {}),
       ...(schedule.projectId ? { projectId: schedule.projectId } : {}),
       ...(schedule.projectId && schedule.directoryId ? { directoryId: schedule.directoryId } : {}),
     });

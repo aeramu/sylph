@@ -1,4 +1,4 @@
-import { createEffect, createSignal, For, onCleanup, onMount } from 'solid-js';
+import { createEffect, createSignal, For, Match, Switch, onCleanup, onMount } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import type { PermissionMode } from '../../../types';
 
@@ -10,46 +10,40 @@ interface PermissionModeOption {
 }
 
 const OPTIONS: PermissionModeOption[] = [
-  {
-    value: 'strict',
-    label: 'Ask for approval',
-    description: 'Always ask before commands, edits, and side effects',
-  },
-  {
-    value: 'balanced',
-    label: 'Approve for me',
-    description: 'Only ask for risky, sensitive, or external actions',
-  },
-  {
-    value: 'relaxed',
-    label: 'Relaxed access',
-    description: 'Fewer prompts; external changes still need approval',
-    tone: 'warning',
-  },
+  { value: 'read-only', label: 'Read only', description: 'Inspect files; block changes and side effects' },
+  { value: 'safe', label: 'Ask for approval', description: 'Allow safe workspace actions; ask before risky or external actions' },
+  { value: 'ai', label: 'Auto approve', description: 'Let the model selected in Settings review safety' },
+  { value: 'relaxed', label: 'Relaxed', description: 'Allow everything except catastrophic commands', tone: 'warning' },
 ];
 
 function PermissionIcon(props: { mode: PermissionMode }) {
-  if (props.mode === 'strict') {
-    return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
+  return (
+    <Switch>
+      <Match when={props.mode === 'read-only'}>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
+        <circle cx="12" cy="12" r="3" />
+      </svg>
+      </Match>
+      <Match when={props.mode === 'safe'}>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M8.2 11.2V6.6a1.35 1.35 0 0 1 2.7 0v3.2-5.1a1.35 1.35 0 0 1 2.7 0v5.1-4.1a1.35 1.35 0 0 1 2.7 0v4.6-2.6a1.35 1.35 0 0 1 2.7 0v4.8c0 5-2.7 8-7.2 8-3 0-5-1.7-6.6-4.2l-1.5-2.4a1.55 1.55 0 0 1 .5-2.2 1.6 1.6 0 0 1 2.1.4l1.9 2.3" />
       </svg>
-    );
-  }
-  if (props.mode === 'balanced') {
-    return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
+      </Match>
+      <Match when={props.mode === 'ai'}>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M12 2.8 20 6v5.4c0 5.1-3.1 8.2-8 9.8-4.9-1.6-8-4.7-8-9.8V6l8-3.2Z" />
         <path d="m8.7 12.1 2.1 2.1 4.7-4.8" />
       </svg>
-    );
-  }
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
+      </Match>
+      <Match when={props.mode === 'relaxed'}>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M12 2.8 20 6v5.4c0 5.1-3.1 8.2-8 9.8-4.9-1.6-8-4.7-8-9.8V6l8-3.2Z" />
       <path d="M12 8v5.2" />
       <path d="M12 16.6h.01" />
     </svg>
+      </Match>
+    </Switch>
   );
 }
 

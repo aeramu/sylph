@@ -3,7 +3,10 @@ import {
   evaluateToolCall, type PermissionDecision, type PermissionPolicy,
 } from "../../../features/permissions/permissionPolicy.ts";
 
+import type { PermissionReview, PermissionReviewRequest } from "../../../features/permissions/aiPermissionReview.ts";
+
 export interface PermissionExtensionOptions {
+  review?: (request: PermissionReviewRequest) => Promise<PermissionReview>;
   initialApprovals?: string[];
   onApproval?: (approvalKey: string) => void;
   audit?: (event: {
@@ -28,19 +31,31 @@ export function createPermissionExtension(policy: PermissionPolicy, options: Per
       });
       // Routine allows are intentionally not logged because tool inputs can
       // contain secrets. The audit trail records reviewed or blocked access.
-      if (evaluation.decision === "allow") return undefined;
+      const aiReview = policy.mode === "ai" && (evaluation.decision !== "allow"
+        || !["read", "grep", "find", "ls", "ask_user_question", "bg_status", "bg_logs", "list_schedules"].includes(event.toolName));
+      if (evaluation.decision === "allow" && !aiReview) return undefined;
       // Hard denials always win. Persisted approvals are mode-scoped, but they
       // must also remain unable to override rules tightened in a later release.
       if (evaluation.decision === "deny") {
         audit("deny");
         return { block: true, reason: `[Sylph permission] ${evaluation.reason}` };
       }
-      // Command-only shell approvals do not bind the resolved targets or cwd.
-      const legacyApprovalKey = event.toolName !== "bash" && event.toolName !== "bg_run"
-        && (policy.mode ?? "balanced") === "balanced"
-        ? evaluation.approvalKey.replace(/^balanced:/, "")
-        : undefined;
-      if (sessionApprovals.has(evaluation.approvalKey) || (legacyApprovalKey && sessionApprovals.has(legacyApprovalKey))) {
+      if (aiReview) {
+        let review: PermissionReview;
+        try {
+          review = options.review ? await options.review({ event, evaluation, cwd: ctx.cwd, policy })
+            : { decision: "ask", reason: "AI safety reviewer is unavailable" };
+        } catch {
+          review = { decision: "ask", reason: "AI safety review failed; manual approval is required" };
+        }
+        evaluation.reason = `AI review: ${review.reason}`;
+        if (review.decision === "allow") { audit("allow"); return undefined; }
+        if (review.decision === "deny") {
+          audit("deny");
+          return { block: true, reason: `[Sylph permission] ${evaluation.reason}` };
+        }
+        // Do not let earlier approvals or a different review model skip an uncertain review.
+      } else if (sessionApprovals.has(evaluation.approvalKey)) {
         audit("approved_for_session");
         return undefined;
       }
@@ -52,7 +67,7 @@ export function createPermissionExtension(policy: PermissionPolicy, options: Per
       const sessionOption = "Allow matching access for this session";
       const choice = await ctx.ui.select(
         `Permission required\n${evaluation.summary}\n\nReason: ${evaluation.reason}`,
-        ["Allow once", sessionOption, "Deny", "Deny with reason"],
+        aiReview ? ["Allow once", "Deny", "Deny with reason"] : ["Allow once", sessionOption, "Deny", "Deny with reason"],
       );
       if (choice === "Allow once") { audit("allow"); return undefined; }
       if (choice === sessionOption) {

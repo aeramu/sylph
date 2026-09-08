@@ -45,7 +45,7 @@ function normalizeCommand(input: unknown): SendChatCommand {
   const body = input && typeof input === "object" ? input as Record<string, unknown> : {};
   if (typeof body.prompt !== "string" || !body.prompt) badRequest("prompt is required");
   if (body.permissionMode !== undefined && !isPermissionMode(body.permissionMode)) {
-    badRequest("permissionMode must be relaxed, balanced, or strict");
+    badRequest("permissionMode must be read-only, safe, ai, or relaxed");
   }
   return body as unknown as SendChatCommand;
 }

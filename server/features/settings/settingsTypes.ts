@@ -12,6 +12,7 @@ export const DEFAULT_COMMIT_MESSAGE_PROMPT = [
 ].join("\n");
 
 export interface SylphSettings {
+  permissionReviewModel: string;
   commitMessageModel: string;
   commitMessageThinkingLevel: CommitMessageThinkingLevel;
   commitMessagePrompt: string;

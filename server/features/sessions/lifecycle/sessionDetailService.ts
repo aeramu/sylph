@@ -20,6 +20,7 @@ export async function getSessionDetail(sessionId: string) {
     const detached = SessionManager.open(binding.sessionFile);
     const context = detached.buildSessionContext();
     return {
+      thinkingLevel: context.thinkingLevel,
       modelId: context.model ? `${context.model.provider}/${context.model.modelId}` : undefined,
       messages: context.messages || [], eventSeq: getSessionEventSequence(sessionId),
       name: detached.getSessionName(), isStreaming: false, pendingUiRequests: [],
@@ -46,6 +47,7 @@ export async function getSessionDetail(sessionId: string) {
   const eventSeq = getSessionEventSequence(sessionId);
   return {
     messages, eventSeq,
+    thinkingLevel: runtime.session.thinkingLevel,
     modelId: runtime.session.model ? `${runtime.session.model.provider}/${runtime.session.model.id}` : undefined,
     name: runtime.session.sessionManager?.getSessionName?.(), isStreaming: !!runtime.session.isStreaming, pendingUiRequests,
     pendingArtifactRequest: getPendingArtifactRequest(sessionId), statuses: getSessionStatuses(sessionId),

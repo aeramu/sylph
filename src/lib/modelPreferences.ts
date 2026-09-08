@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal } from 'solid-js';
+import { batch, createEffect, createMemo, createSignal } from 'solid-js';
 import type { ModelOption, ThinkingLevel } from '../types';
 import { THINKING_LEVELS } from '../types';
 import { api } from './api';
@@ -18,11 +18,15 @@ export function createModelPreferences(sessionId: () => string | undefined = () 
   const [selectedModel, setSelectedModel] = createSignal('');
   const [selectedThinkingLevel, setSelectedThinkingLevel] = createSignal<ThinkingLevel>('medium');
   const sessionModels = new Map<string, string>();
+  const sessionEfforts = new Map<string, ThinkingLevel>();
+  const loadedSessions = new Set<string>();
   const [sessionRevision, setSessionRevision] = createSignal(0);
   const pendingSaves = new Map<string, Promise<void>>();
-  const rememberSessionModel = (id: string, model: string) => {
+  const rememberSessionModel = (id: string, model: string, effort?: ThinkingLevel) => {
     if (!model) return;
     sessionModels.set(id, model);
+    if (effort) sessionEfforts.set(id, effort);
+    loadedSessions.add(id);
     setSessionRevision((value) => value + 1);
   };
 
@@ -59,44 +63,73 @@ export function createModelPreferences(sessionId: () => string | undefined = () 
     if (!mapped.length) return;
     let saved = id ? sessionModels.get(id) : undefined;
     try {
-      saved ||= localStorage.getItem('sylph.selectedModel') || undefined;
+      if (!id) saved ||= localStorage.getItem('sylph.selectedModel') || undefined;
     } catch {}
     const initial = (saved && mapped.find((model) => model.value === saved))
       || mapped.find((model) => model.value.toLowerCase().includes('flash'))
       || mapped[0];
-    if (initial) setSelectedModel(initial.value);
+    let effort = id ? sessionEfforts.get(id) : undefined;
+    if (!id) {
+      try { effort = localStorage.getItem('sylph.thinkingLevel') as ThinkingLevel | undefined; } catch {}
+    }
+    batch(() => {
+      setSelectedModel(id && !loadedSessions.has(id) ? '' : initial?.value ?? '');
+      setSelectedThinkingLevel(THINKING_LEVELS.some((option) => option.value === effort) ? effort! : 'medium');
+    });
   });
 
-  const restoreSessionModel = (id: string, model?: string) => {
-    if (model && !pendingSaves.has(id)) rememberSessionModel(id, model);
+  const restoreSessionModel = (id: string, model?: string, effort?: ThinkingLevel) => {
+    if (!pendingSaves.has(id)) {
+      loadedSessions.add(id);
+      if (effort) sessionEfforts.set(id, effort);
+      if (model) sessionModels.set(id, model);
+      setSessionRevision((value) => value + 1);
+    }
   };
 
-  const selectModel = async (id: string) => {
-    const previous = selectedModel();
-    setSelectedModel(id);
+  const preferencesReady = createMemo(() => {
+    sessionRevision();
+    const id = sessionId();
+    return !id || loadedSessions.has(id);
+  });
+
+  const savePreferences = async (model: string, effort: ThinkingLevel) => {
     const activeSession = sessionId();
-    try { localStorage.setItem('sylph.selectedModel', id); } catch {}
-    if (!activeSession) return;
-    rememberSessionModel(activeSession, id);
+    const previousModel = selectedModel();
+    const previousEffort = selectedThinkingLevel();
+    batch(() => { setSelectedModel(model); setSelectedThinkingLevel(effort); });
+    if (!activeSession) {
+      try {
+        localStorage.setItem('sylph.selectedModel', model);
+        localStorage.setItem('sylph.thinkingLevel', effort);
+      } catch {}
+      return;
+    }
+    rememberSessionModel(activeSession, model, effort);
     const save = (pendingSaves.get(activeSession) ?? Promise.resolve()).catch(() => {}).then(async () => {
-      await api(`/api/sessions/${encodeURIComponent(activeSession)}/model`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ modelId: id }),
+      const result = await api<{ modelId: string; thinkingLevel: ThinkingLevel }>(`/api/sessions/${encodeURIComponent(activeSession)}/model`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ modelId: model, thinkingLevel: effort }),
       });
+      if (pendingSaves.get(activeSession) === save && result?.modelId) {
+        rememberSessionModel(activeSession, result.modelId, result.thinkingLevel);
+      }
     });
     pendingSaves.set(activeSession, save);
     try {
       await save;
     } catch (error) {
-      if (pendingSaves.get(activeSession) === save) rememberSessionModel(activeSession, previous);
+      if (pendingSaves.get(activeSession) === save) rememberSessionModel(activeSession, previousModel, previousEffort);
       throw error;
     } finally {
       if (pendingSaves.get(activeSession) === save) pendingSaves.delete(activeSession);
     }
   };
-
-  const selectThinkingLevel = (level: ThinkingLevel) => {
-    setSelectedThinkingLevel(level);
-    try { localStorage.setItem('sylph.thinkingLevel', level); } catch {}
+  const selectModel = (model: string) => savePreferences(model, selectedThinkingLevel());
+  const selectThinkingLevel = (level: ThinkingLevel) => savePreferences(selectedModel(), level);
+  const waitForPreferenceSave = () => {
+    const id = sessionId();
+    return id ? pendingSaves.get(id) : undefined;
   };
 
   const availableThinkingLevels = createMemo<ThinkingLevel[]>(() => {
@@ -120,11 +153,13 @@ export function createModelPreferences(sessionId: () => string | undefined = () 
     const requestedIndex = ordered.indexOf(selected);
     const stronger = ordered.slice(requestedIndex + 1).find((level) => available.includes(level));
     const weaker = ordered.slice(0, requestedIndex).reverse().find((level) => available.includes(level));
-    selectThinkingLevel(stronger ?? weaker ?? available[0] ?? 'off');
+    setSelectedThinkingLevel(stronger ?? weaker ?? available[0] ?? 'off');
   });
 
   return {
     models,
+    preferencesReady,
+    waitForPreferenceSave,
     selectedModel,
     selectedThinkingLevel,
     thinkingLevelOptions,

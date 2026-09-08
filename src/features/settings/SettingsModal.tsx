@@ -14,6 +14,7 @@ import {
 import SettingsNavigation, { type SettingsSection } from './components/SettingsNavigation';
 import ProjectsSettings from './components/ProjectsSettings';
 import ProvidersSettings from './components/ProvidersSettings';
+import PermissionsSettings from './components/PermissionsSettings';
 import NotificationsSettings from './components/NotificationsSettings';
 import ProviderDetail from './components/ProviderDetail';
 import ResourceList from './components/ResourceList';
@@ -90,7 +91,7 @@ export default function SettingsModal(props: {
     ? 'Create Provider'
     : (providers() || []).find((provider) => provider.id === selectedProvider())?.name
       || selectedSkill() || selectedExtension() || sectionTitle();
-  const sectionTitle = () => activeSection() === 'projects' ? 'Projects' : activeSection() === 'provider' ? 'Provider' : activeSection() === 'git' ? 'Git' : activeSection() === 'notifications' ? 'Notifications' : activeSection() === 'skills' ? 'Skills' : 'Extensions';
+  const sectionTitle = () => activeSection() === 'projects' ? 'Projects' : activeSection() === 'provider' ? 'Provider' : activeSection() === 'permissions' ? 'Permissions' : activeSection() === 'git' ? 'Git' : activeSection() === 'notifications' ? 'Notifications' : activeSection() === 'skills' ? 'Skills' : 'Extensions';
   const emptyLabel = () => activeSection() === 'skills' ? 'skills' : 'extensions';
   const selectedProviderInfo = () => (providers() || []).find((p) => p.id === selectedProvider()) || null;
   const providerOperationBusy = () => providerBusy() || oauthBusy();
@@ -575,6 +576,7 @@ export default function SettingsModal(props: {
                   </section>
                 </div>
               }>
+              <Show when={activeSection() !== 'permissions'} fallback={<PermissionsSettings models={models() || []} />}>
               <Show when={activeSection() !== 'notifications'} fallback={<NotificationsSettings />}>
               <Show when={!((activeSection() === 'skills' && selectedSkill()) || (activeSection() === 'extensions' && selectedExtension()))} fallback={
                 <Show when={activeSection() === 'skills'} fallback={
@@ -687,6 +689,7 @@ export default function SettingsModal(props: {
               </Show>
             </Show>
             </Show>
+              </Show>
           </div>
         </div>
       </div>

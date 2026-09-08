@@ -5,6 +5,8 @@ import path from "path";
 import { pathToFileURL } from "node:url";
 import { evaluateToolCall, parseCommandUnits, type PermissionPolicy } from "./permissionPolicy.ts";
 
+import { isPermissionMode } from "./permissionTypes.ts";
+
 const temporaryRoots: string[] = [];
 afterEach(() => {
   for (const root of temporaryRoots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
@@ -30,6 +32,27 @@ function workspace() {
 const tool = (toolName: string, input: Record<string, unknown>) => ({ toolName, input } as any);
 
 describe("Sylph permissions", () => {
+  it("accepts the four public mode values and rejects legacy values at the API boundary", () => {
+    for (const mode of ["read-only", "safe", "ai", "relaxed"]) expect(isPermissionMode(mode)).toBe(true);
+    for (const mode of ["strict", "balanced", "unknown", null]) expect(isPermissionMode(mode)).toBe(false);
+  });
+
+  it("blocks uninspectable and mutating shell behavior in Read only", () => {
+    const { frontend, policy } = workspace();
+    policy.mode = "read-only";
+    for (const command of ["bash -c 'touch file'", "cd $(touch file)", "printf x > ./file", "rg --pre ./script query .", "./cat file"]) {
+      expect(evaluateToolCall(policy, tool("bash", { command }), frontend).decision).toBe("deny");
+    }
+  });
+
+  it("keeps catastrophic denials in Relaxed, including common wrappers", () => {
+    const { frontend, policy } = workspace();
+    policy.mode = "relaxed";
+    for (const command of ["env rm -rf /", "sudo bash -c 'rm -rf /'", "command reboot", "sh -lc 'dd of=/dev/disk0'", "rm -Rf ~"]) {
+      expect(evaluateToolCall(policy, tool("bash", { command }), frontend).decision).toBe("deny");
+    }
+  });
+
   it("normalizes file-tool paths before checking workspace containment", () => {
     const { parent, frontend, policy } = workspace();
     const external = path.join(parent, "outside file.txt");
@@ -59,7 +82,7 @@ describe("Sylph permissions", () => {
 
   it("checks cd redirections against the directory before cd", () => {
     const { parent, frontend, api, policy } = workspace();
-    for (const mode of ["balanced", "relaxed"] as const) {
+    for (const mode of ["safe", "ai"] as const) {
       for (const redirect of [">", ">>", "<"]) {
         const result = evaluateToolCall({ ...policy, mode }, tool("bash", {
           command: `cd . ${redirect} ${JSON.stringify(path.join(parent, ".env"))}`,
@@ -74,9 +97,9 @@ describe("Sylph permissions", () => {
     expect(evaluateToolCall(policy, tool("bash", { command: `cd . > ${JSON.stringify(path.join(api, "output.txt"))}` }), frontend).decision).toBe("deny");
   });
 
-  it("gates in-place sed edits in Relaxed mode and respects read-only roots", () => {
+  it("gates in-place sed edits in Safe only and respects read-only roots", () => {
     const { parent, frontend, api, policy } = workspace();
-    policy.mode = "relaxed";
+    policy.mode = "safe";
     for (const flags of ["-i.bak", "-i", "-i ''", "-ni.bak", "--in-place", "--in-place=.bak"]) {
       const command = `sed ${flags} 's/a/b/' ${JSON.stringify(path.join(parent, "outside.txt"))}`;
       const result = evaluateToolCall(policy, tool("bash", { command }), frontend);
@@ -201,7 +224,7 @@ describe("Sylph permissions", () => {
   it("does not treat numeric route arguments passed to scripts as filesystem paths", () => {
     const { frontend, policy } = workspace();
     const route = evaluateToolCall(policy, tool("bash", { command: "python ./fetch_ids.py /1000" }), frontend);
-    expect(route).toMatchObject({ decision: "allow" });
+    expect(route).toMatchObject({ decision: "ask" });
     expect(route.intents.some((intent) => intent.canonicalPath === "/1000")).toBe(false);
 
     expect(evaluateToolCall(policy, tool("bash", { command: "python /1000" }), frontend)).toMatchObject({ decision: "ask" });
@@ -219,7 +242,7 @@ describe("Sylph permissions", () => {
     expect(section.intents.some((intent) => intent.canonicalPath === fs.realpathSync(ledger))).toBe(true);
 
     const dated = evaluateToolCall(policy, tool("bash", { command: "sed -n '/2026-08-31/,$p' transactions/2026/08.bean" }), frontend);
-    expect(dated).toMatchObject({ decision: "allow" });
+    expect(dated).toMatchObject({ decision: "ask" });
     expect(dated.intents.some((intent) => intent.canonicalPath === "/2026-08-31/,$p")).toBe(false);
 
     expect(evaluateToolCall(policy, tool("bash", { command: "sed -e '/x/d' ./08.bean" }), frontend).decision).toBe("allow");
@@ -238,46 +261,39 @@ describe("Sylph permissions", () => {
     });
   });
 
-  it("supports relaxed, balanced, and strict permission modes", () => {
+  it("implements all four modes", () => {
     const { parent, frontend, policy } = workspace();
     const external = path.join(parent, "notes.txt");
-
-    policy.mode = "relaxed";
-    expect(evaluateToolCall(policy, tool("read", { path: external }), frontend)).toMatchObject({ decision: "allow" });
-    expect(evaluateToolCall(policy, tool("bash", { command: "wget https://example.com" }), frontend)).toMatchObject({ decision: "allow" });
-    expect(evaluateToolCall(policy, tool("bash", { command: "rm -rf ./dist" }), frontend)).toMatchObject({ decision: "allow" });
-    expect(evaluateToolCall(policy, tool("write", { path: external }), frontend)).toMatchObject({ decision: "ask" });
-    expect(evaluateToolCall(policy, tool("bash", { command: "git push origin main" }), frontend)).toMatchObject({ decision: "ask" });
-    expect(evaluateToolCall(policy, tool("bash", { command: "git -C ./nested push origin main" }), frontend)).toMatchObject({ decision: "ask" });
-
-    policy.mode = "balanced";
-    expect(evaluateToolCall(policy, tool("read", { path: external }), frontend)).toMatchObject({ decision: "ask" });
-    expect(evaluateToolCall(policy, tool("bash", { command: "npm test" }), frontend)).toMatchObject({ decision: "allow" });
-
-    policy.mode = "strict";
-    expect(evaluateToolCall(policy, tool("write", { path: path.join(frontend, "result.txt") }), frontend)).toMatchObject({ decision: "ask" });
-    expect(evaluateToolCall(policy, tool("bash", { command: "npm test" }), frontend)).toMatchObject({ decision: "ask" });
-    expect(evaluateToolCall(policy, tool("create_schedule", { name: "Later" }), frontend)).toMatchObject({ decision: "ask" });
-    expect(evaluateToolCall(policy, tool("list_schedules", {}), frontend)).toMatchObject({ decision: "allow" });
-
-    expect(evaluateToolCall({ ...policy, mode: "relaxed" }, tool("bash", { command: "git pull" }), frontend).approvalKey)
-      .not.toBe(evaluateToolCall({ ...policy, mode: "strict" }, tool("bash", { command: "git pull" }), frontend).approvalKey);
+    for (const mode of ["read-only", "safe", "ai", "relaxed"] as const) {
+      const selected = { ...policy, mode };
+      expect(evaluateToolCall(selected, tool("read", { path: "./file.txt" }), frontend).decision).toBe("allow");
+      expect(evaluateToolCall(selected, tool("write", { path: "./file.txt" }), frontend).decision).toBe(mode === "read-only" ? "deny" : "allow");
+      expect(evaluateToolCall(selected, tool("write", { path: external }), frontend).decision).toBe(mode === "read-only" ? "deny" : mode === "relaxed" ? "allow" : "ask");
+      expect(evaluateToolCall(selected, tool("bash", { command: "cat ./file.txt" }), frontend).decision).toBe("allow");
+      expect(evaluateToolCall(selected, tool("bash", { command: "rm ./file.txt" }), frontend).decision).toBe(mode === "read-only" ? "deny" : mode === "relaxed" ? "allow" : "ask");
+      expect(evaluateToolCall(selected, tool("bash", { command: "rm -rf /" }), frontend).decision).toBe("deny");
+      expect(evaluateToolCall(selected, tool("create_schedule", { name: "Later" }), frontend).decision).toBe(mode === "read-only" ? "deny" : mode === "relaxed" ? "allow" : "ask");
+    }
+    for (const command of ["git push --force origin main", "chmod 777 ./script.sh", "sed -i.bak 's/a/b/' /tmp/file", "sudo touch /tmp/file"]) {
+      expect(evaluateToolCall({ ...policy, mode: "relaxed" }, tool("bash", { command }), frontend).decision).toBe("allow");
+    }
+    expect(evaluateToolCall({ ...policy, mode: "relaxed" }, tool("read", { path: "/tmp/.env" }), frontend).decision).toBe("allow");
   });
 
-  it("asks for network and recursive delete commands but permits curl and opaque shell commands", () => {
+  it("asks for network, destructive, and opaque shell commands", () => {
     const { frontend, policy } = workspace();
-    expect(evaluateToolCall(policy, tool("bash", { command: "curl https://example.com" }), frontend).decision).toBe("allow");
+    expect(evaluateToolCall(policy, tool("bash", { command: "curl https://example.com" }), frontend).decision).toBe("ask");
     expect(evaluateToolCall(policy, tool("bash", { command: "wget https://example.com" }), frontend).decision).toBe("ask");
     expect(evaluateToolCall(policy, tool("bash", { command: "rm ./file.txt" }), frontend).decision).toBe("ask");
     expect(evaluateToolCall(policy, tool("bash", { command: "rm -rf ./dist" }), frontend).decision).toBe("ask");
     expect(evaluateToolCall(policy, tool("bash", { command: "git pull" }), frontend).decision).toBe("ask");
-    expect(evaluateToolCall(policy, tool("bash", { command: "bash -c 'cat /tmp/x'" }), frontend).decision).toBe("allow");
-    expect(evaluateToolCall(policy, tool("bash", { command: "cat \"$FILE\"" }), frontend).decision).toBe("allow");
+    expect(evaluateToolCall(policy, tool("bash", { command: "bash -c 'cat /tmp/x'" }), frontend).decision).toBe("ask");
+    expect(evaluateToolCall(policy, tool("bash", { command: "cat \"$FILE\"" }), frontend).decision).toBe("ask");
     expect(evaluateToolCall(policy, tool("bash", { command: "cd \"$DIR\" && cat file" }), frontend).decision).toBe("ask");
     expect(evaluateToolCall(policy, tool("bash", { command: "cat `printf /tmp/secret`" }), frontend).decision).toBe("ask");
   });
 
-  it("allows trusted scratch variables and cleanup only inside the scratch root", () => {
+  it("allows scratch writes but asks before cleanup", () => {
     const { parent, frontend, policy } = workspace();
     const scratch = path.join(parent, "scratch");
     fs.mkdirSync(scratch);
@@ -285,27 +301,27 @@ describe("Sylph permissions", () => {
     policy.shellEnvironment = { TMPDIR: scratch, SYLPH_SCRATCH_DIR: scratch };
 
     expect(evaluateToolCall(policy, tool("bash", { command: "printf data > \"$TMPDIR/result.txt\"" }), frontend).decision).toBe("allow");
-    expect(evaluateToolCall(policy, tool("bash", { command: "rm -rf \"$SYLPH_SCRATCH_DIR/job\"" }), frontend).decision).toBe("allow");
+    expect(evaluateToolCall(policy, tool("bash", { command: "rm -rf \"$SYLPH_SCRATCH_DIR/job\"" }), frontend).decision).toBe("ask");
     expect(evaluateToolCall(policy, tool("bash", { command: "rm -rf \"$SYLPH_SCRATCH_DIR\"" }), frontend).decision).toBe("ask");
     expect(evaluateToolCall(policy, tool("bash", { command: "rm -rf ./dist" }), frontend).decision).toBe("ask");
-    expect(evaluateToolCall(policy, tool("bash", { command: "cat \"$UNKNOWN\"" }), frontend).decision).toBe("allow");
+    expect(evaluateToolCall(policy, tool("bash", { command: "cat \"$UNKNOWN\"" }), frontend).decision).toBe("ask");
   });
 
-  it("denies catastrophic commands and force pushes", () => {
+  it("denies catastrophic commands but asks before non-catastrophic destructive actions", () => {
     const { frontend, policy } = workspace();
     expect(evaluateToolCall(policy, tool("bash", { command: "shutdown -h now" }), frontend).decision).toBe("deny");
     expect(evaluateToolCall(policy, tool("bash", { command: "rm -rf /" }), frontend).decision).toBe("deny");
     expect(evaluateToolCall(policy, tool("bash", { command: ":(){:|:&};:" }), frontend).decision).toBe("deny");
-    expect(evaluateToolCall(policy, tool("bash", { command: "git push --force origin main" }), frontend).decision).toBe("deny");
+    expect(evaluateToolCall(policy, tool("bash", { command: "git push --force origin main" }), frontend).decision).toBe("ask");
     expect(evaluateToolCall(policy, tool("bash", { command: "dd if=/dev/zero of=/dev/disk0" }), frontend).decision).toBe("deny");
-    expect(evaluateToolCall(policy, tool("bash", { command: "chmod 777 ./script.sh" }), frontend).decision).toBe("deny");
+    expect(evaluateToolCall(policy, tool("bash", { command: "chmod 777 ./script.sh" }), frontend).decision).toBe("ask");
   });
 
-  it("allows unknown custom tools while keeping input-scoped approval keys", () => {
+  it("asks for unknown custom tools with input-scoped approval keys", () => {
     const { frontend, policy } = workspace();
     const production = evaluateToolCall(policy, tool("deploy", { target: "production" }), frontend);
     const staging = evaluateToolCall(policy, tool("deploy", { target: "staging" }), frontend);
-    expect(production.decision).toBe("allow");
+    expect(production.decision).toBe("ask");
     expect(production.approvalKey).not.toBe(staging.approvalKey);
     expect(production.approvalKey).not.toContain("production");
   });

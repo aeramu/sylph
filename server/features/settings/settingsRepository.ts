@@ -6,6 +6,7 @@ import {
 } from "./settingsTypes.ts";
 
 const DEFAULT_SETTINGS: SylphSettings = {
+  permissionReviewModel: "",
   commitMessageModel: "",
   commitMessageThinkingLevel: "off",
   commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT,
@@ -18,6 +19,7 @@ function normalizeSettings(value: unknown): SylphSettings {
     ? record.commitMessageThinkingLevel as CommitMessageThinkingLevel
     : DEFAULT_SETTINGS.commitMessageThinkingLevel;
   return {
+    permissionReviewModel: typeof record.permissionReviewModel === "string" ? record.permissionReviewModel : "",
     commitMessageModel: typeof record.commitMessageModel === "string" ? record.commitMessageModel : "",
     commitMessageThinkingLevel: thinkingLevel,
     commitMessagePrompt: typeof record.commitMessagePrompt === "string" && record.commitMessagePrompt.trim()

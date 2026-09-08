@@ -1,4 +1,5 @@
 import path from "node:path";
+import { catastrophicCommandReason } from "./catastrophicPolicy.ts";
 import { createHash } from "node:crypto";
 import { canonicalizeExistingPrefix, combineDecision, describeIntent, evaluatePath, expandHome, isWithin } from "./pathPolicy.ts";
 import { commandName, parseCommandUnits, pathLooksExplicit } from "./shellParser.ts";
@@ -90,8 +91,13 @@ function inlineScriptExemptions(name: string, args: string[]): Set<number> {
 }
 
 export function evaluateBash(policy: PermissionPolicy, command: string, cwd: string): PermissionEvaluation {
+  const catastrophic = catastrophicCommandReason(command, cwd, policy.shellEnvironment);
+  if (catastrophic || policy.mode === "relaxed") return {
+    decision: catastrophic ? "deny" : "allow", reason: catastrophic ?? "Relaxed allows non-catastrophic commands",
+    summary: `Command: ${command}`, approvalKey: `relaxed:${command}`, intents: [],
+  };
   const parsed = parseCommandUnits(command, policy.shellEnvironment);
-  const mode = policy.mode ?? "balanced";
+  const mode = policy.mode ?? "safe";
   const intents: AccessIntent[] = [];
   let effectiveCwd = cwd;
   let commandDecision: PermissionDecision = "allow";
@@ -102,6 +108,8 @@ export function evaluateBash(policy: PermissionPolicy, command: string, cwd: str
   const deny = (reason: string) => { denied = true; commandReasons.push(reason); };
 
   if (command.replace(/\s+/g, "") === ":(){:|:&};:") deny("fork bomb is denied");
+  if (mode === "read-only" && (parsed.opaque || parsed.unparseable)) deny("Read only blocks uninspectable shell execution");
+  if (parsed.opaque) ask("shell behavior cannot be fully inspected");
   if (parsed.unparseable) ask("shell command could not be safely parsed");
 
   for (const unit of parsed.units) {
@@ -113,7 +121,7 @@ export function evaluateBash(policy: PermissionPolicy, command: string, cwd: str
     if (name === "cd") {
       const target = unit.args[0] || process.env.HOME;
       if (target) {
-        const intent = evaluatePath(policy, "execute", expandHome(target), effectiveCwd);
+        const intent = evaluatePath(policy, mode === "read-only" ? "read" : "execute", expandHome(target), effectiveCwd);
         intents.push(intent);
         effectiveCwd = intent.lexicalPath || effectiveCwd;
       }
@@ -126,44 +134,33 @@ export function evaluateBash(policy: PermissionPolicy, command: string, cwd: str
       if (inReadRoot) intents.push(evaluatePath(policy, "execute", commandPath, effectiveCwd));
     }
     if (ELEVATED_COMMANDS.has(name)) ask(`elevated command ${name}`);
-    if (mode === "strict") ask(`shell command ${name} requires confirmation in Strict mode`);
+    const readCommand = !pathLooksExplicit(unit.command) && (["cat", "head", "tail", "wc", "ls", "pwd", "stat", "file", "grep", "rg", "echo", "printf"].includes(name)
+      || (name === "git" && ["status", "diff", "log", "show", "rev-parse", "ls-files"].includes(gitSubcommand(unit.args) ?? "")
+        && !unit.args.some((arg) => arg.startsWith("--output") || arg === "--ext-diff" || arg === "--textconv" || arg === "-c")));
+    if (mode === "read-only" && (unit.args.some((arg) => /^--(?:pre|pre-glob|hostname-bin)(?:=|$)/.test(arg)))) deny("Read only blocks external search helpers");
+    if (mode === "read-only" && (!readCommand || parsed.opaque)) deny("Read only blocks commands that may change files or have side effects");
+    if (!readCommand && ![...DESTRUCTIVE_COMMANDS, ...WRITE_COMMANDS, "sed"].includes(name)) ask("command requires safety review");
     if (DESTRUCTIVE_COMMANDS.has(name)) {
-      const cleanupTargets = (name === "rm" || name === "rmdir")
-        ? unit.args.filter((arg) => !arg.startsWith("-"))
-          .map((arg) => evaluatePath(policy, "delete", expandHome(arg.replace(/^file:\/\//, "")), effectiveCwd))
-        : [];
-      const scratchCleanup = cleanupTargets.length > 0 && cleanupTargets.every((intent) =>
-        intent.decision === "allow" && intent.root?.temporary && intent.canonicalPath !== intent.root.path);
-      const relaxedWorkspaceCleanup = mode === "relaxed" && (name === "rm" || name === "rmdir")
-        && cleanupTargets.length > 0 && cleanupTargets.every((intent) =>
-          intent.decision === "allow" && !!intent.root && intent.canonicalPath !== intent.root.path);
-      if (!scratchCleanup && !relaxedWorkspaceCleanup) ask(`destructive command ${name}`);
+      ask(`destructive command ${name}`);
     }
-    if (NETWORK_COMMANDS.has(name) && !(mode === "relaxed" && name === "wget")) ask(`network command ${name}`);
+    if (NETWORK_COMMANDS.has(name) || name === "curl") ask(`network command ${name}`);
     if (name === "git") {
       const subcommand = gitSubcommand(unit.args);
-      if (subcommand === "push" || (mode !== "relaxed" && ["fetch", "pull", "clone"].includes(subcommand || ""))) {
+      if (subcommand === "push" || ["fetch", "pull", "clone"].includes(subcommand || "")) {
         ask(`networked Git operation ${subcommand}`);
       }
       if (subcommand === "clean" || (subcommand === "reset" && unit.args.includes("--hard"))) ask(`destructive Git operation ${subcommand}`);
-      if (subcommand === "push" && unit.args.some((arg) => arg === "-f" || arg.startsWith("--force"))) deny("force-push is denied by default");
+      if (subcommand === "push" && unit.args.some((arg) => arg === "-f" || arg.startsWith("--force"))) ask("force-push requires review");
     }
     if (["shutdown", "reboot", "halt", "poweroff", "mkfs"].some((dangerous) => name.startsWith(dangerous))) deny(`catastrophic command ${name}`);
     if (name === "dd" && unit.args.some((arg) => /^of=\/dev\//.test(arg))) deny("raw device overwrite");
-    if ((name === "chmod" || name === "chown") && unit.args.includes("777")) deny(`${name} 777 is denied by default`);
+    if ((name === "chmod" || name === "chown") && unit.args.includes("777")) ask(`${name} 777 requires review`);
     if (name === "rm" && unit.args.some((arg) => /^-[^-]*r/.test(arg) || arg === "--recursive")) {
       const targets = unit.args.filter((arg) => !arg.startsWith("-"));
       if (targets.some((target) => ["/", "~", "$HOME", "${HOME}"].includes(target))) deny("recursive deletion of a filesystem/home root is denied");
-      else {
-        const targetIntents = targets
-          .map((target) => evaluatePath(policy, "delete", expandHome(target.replace(/^file:\/\//, "")), effectiveCwd));
-        const scratchCleanup = targetIntents.length > 0 && targetIntents.every((intent) =>
-          intent.decision === "allow" && intent.root?.temporary && intent.canonicalPath !== intent.root.path);
-        const relaxedWorkspaceCleanup = mode === "relaxed" && targetIntents.length > 0
-          && targetIntents.every((intent) => intent.decision === "allow" && !!intent.root && intent.canonicalPath !== intent.root.path);
-        if (!scratchCleanup && !relaxedWorkspaceCleanup) ask("recursive deletion");
-      }
+      else ask("recursive deletion");
     }
+
     const exemptArguments = inlineScriptExemptions(name, unit.args);
     const inPlaceEdit = name === "sed" && unit.args.some((arg, index) =>
       !exemptArguments.has(index) && (arg === "--in-place" || arg.startsWith("--in-place=") || /^-[^-]*i/.test(arg)));
@@ -181,7 +178,8 @@ export function evaluateBash(policy: PermissionPolicy, command: string, cwd: str
       // Numeric route arguments such as `/1000` are commonly passed to scripts and
       // are not filesystem paths. Keep checking the interpreter's script operand.
       if (scriptArgumentIndex >= 0 && argumentIndex > scriptArgumentIndex && /^\/\d+$/.test(arg)) continue;
-      if (!pathLooksExplicit(arg) && !(inPlaceEdit && arg && !arg.startsWith("-"))) continue;
+      const fileOperand = ["cat", "head", "tail", "wc", "ls", "stat", "file", "grep", "rg"].includes(name);
+      if (!pathLooksExplicit(arg) && !((inPlaceEdit || fileOperand) && arg && !arg.startsWith("-"))) continue;
       const expanded = expandHome(arg.replace(/^file:\/\//, ""));
       if (SAFE_DEVICES.has(expanded)) continue;
       intents.push(evaluatePath(policy, operation === "read" && SCRIPT_INTERPRETERS.has(name) ? "execute" : operation, expanded, effectiveCwd));

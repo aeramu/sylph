@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PermissionPolicy } from "../../../features/permissions/permissionPolicy.ts";
 import { createWriteToolDefinition } from "@earendil-works/pi-coding-agent";
 import { evaluateToolCall } from "../../../features/permissions/permissionPolicy.ts";
@@ -32,6 +32,44 @@ function register(policy: PermissionPolicy, options = {}) {
 }
 
 describe("Pi permission extension", () => {
+  it("reviews every AI-mode command, including statically allowed commands", async () => {
+    const { root, policy } = workspace();
+    policy.mode = "ai";
+    const review = vi.fn().mockResolvedValue({ decision: "allow", reason: "Safe inspection" });
+    const handler = register(policy, { review });
+    const event = tool("bash", { command: "cat ./file.txt" });
+    const ctx = { cwd: root, hasUI: false, ui: {} };
+    expect(await handler(event, ctx)).toBeUndefined();
+    expect(await handler(event, ctx)).toBeUndefined();
+    expect(review).toHaveBeenCalledTimes(2);
+    review.mockResolvedValue({ decision: "deny", reason: "Unsafe" });
+    expect(await handler(event, ctx)).toMatchObject({ block: true, reason: expect.stringContaining("Unsafe") });
+  });
+
+  it("asks on uncertain AI reviews and never lets AI override catastrophe rules", async () => {
+    const { root, policy } = workspace();
+    policy.mode = "ai";
+    const review = vi.fn().mockResolvedValue({ decision: "ask", reason: "Uncertain" });
+    const select = vi.fn().mockResolvedValue("Allow once");
+    const handler = register(policy, { review });
+    expect(await handler(tool("bash", { command: "npm test" }), { cwd: root, hasUI: true, ui: { select } })).toBeUndefined();
+    expect(select.mock.calls[0][1]).not.toContain("Allow matching access for this session");
+    review.mockClear().mockResolvedValue({ decision: "allow", reason: "approved" });
+    expect(await handler(tool("bash", { command: "env bash -c 'rm -rf /'" }), { cwd: root, hasUI: false, ui: {} })).toMatchObject({ block: true });
+    expect(review).not.toHaveBeenCalled();
+  });
+
+  it("does not call an AI reviewer in other modes and blocks read-only writes", async () => {
+    const { root, policy } = workspace();
+    const review = vi.fn();
+    for (const mode of ["read-only", "safe", "relaxed"] as const) {
+      const result = await register({ ...policy, mode }, { review })(tool("write", { path: "./file.txt", content: "data" }), { cwd: root, hasUI: false, ui: {} });
+      if (mode === "read-only") expect(result).toMatchObject({ block: true });
+      else expect(result).toBeUndefined();
+    }
+    expect(review).not.toHaveBeenCalled();
+  });
+
   it("checks the same normalized destination that the Pi write tool uses", async () => {
     const { root, policy } = workspace();
     const outside = path.join(path.dirname(root), "outside file.txt");
@@ -102,10 +140,10 @@ describe("Pi permission extension", () => {
     const { root, policy } = workspace();
     const nested = path.join(root, "nested");
     fs.mkdirSync(nested);
-    policy.mode = "strict";
+    policy.mode = "safe";
     policy.shellEnvironment = { TMPDIR: root };
     const approvals: string[] = [];
-    const event = tool("bash", { command: "npm test" });
+    const event = tool("bash", { command: "git pull" });
     await register(policy, { onApproval: (key: string) => approvals.push(key) })(event, {
       cwd: root, hasUI: true, ui: { select: async () => "Allow matching access for this session" },
     });

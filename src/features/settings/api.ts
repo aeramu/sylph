@@ -1,7 +1,7 @@
 import { api } from '../../lib/api';
 import type { ResourceInfo, ThinkingLevel } from '../../types';
 
-export interface AppSettings { commitMessageModel: string; commitMessageThinkingLevel: ThinkingLevel; commitMessagePrompt: string }
+export interface AppSettings { permissionReviewModel: string; commitMessageModel: string; commitMessageThinkingLevel: ThinkingLevel; commitMessagePrompt: string }
 export interface ProviderInfo {
   id: string; name: string; authType: 'api_key' | 'oauth'; configured: boolean; source?: string; label?: string; stored: boolean; storedType?: 'api_key' | 'oauth';
 }

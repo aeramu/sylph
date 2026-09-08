@@ -19,10 +19,18 @@ describe("global settings", () => {
 
   it("returns defaults when no settings have been saved", () => {
     expect(settings.getSettings()).toEqual({
+      permissionReviewModel: "",
       commitMessageModel: "",
       commitMessageThinkingLevel: "off",
       commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT,
     });
+  });
+
+  it("persists the approval model independently of commit settings", () => {
+    settings.updateSettings({ permissionReviewModel: "provider/reviewer" });
+    expect(settings.getSettings().permissionReviewModel).toBe("provider/reviewer");
+    settings.updateSettings({ commitMessageModel: "provider/commit" });
+    expect(settings.getSettings().permissionReviewModel).toBe("provider/reviewer");
   });
 
   it("persists all commit message preferences across reads", () => {
@@ -32,6 +40,7 @@ describe("global settings", () => {
       commitMessagePrompt: "Use conventional commits.\n\n{{diff}}",
     });
     expect(settings.getSettings()).toEqual({
+      permissionReviewModel: "",
       commitMessageModel: "anthropic/claude-sonnet",
       commitMessageThinkingLevel: "high",
       commitMessagePrompt: "Use conventional commits.\n\n{{diff}}",
@@ -42,6 +51,7 @@ describe("global settings", () => {
   it("migrates the original model-only settings file with defaults", () => {
     fs.writeFileSync(storeFile, JSON.stringify({ commitMessageModel: "minimax/MiniMax-M2.7" }));
     expect(settings.getSettings()).toEqual({
+      permissionReviewModel: "",
       commitMessageModel: "minimax/MiniMax-M2.7",
       commitMessageThinkingLevel: "off",
       commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT,
@@ -55,6 +65,7 @@ describe("global settings", () => {
       commitMessagePrompt: "  ",
     }));
     expect(settings.getSettings()).toEqual({
+      permissionReviewModel: "",
       commitMessageModel: "provider/model",
       commitMessageThinkingLevel: "off",
       commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT,
