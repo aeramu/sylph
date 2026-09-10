@@ -104,8 +104,12 @@ export function hasRenderableContent(m: ChatMessage): boolean {
   );
 }
 
-function messageId(message: any): string {
-  return message.clientMessageId || message.id || message.responseId || createId();
+export function messageId(message: any): string {
+  // Provider response IDs are not message identities (some proxies reuse
+  // `chatcmpl-keepalive` for every response). Pi timestamps survive snapshots
+  // and live events, allowing the in-flight message to be reconciled safely.
+  return message.clientMessageId || message.id ||
+    (typeof message.timestamp === 'number' ? `${message.role}:${message.timestamp}` : createId());
 }
 
 export function mapAgentUserMessage(message: any): ChatMessage {

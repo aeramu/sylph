@@ -80,7 +80,7 @@ describe('mapHistoryToMessages', () => {
     const messages = mapSessionSnapshotMessages({
       messages: [{ id: 'old', role: 'assistant', content: [{ type: 'text', text: 'Earlier' }] }],
       streamingMessage: {
-        responseId: 'live', role: 'assistant',
+        responseId: 'live', timestamp: 123, role: 'assistant',
         content: [{ type: 'thinking', thinking: 'Reasoning' }, { type: 'text', text: 'Partial answer' }],
       },
     });
@@ -89,7 +89,7 @@ describe('mapHistoryToMessages', () => {
     expect(messages[0]).toMatchObject({ id: 'old', content: 'Earlier' });
     expect(messages[0].isStreaming).toBeUndefined();
     expect(messages[1]).toMatchObject({
-      id: 'live', content: 'Partial answer', thinking: 'Reasoning', isStreaming: true,
+      id: 'assistant:123', content: 'Partial answer', thinking: 'Reasoning', isStreaming: true,
     });
   });
 
@@ -147,5 +147,34 @@ describe('mapHistoryToMessages', () => {
 
     expect(message.images).toEqual([{ url: 'data:image/png;base64,aGVsbG8=', mimeType: 'image/png' }]);
     expect(message.tools?.[0]).toMatchObject({ status: 'success', output: 'Read image file [image/png]' });
+  });
+});
+
+
+describe('provider response IDs are not timeline identities', () => {
+  const reply = (timestamp: number, text: string) => ({
+    role: 'assistant', responseId: 'chatcmpl-keepalive', timestamp,
+    content: [{ type: 'text', text }],
+  });
+
+  it('preserves separate replies in history even when response IDs repeat', () => {
+    const messages = mapHistoryToMessages([
+      { role: 'user', content: 'hi' }, reply(1, 'Hello'),
+      { role: 'user', content: 'Open Blender' }, reply(2, 'Checking'), reply(3, 'Not installed'),
+    ]);
+    expect(new Set(messages.map(message => message.id)).size).toBe(5);
+    expect(messages.map(message => message.content)).toEqual(['hi', 'Hello', 'Open Blender', 'Checking', 'Not installed']);
+  });
+
+  it('appends a live reply without overwriting an earlier response', () => {
+    const messages = mapSessionSnapshotMessages({ messages: [reply(1, 'Hello')], streamingMessage: reply(2, 'Checking') });
+    expect(messages.map(message => message.content)).toEqual(['Hello', 'Checking']);
+    expect(messages[1].isStreaming).toBe(true);
+  });
+
+  it('reconciles the same live message when it is already in history', () => {
+    const messages = mapSessionSnapshotMessages({ messages: [reply(1, 'Partial')], streamingMessage: reply(1, 'Complete') });
+    expect(messages).toHaveLength(1);
+    expect(messages[0].content).toBe('Complete');
   });
 });

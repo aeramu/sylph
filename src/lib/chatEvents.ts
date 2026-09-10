@@ -1,9 +1,8 @@
 import type { SetStoreFunction } from 'solid-js/store';
 import type { ChatMessage } from '../types';
 import { normalizeAssistantThinking } from './messageThinking';
-import { createId } from './id';
 import {
-  backgroundJobsFromCustomMessage, backgroundJobsFromToolDetails, mapAgentUserMessage, mapCustomMessage,
+  backgroundJobsFromCustomMessage, backgroundJobsFromToolDetails, mapAgentUserMessage, mapCustomMessage, messageId,
 } from './messages';
 
 export interface AgentEventCallbacks {
@@ -41,7 +40,7 @@ export function applyAgentEvent(
   callbacks: AgentEventCallbacks,
 ) {
   if (event.type === 'message_start') {
-    const msgId = event.message?.clientMessageId || event.message?.id || event.message?.responseId || createId();
+    const msgId = messageId(event.message ?? {});
 
     if (event.message.role === 'user') {
       const incoming = mapAgentUserMessage({ ...event.message, id: msgId });

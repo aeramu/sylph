@@ -249,3 +249,22 @@ describe('applyAgentEvent', () => {
     expect(callbacks.onTurnComplete).toHaveBeenCalledTimes(1);
   });
 });
+
+
+it('keeps live replies with a reused provider response ID separate', () => {
+  const [messages, setMessages] = createStore<ChatMessage[]>([]);
+  const callbacks = { setProcessing: vi.fn() };
+  for (const [timestamp, text] of [[1, 'Hello'], [2, 'Not installed']] as const) {
+    applyAgentEvent(messages, setMessages, {
+      type: 'message_start', message: { role: 'assistant', timestamp, responseId: 'chatcmpl-keepalive' },
+    }, callbacks);
+    applyAgentEvent(messages, setMessages, {
+      type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: text },
+    }, callbacks);
+    applyAgentEvent(messages, setMessages, {
+      type: 'message_end', message: { role: 'assistant' },
+    }, callbacks);
+  }
+  expect(messages.map(message => message.content)).toEqual(['Hello', 'Not installed']);
+  expect(new Set(messages.map(message => message.id)).size).toBe(2);
+});
