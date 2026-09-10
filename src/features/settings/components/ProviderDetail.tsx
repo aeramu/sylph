@@ -1,4 +1,4 @@
-import { createMemo, createResource, createSignal, For, Show } from 'solid-js';
+import { createMemo, createResource, createSignal, For, Show, Suspense } from 'solid-js';
 import type { JSX } from 'solid-js';
 import { getProviderModels, type ProviderInfo, type ProviderModelInfo } from '../api';
 
@@ -61,6 +61,7 @@ export default function ProviderDetail(props: {
       </section>
 
       <section class="settings-detail-panel settings-provider-models-panel">
+        <Suspense fallback={<div class="settings-detail-loading">Loading models...</div>}>
         <div class="settings-detail-panel-heading">
           <div><h3>Models</h3><p>Models registered for this provider.</p></div>
           <Show when={!models.loading}><span class="settings-detail-count">{(models() || []).length}</span></Show>
@@ -81,6 +82,7 @@ export default function ProviderDetail(props: {
             </Show>
           </Show>
         </Show>
+        </Suspense>
       </section>
 
       <section class="settings-detail-panel settings-provider-auth-panel">
