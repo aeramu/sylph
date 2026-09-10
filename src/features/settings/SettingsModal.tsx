@@ -7,9 +7,9 @@ import CustomSelect from '../../shared/ui/CustomSelect';
 import {
   createProvider as createProviderRequest, getExtension, getModels, getProviders,
   getSettings, getSkill, installExtension as installExtensionRequest, listResources,
-  logoutProvider as logoutProviderRequest, saveProviderKey, uninstallExtension as uninstallExtensionRequest,
+  logoutProvider as logoutProviderRequest, uninstallExtension as uninstallExtensionRequest,
   updateSettings,
-  type ModelsResponse, type ProviderInfo,
+  type ModelsResponse, type OAuthFlowInfo, type ProviderInfo,
 } from './api';
 import SettingsNavigation, { type SettingsSection } from './components/SettingsNavigation';
 import ProjectsSettings from './components/ProjectsSettings';
@@ -47,15 +47,63 @@ function statusText(provider: ProviderInfo) {
   return provider.configured ? 'Configured' : 'Not configured';
 }
 
+function ApiKeyLoginSteps(props: {
+  flow: OAuthFlowInfo | null;
+  input: string;
+  busy: boolean;
+  setInput: (value: string) => void;
+  respond: (value?: string, cancelled?: boolean) => Promise<void>;
+  cancel: () => Promise<void>;
+}) {
+  return <Show when={props.flow?.step} keyed>{(step) => (
+    <div class="settings-oauth-step">
+      <Show when={step.type === 'prompt' || step.type === 'manual_code'}>
+        <label class="settings-provider-label" for="api-key-login-input">{step.type === 'prompt' || step.type === 'manual_code' ? step.message : ''}</label>
+        <input
+          id="api-key-login-input"
+          class="settings-provider-input"
+          type={step.type === 'prompt' && step.secret ? 'password' : 'text'}
+          placeholder={step.type === 'prompt' ? step.placeholder || '' : ''}
+          value={props.input}
+          onInput={(event) => props.setInput(event.currentTarget.value)}
+          disabled={props.busy}
+          autofocus
+        />
+        <div class="settings-provider-actions">
+          <button class="settings-provider-button primary" disabled={props.busy || (!props.input.trim() && !(step.type === 'prompt' && step.allowEmpty))} onClick={() => props.respond(props.input)}>Continue</button>
+          <button class="settings-provider-button" disabled={props.busy} onClick={props.cancel}>Cancel</button>
+        </div>
+      </Show>
+      <Show when={step.type === 'select'}>
+        <p>{step.type === 'select' ? step.message : ''}</p>
+        <div class="settings-provider-actions">
+          <For each={step.type === 'select' ? step.options : []}>{(option) =>
+            <button class="settings-provider-button primary" disabled={props.busy} onClick={() => props.respond(option.id)}>{option.label}</button>
+          }</For>
+          <button class="settings-provider-button" disabled={props.busy} onClick={() => props.respond(undefined, true)}>Cancel</button>
+        </div>
+      </Show>
+      <Show when={step.type === 'waiting'}>
+        <p>{step.type === 'waiting' ? step.message : 'Waiting...'}</p>
+        <button class="settings-provider-button" disabled={props.busy} onClick={props.cancel}>Cancel</button>
+      </Show>
+      <Show when={step.progress.length > 0}>
+        <div class="settings-oauth-progress"><For each={step.progress}>{(line) => <div>{line}</div>}</For></div>
+      </Show>
+    </div>
+  )}</Show>;
+}
+
 export default function SettingsModal(props: {
   onClose: () => void;
   onProjectsChanged?: (deletedProjectId?: string) => void;
+  initialProvider?: string;
 }) {
-  const [activeSection, setActiveSection] = createSignal<SettingsSection>('projects');
-  const [mobileMenuOpen, setMobileMenuOpen] = createSignal(true);
+  const [activeSection, setActiveSection] = createSignal<SettingsSection>(props.initialProvider ? 'provider' : 'projects');
+  const [mobileMenuOpen, setMobileMenuOpen] = createSignal(!props.initialProvider);
   const [selectedSkill, setSelectedSkill] = createSignal<string | null>(null);
   const [selectedExtension, setSelectedExtension] = createSignal<string | null>(null);
-  const [selectedProvider, setSelectedProvider] = createSignal<string | null>(null);
+  const [selectedProvider, setSelectedProvider] = createSignal<string | null>(props.initialProvider || null);
   const [creatingProvider, setCreatingProvider] = createSignal(false);
   const [newProviderId, setNewProviderId] = createSignal('');
   const [newProviderName, setNewProviderName] = createSignal('');
@@ -63,7 +111,6 @@ export default function SettingsModal(props: {
   const [newProviderModelId, setNewProviderModelId] = createSignal('');
   const [newProviderModelName, setNewProviderModelName] = createSignal('');
   const [newProviderApiKey, setNewProviderApiKey] = createSignal('');
-  const [apiKey, setApiKey] = createSignal('');
   const [providerMessage, setProviderMessage] = createSignal<string | null>(null);
   const [providerBusy, setProviderBusy] = createSignal(false);
   const [commitMessageModel, setCommitMessageModel] = createSignal('');
@@ -176,6 +223,13 @@ export default function SettingsModal(props: {
     onProvidersChanged: async () => { await refetchProviders(); },
   });
   const { flow: oauthFlow, input: oauthInput, setInput: setOauthInput, busy: oauthBusy, start: startOAuthLogin, respond: respondOAuth, cancel: cancelOAuth, abandon: abandonOAuthFlow } = oauth;
+  let pendingInitialLogin = props.initialProvider;
+  createEffect(() => {
+    const provider = selectedProviderInfo();
+    if (!pendingInitialLogin || provider?.id !== pendingInitialLogin) return;
+    pendingInitialLogin = undefined;
+    void startOAuthLogin(provider.authType);
+  });
 
   const switchSection = (section: SettingsSection) => {
     setActiveSection(section);
@@ -188,7 +242,6 @@ export default function SettingsModal(props: {
     setSettingsMessage(null);
     setExtensionMessage(null);
     abandonOAuthFlow();
-    setApiKey('');
     setMobileMenuOpen(false);
   };
 
@@ -215,23 +268,6 @@ export default function SettingsModal(props: {
       setCreatingProvider(false);
       setSelectedProvider(created);
       setProviderMessage('Provider created in Pi models.json.');
-      await refetchProviders();
-    } catch (err) {
-      setProviderMessage(err instanceof Error ? err.message : String(err));
-    } finally {
-      setProviderBusy(false);
-    }
-  };
-
-  const saveApiKey = async () => {
-    const provider = selectedProviderInfo();
-    if (!provider || !apiKey().trim()) return;
-    setProviderBusy(true);
-    setProviderMessage(null);
-    try {
-      await saveProviderKey(provider.id, apiKey());
-      setApiKey('');
-      setProviderMessage('API key saved. Models from this provider are now available.');
       await refetchProviders();
     } catch (err) {
       setProviderMessage(err instanceof Error ? err.message : String(err));
@@ -314,7 +350,7 @@ export default function SettingsModal(props: {
                 <button class="settings-back-button settings-menu-back" onClick={() => setMobileMenuOpen(true)}>← Settings</button>
               </Show>
               <Show when={activeSection() === 'provider' && (selectedProvider() || creatingProvider())}>
-                <button class="settings-back-button" onClick={() => { setSelectedProvider(null); setCreatingProvider(false); setProviderMessage(null); abandonOAuthFlow(); setApiKey(''); resetCreateProviderForm(); }}>← Provider</button>
+                <button class="settings-back-button" onClick={() => { setSelectedProvider(null); setCreatingProvider(false); setProviderMessage(null); abandonOAuthFlow(); resetCreateProviderForm(); }}>← Provider</button>
               </Show>
               <Show when={activeSection() === 'skills' && selectedSkill()}>
                 <button class="settings-back-button" onClick={() => setSelectedSkill(null)}>← Skills</button>
@@ -340,7 +376,7 @@ export default function SettingsModal(props: {
                       <Show when={provider.authType === 'api_key'} fallback={
                         <div class="settings-provider-auth-content">
                           <div class="settings-provider-actions">
-                            <button class="settings-provider-button primary" disabled={providerOperationBusy() || oauthFlow()?.status === 'pending'} onClick={startOAuthLogin}>Login with OAuth</button>
+                            <button class="settings-provider-button primary" disabled={providerOperationBusy() || oauthFlow()?.status === 'pending'} onClick={() => startOAuthLogin('oauth')}>Login with OAuth</button>
                             <Show when={provider.stored}>
                               <button class="settings-provider-button" disabled={providerOperationBusy()} onClick={logoutProvider}>Remove stored credentials</button>
                             </Show>
@@ -392,7 +428,7 @@ export default function SettingsModal(props: {
                                   <input
                                     id="oauth-input"
                                     class="settings-provider-input"
-                                    type="text"
+                                    type={step.type === 'prompt' && step.secret ? 'password' : 'text'}
                                     placeholder={step.type === 'prompt' ? step.placeholder || '' : ''}
                                     value={oauthInput()}
                                     onInput={(e) => setOauthInput(e.currentTarget.value)}
@@ -430,22 +466,20 @@ export default function SettingsModal(props: {
                         </div>
                       }>
                         <div class="settings-provider-auth-content">
-                          <label class="settings-provider-label" for="provider-api-key">API key</label>
-                          <input
-                            id="provider-api-key"
-                            class="settings-provider-input"
-                            type="password"
-                            placeholder={`Paste ${provider.name} API key`}
-                            value={apiKey()}
-                            onInput={(e) => setApiKey(e.currentTarget.value)}
-                            disabled={providerOperationBusy()}
-                          />
                           <div class="settings-provider-actions">
-                            <button class="settings-provider-button primary" disabled={providerOperationBusy() || !apiKey().trim()} onClick={saveApiKey}>Save API key</button>
+                            <button class="settings-provider-button primary" disabled={providerOperationBusy() || oauthFlow()?.status === 'pending'} onClick={() => startOAuthLogin('api_key')}>Login</button>
                             <Show when={provider.stored}>
                               <button class="settings-provider-button" disabled={providerOperationBusy()} onClick={logoutProvider}>Remove stored credentials</button>
                             </Show>
                           </div>
+                          <ApiKeyLoginSteps
+                            flow={oauthFlow()}
+                            input={oauthInput()}
+                            busy={providerOperationBusy()}
+                            setInput={setOauthInput}
+                            respond={respondOAuth}
+                            cancel={cancelOAuth}
+                          />
                         </div>
                       </Show>
 

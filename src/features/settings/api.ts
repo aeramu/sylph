@@ -13,7 +13,7 @@ export interface ProviderModelInfo {
 export type OAuthStep =
   | { type: 'auth_url'; url: string; instructions?: string; progress: string[] }
   | { type: 'device_code'; userCode: string; verificationUri: string; intervalSeconds?: number; expiresInSeconds?: number; progress: string[] }
-  | { type: 'prompt'; message: string; placeholder?: string; allowEmpty?: boolean; progress: string[] }
+  | { type: 'prompt'; message: string; placeholder?: string; allowEmpty?: boolean; secret?: boolean; progress: string[] }
   | { type: 'manual_code'; message: string; progress: string[] }
   | { type: 'select'; message: string; options: Array<{ id: string; label: string }>; progress: string[] }
   | { type: 'waiting'; message: string; progress: string[] };
@@ -51,6 +51,7 @@ export const createProvider = (body: unknown) => api<{ provider?: string }>('/ap
 export const saveProviderKey = (id: string, apiKey: string) => api(`/api/auth/${encodeURIComponent(id)}/api-key`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiKey }) });
 export const logoutProvider = (id: string) => api(`/api/auth/${encodeURIComponent(id)}/logout`, { method: 'POST' });
 export const startOAuth = (id: string) => api<{ id: string }>(`/api/auth/${encodeURIComponent(id)}/oauth/start`, { method: 'POST' });
+export const startApiKeyLogin = (id: string) => api<{ id: string }>(`/api/auth/${encodeURIComponent(id)}/api-key/start`, { method: 'POST' });
 export const getOAuthFlow = <T>(id: string) => api<T>(`/api/auth/oauth/flows/${encodeURIComponent(id)}`);
 export const respondOAuthFlow = (id: string, value?: string, cancelled = false) => api(`/api/auth/oauth/flows/${encodeURIComponent(id)}/respond`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value, cancelled }) });
 export const cancelOAuthFlow = (id: string) => api(`/api/auth/oauth/flows/${encodeURIComponent(id)}/cancel`, { method: 'POST' });

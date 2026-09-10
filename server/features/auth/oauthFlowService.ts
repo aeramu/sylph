@@ -13,7 +13,7 @@ import { getIntrospectionRuntime } from "../../integrations/pi/runtime/runtimeMa
 type OAuthFlowStep =
   | { type: "auth_url"; url: string; instructions?: string; progress: string[] }
   | { type: "device_code"; userCode: string; verificationUri: string; intervalSeconds?: number; expiresInSeconds?: number; progress: string[] }
-  | { type: "prompt"; message: string; placeholder?: string; allowEmpty?: boolean; progress: string[] }
+  | { type: "prompt"; message: string; placeholder?: string; allowEmpty?: boolean; secret?: boolean; progress: string[] }
   | { type: "manual_code"; message: string; progress: string[] }
   | { type: "select"; message: string; options: Array<{ id: string; label: string }>; progress: string[] }
   | { type: "waiting"; message: string; progress: string[] };
@@ -99,17 +99,21 @@ function createOAuthInputPromise(flow: OAuthFlow, signal?: AbortSignal) {
   });
 }
 
-// Begin an OAuth login. Returns the flow id the client will poll, or an error
-// if the provider doesn't support OAuth. The login itself proceeds in the
-// background, advancing the flow's step as pi's callbacks fire.
-export async function startOAuthLogin(provider: string): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
-  // Ensure extension-registered providers are loaded before we check OAuth
-  // support (extensions register providers during runtime creation).
+type LoginMethod = "oauth" | "api_key";
+
+// Begin an interactive provider login. Both OAuth and API-key providers may
+// ask multiple questions (for example OmniRoute asks for its base URL before
+// the key), so they share the same browser-polled flow rather than assuming
+// that API-key login consists of one secret field.
+async function startProviderLogin(provider: string, method: LoginMethod): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const runtime = await getIntrospectionRuntime();
   const modelRuntime = runtime.session.modelRuntime;
   await modelRuntime.refresh({ allowNetwork: false });
-  if (!modelRuntime.getProvider(provider)?.auth?.oauth) {
-    return { ok: false, error: `Provider ${provider} does not support OAuth` };
+  const auth = modelRuntime.getProvider(provider)?.auth;
+  const supported = method === "oauth" ? auth?.oauth : auth?.apiKey;
+  if (!supported) {
+    const label = method === "oauth" ? "OAuth" : "API-key login";
+    return { ok: false, error: `Provider ${provider} does not support ${label}` };
   }
 
   const id = randomUUID();
@@ -124,7 +128,7 @@ export async function startOAuthLogin(provider: string): Promise<{ ok: true; id:
   oauthFlows.set(id, flow);
   setTimeout(() => expireOAuthFlowIfAbandoned(flow), OAUTH_FLOW_PENDING_TIMEOUT_MS).unref();
 
-  void modelRuntime.login(provider, "oauth", {
+  void modelRuntime.login(provider, method, {
     signal: flow.abortController.signal,
     notify(event: any) {
       if (event.type === "auth_url") {
@@ -160,7 +164,10 @@ export async function startOAuthLogin(provider: string): Promise<{ ok: true; id:
           type: "prompt",
           message: prompt.message,
           placeholder: prompt.placeholder,
-          allowEmpty: false,
+          // API-key providers own validation; some intentionally allow an
+          // empty secret for public/local gateways such as OmniRoute.
+          allowEmpty: method === "api_key",
+          secret: prompt.type === "secret",
         });
       }
       const value = await createOAuthInputPromise(flow, prompt.signal);
@@ -180,6 +187,14 @@ export async function startOAuthLogin(provider: string): Promise<{ ok: true; id:
   });
 
   return { ok: true, id };
+}
+
+export function startOAuthLogin(provider: string) {
+  return startProviderLogin(provider, "oauth");
+}
+
+export function startApiKeyLogin(provider: string) {
+  return startProviderLogin(provider, "api_key");
 }
 
 export type OAuthRespondResult =

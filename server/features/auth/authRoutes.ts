@@ -1,7 +1,7 @@
 import express from "express";
 import { asyncRoute } from "../../platform/http/routeError.ts";
 import { createProvider, listProviderModels, listProviders, logoutProvider, saveProviderApiKey } from "./authService.ts";
-import { cancelOAuthFlow, getSerializedOAuthFlow, respondToOAuthFlow, startOAuthLogin } from "./oauthFlowService.ts";
+import { cancelOAuthFlow, getSerializedOAuthFlow, respondToOAuthFlow, startApiKeyLogin, startOAuthLogin } from "./oauthFlowService.ts";
 
 export function registerAuthRoutes(router: express.Router): void {
   router.get("/api/auth/providers", asyncRoute(async (_req, res) => res.json({ providers: await listProviders() })));
@@ -9,6 +9,11 @@ export function registerAuthRoutes(router: express.Router): void {
   router.post("/api/auth/:provider/api-key", asyncRoute(async (req, res) => {
     await saveProviderApiKey(String(req.params.provider), req.body?.apiKey);
     res.json({ ok: true });
+  }));
+  router.post("/api/auth/:provider/api-key/start", asyncRoute(async (req, res) => {
+    const result = await startApiKeyLogin(String(req.params.provider));
+    if (!result.ok) return res.status(400).json({ error: result.error });
+    res.json({ id: result.id });
   }));
   router.post("/api/auth/providers", asyncRoute(async (req, res) => {
     const provider = await createProvider(req.body ?? {});

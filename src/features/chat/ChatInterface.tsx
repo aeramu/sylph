@@ -37,7 +37,7 @@ import { ChatHistoryController } from './createChatHistory';
 import { addReviewComment, formatReviewComments, getReviewComments, removeReviewComments } from '../../lib/reviewComments';
 import { notificationForSessionEvent, showBrowserNotification } from '../../lib/browserNotifications';
 
-export default function ChatInterface(props: { activeSessionId?: string, activeProjectId?: string, onSelectProject?: (id?: string) => void, newSessionRequest?: { id: number; standalonePath?: string }, onSessionCreated: (id: string, projectId?: string, firstMessage?: string, meta?: { workspaceKind?: 'directories' | 'scratch'; directoryId?: string; branch?: string; worktree?: boolean }) => void, onTurnComplete?: () => void, onSessionRemoved?: (id: string) => void, projectRefreshTrigger?: number }) {
+export default function ChatInterface(props: { activeSessionId?: string, activeProjectId?: string, onSelectProject?: (id?: string) => void, onLogin: (provider?: string) => void, newSessionRequest?: { id: number; standalonePath?: string }, onSessionCreated: (id: string, projectId?: string, firstMessage?: string, meta?: { workspaceKind?: 'directories' | 'scratch'; directoryId?: string; branch?: string; worktree?: boolean }) => void, onTurnComplete?: () => void, onSessionRemoved?: (id: string) => void, projectRefreshTrigger?: number }) {
   const [messages, setMessages] = createStore<ChatMessage[]>([]);
   const chatSession = createChatSession({ sessionId: () => props.activeSessionId, projectId: () => props.activeProjectId, messages });
   const { setNewSessionProcessing, isProcessing, draftKey: chatDraftKey, title: defaultSessionTitle } = chatSession;
@@ -864,7 +864,7 @@ export default function ChatInterface(props: { activeSessionId?: string, activeP
                 setReviewComments(removeReviewComments(sessionId, comments.map((comment) => comment.id)));
               }
             }}
-            onStop={handleStop} api={(api) => { composerApi = api; }}
+            onStop={handleStop} onLogin={props.onLogin} api={(api) => { composerApi = api; }}
           />
         </ExtensionUiHost>
       </div>

@@ -1,5 +1,6 @@
 import { createSignal, onCleanup, type Accessor } from 'solid-js';
-import { cancelOAuthFlow, getOAuthFlow, respondOAuthFlow, startOAuth, type OAuthFlowInfo, type ProviderInfo } from './api';
+import { createStore, reconcile } from 'solid-js/store';
+import { cancelOAuthFlow, getOAuthFlow, respondOAuthFlow, startApiKeyLogin, startOAuth, type OAuthFlowInfo, type ProviderInfo } from './api';
 
 export function createOAuthFlow(options: {
   provider: Accessor<ProviderInfo | null>;
@@ -7,7 +8,12 @@ export function createOAuthFlow(options: {
   onProvidersChanged: () => Promise<unknown>;
   openUrl?: (url: string) => Window | null;
 }) {
-  const [flow, setFlow] = createSignal<OAuthFlowInfo | null>(null);
+  // Poll responses are fresh JSON objects. Reconcile them in place so keyed
+  // prompt views retain their DOM nodes (and focus/selection) across polls,
+  // including polls that update progress while the user is typing.
+  const [state, setState] = createStore<{ flow: OAuthFlowInfo | null }>({ flow: null });
+  const flow = () => state.flow;
+  const setFlow = (next: OAuthFlowInfo | null) => setState('flow', reconcile(next));
   const [input, setInput] = createSignal('');
   const [busy, setBusy] = createSignal(false);
   let pollTimer: ReturnType<typeof setInterval> | undefined;
@@ -23,17 +29,17 @@ export function createOAuthFlow(options: {
       if (!opened) options.onMessage('Popup blocked — use the Open browser button below.');
     }
     if (next.status === 'success') {
-      stopPolling(); options.onMessage('OAuth login complete. Models from this provider are now available.'); await options.onProvidersChanged();
+      stopPolling(); options.onMessage('Login complete. Models from this provider are now available.'); await options.onProvidersChanged();
     } else if (next.status === 'error' || next.status === 'cancelled') {
-      stopPolling(); options.onMessage(next.error || `OAuth login ${next.status}.`);
+      stopPolling(); options.onMessage(next.error || `Login ${next.status}.`);
     }
   };
-  const start = async () => {
+  const start = async (authType: 'oauth' | 'api_key' = 'oauth') => {
     const provider = options.provider();
     if (!provider) return;
     setBusy(true); options.onMessage(null); setFlow(null); setInput(''); stopPolling(); autoOpenedUrl = undefined;
     try {
-      const started = await startOAuth(provider.id);
+      const started = await (authType === 'oauth' ? startOAuth(provider.id) : startApiKeyLogin(provider.id));
       await poll(started.id);
       pollTimer = setInterval(() => void poll(started.id).catch((error) => { stopPolling(); options.onMessage(error instanceof Error ? error.message : String(error)); }), 1000);
     } catch (error) { options.onMessage(error instanceof Error ? error.message : String(error)); }
@@ -49,7 +55,7 @@ export function createOAuthFlow(options: {
   const cancel = async () => {
     const current = flow(); if (!current) return;
     setBusy(true);
-    try { await cancelOAuthFlow(current.id); stopPolling(); setFlow(null); options.onMessage('OAuth login cancelled.'); }
+    try { await cancelOAuthFlow(current.id); stopPolling(); setFlow(null); options.onMessage('Login cancelled.'); }
     finally { setBusy(false); }
   };
   const abandon = () => {

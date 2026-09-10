@@ -166,6 +166,42 @@ describe('Composer', () => {
     expect(selected).toBe('read-only');
   });
 
+  it('handles /login with a provider locally', async () => {
+    let loginProvider: string | undefined;
+    let submitted = false;
+    mount(() => (
+      <Composer
+        isConnected
+        isProcessing={false}
+        disabled={false}
+        commands={[]}
+        draftKey="login-test"
+        draftText=""
+        onDraftChange={() => {}}
+        models={[]}
+        selectedModel=""
+        onSelectModel={() => {}}
+        thinkingLevels={[]}
+        selectedThinkingLevel="off"
+        onSelectThinkingLevel={() => {}}
+        permissionMode="safe"
+        onSelectPermissionMode={() => {}}
+        reviewComments={[]}
+        onRemoveReviewComment={() => {}}
+        onSubmit={() => { submitted = true; }}
+        onStop={() => {}}
+        onLogin={(provider) => { loginProvider = provider; }}
+      />
+    ));
+
+    const textarea = document.querySelector('.input-field') as HTMLTextAreaElement;
+    await userEvent.fill(textarea, '/login omniroute');
+    await userEvent.type(textarea, '{Enter}');
+    expect(loginProvider).toBe('omniroute');
+    expect(submitted).toBe(false);
+    expect(textarea.value).toBe('');
+  });
+
   it('keeps the textarea as the only visible text renderer when highlighting mentions', async () => {
     mount(() => (
       <Composer

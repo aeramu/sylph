@@ -21,6 +21,7 @@ function App() {
   // fetched session list includes them — see DraftSession.
   const [draftSessions, setDraftSessions] = createSignal<DraftSession[]>([]);
   const [showSettings, setShowSettings] = createSignal(false);
+  const [settingsProvider, setSettingsProvider] = createSignal<string>();
   const [showSchedules, setShowSchedules] = createSignal(false);
   // Mobile: sidebarOpen controls the off-canvas drawer.
   // Desktop: sidebarCollapsed removes the sidebar column from the layout.
@@ -146,6 +147,7 @@ function App() {
           setSidebarOpen(false);
         }}
         onOpenSettings={() => {
+          setSettingsProvider(undefined);
           setShowSettings(true);
           setSidebarOpen(false);
         }}
@@ -160,7 +162,8 @@ function App() {
       <Show when={showSettings()}>
         <Suspense>
           <SettingsModal
-            onClose={() => setShowSettings(false)}
+            initialProvider={settingsProvider()}
+            onClose={() => { setShowSettings(false); setSettingsProvider(undefined); }}
             onProjectsChanged={(deletedProjectId) => {
               if (deletedProjectId && activeProjectId() === deletedProjectId) setActiveProjectId(undefined);
               setProjectRefresh((value) => value + 1);
@@ -172,6 +175,7 @@ function App() {
         activeSessionId={activeSessionId()}
         activeProjectId={activeProjectId()}
         onSelectProject={setActiveProjectId}
+        onLogin={(provider) => { setSettingsProvider(provider); setShowSettings(true); }}
         newSessionRequest={newSessionRequest()}
         projectRefreshTrigger={projectRefresh()}
         onSessionCreated={(newId, newProjectId, firstMessage, sessionMeta) => {

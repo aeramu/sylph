@@ -16,7 +16,7 @@ import './Composer.css';
 
 // Built-in slash commands handled locally by the composer (they run a UI
 // action instead of being sent to the agent). Their `run` is filled in below.
-interface BuiltinCommand extends CommandInfo { builtin: true; run: () => void }
+interface BuiltinCommand extends CommandInfo { builtin: true; acceptsArguments?: boolean; run: (args?: string) => void }
 
 // Imperative surface the extension UI bridge needs (setEditorText / pasteToEditor).
 export interface ComposerApi {
@@ -50,6 +50,7 @@ export default function Composer(props: {
   onRemoveReviewComment: (id: string) => void;
   onSubmit: (text: string, attachments: Attachment[], reviewComments: ReviewCommentAttachment[]) => void;
   onStop: () => void;
+  onLogin?: (provider?: string) => void;
   api?: (api: ComposerApi) => void;
 }) {
   const [input, setInput] = createSignal(props.draftText);
@@ -121,6 +122,14 @@ export default function Composer(props: {
       description: 'Set the thinking level',
       builtin: true,
       run: () => setIsThinkingSliderOpen(true),
+    },
+    {
+      name: 'login',
+      source: 'built-in',
+      description: 'Log in to a model provider',
+      builtin: true,
+      acceptsArguments: true,
+      run: (provider) => props.onLogin?.(provider?.trim() || undefined),
     },
   ];
   const isBuiltin = (cmd: CommandInfo): cmd is BuiltinCommand => (cmd as BuiltinCommand).builtin === true;
@@ -284,7 +293,7 @@ export default function Composer(props: {
   const applyCommand = (cmd: CommandInfo) => {
     // Built-in commands run a local UI action and clear the input rather than
     // completing the text or being sent to the agent.
-    if (isBuiltin(cmd)) {
+    if (isBuiltin(cmd) && !cmd.acceptsArguments) {
       updateInput('');
       setSelectedIndex(0);
       cmd.run();
@@ -335,12 +344,12 @@ export default function Composer(props: {
   const handleSubmit = (e?: Event) => {
     e?.preventDefault();
     if (isListening() || isStartingVoice()) cancelVoiceInput();
-    // Intercept a bare built-in command (e.g. "/model") so it runs its action
-    // instead of being sent to the agent.
-    const builtin = builtinCommands.find(c => `/${c.name}` === input().trim());
-    if (builtin) {
+    // Intercept built-in commands locally instead of sending them to the agent.
+    const commandMatch = input().trim().match(/^\/(\S+)(?:\s+(.*))?$/);
+    const builtin = commandMatch && builtinCommands.find(c => c.name === commandMatch[1]);
+    if (builtin && (!commandMatch[2] || builtin.acceptsArguments)) {
       updateInput('');
-      builtin.run();
+      builtin.run(commandMatch[2]);
       return;
     }
     if (!input().trim() && attachments().length === 0 && props.reviewComments.length === 0) return;
